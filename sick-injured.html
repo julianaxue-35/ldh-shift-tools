@@ -34,6 +34,9 @@ button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
 .wrap{max-width:900px;margin:0 auto;padding:0 16px 100px}
 header.top{position:sticky;top:0;z-index:50;background:var(--teal);padding:12px 16px;margin-bottom:18px}
+.back-nav{background:var(--teal-dark);padding:8px 16px}
+.back-nav a{color:#fff;font-size:12.5px;text-decoration:none;font-weight:600}
+.back-nav a:hover{text-decoration:underline}
 .top-in{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#fff}
 .top-in h1{font-size:17px;font-weight:600}
 .top-in .meta{font-size:12px;color:rgba(255,255,255,.8)}
@@ -92,6 +95,12 @@ select.plain, input.plain{border:1px solid var(--line);border-radius:6px;padding
 .tabbar button.on{color:#fff;border-color:#fff}
 .tabbar button .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#fff;margin-left:4px;vertical-align:middle}
 .tab-panel.hidden{display:none}
+.room-group{margin-bottom:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.room-group-hdr{background:var(--teal-soft);color:var(--teal-dark);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+.room-group-count{background:rgba(255,255,255,.6);color:var(--teal-dark);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px}
+.room-group-body{padding:10px 10px 2px;background:var(--card)}
+.room-group-body .animal-card{margin-bottom:8px}
+.room-group-body .animal-card:last-child{margin-bottom:0}
 
 /* ---------- mobile (phone/tablet touch) ---------- */
 @media (max-width:600px){
@@ -151,6 +160,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 })();
 </script>
 
+<div class="back-nav"><a href="index.html">&larr; Shift Tools</a></div>
 <header class="top">
   <div class="top-in">
     <div>
@@ -165,6 +175,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   </div>
   <div class="tabbar" id="mainTabbar">
     <button type="button" class="on" data-tab="shift">Shift List</button>
+    <button type="button" data-tab="completed">Completed</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
   </div>
@@ -195,17 +206,20 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">Today's list (<span id="shiftCount">0</span>)</h2>
+      <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
       <button class="btn rust small" id="clearListBtn">Clear list</button>
     </div>
     <div id="animalList"></div>
-    <div id="completedWrap" class="hidden" style="margin-top:18px;border-top:1px solid var(--line);padding-top:12px">
-      <button class="btn secondary small" id="toggleCompletedBtn">Show completed</button>
-      <span style="font-size:12px;color:var(--ink-soft)">(<span id="completedCount">0</span> registered to Word &amp; Excel)</span>
-      <div id="completedList" class="hidden" style="margin-top:10px"></div>
-    </div>
   </div>
 
+</div>
+
+<div class="wrap tab-panel hidden" id="tabCompleted">
+  <div class="card" id="completedCard">
+    <h2>Registered to Word &amp; Excel (<span id="completedTabCount">0</span>)</h2>
+    <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
+    <div id="completedTabList"></div>
+  </div>
 </div>
 
 <div class="wrap tab-panel hidden" id="tabExam">
@@ -344,6 +358,13 @@ function shelterDateStr(){
 }
 function esc(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
+function matchSexCode(v){
+  const t = (v==null ? '' : String(v)).trim().toLowerCase();
+  if(/^f(emale)?$/.test(t)) return 'F';
+  if(/^m(ale)?$/.test(t)) return 'M';
+  if(/^u(nknown)?$/.test(t)) return 'U';
+  return '';
+}
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -489,6 +510,7 @@ function addOrMergeFromRecheck(r){
   if(!existing){ state.animals.push(makeAnimal(r)); return; }
   if(!existing.location && r.location) existing.location = r.location;
   if(!existing.weight && r.weight) existing.weight = r.weight;
+  if(!existing.sex && r.sex) existing.sex = r.sex;
   const sections = parseNoteSections(r.noteText || '');
   if(sections.reasonHistory){
     const label = `Recheck history (from last consult${sections.date ? ', '+sections.date : ''}):\n${sections.reasonHistory}`;
@@ -516,7 +538,7 @@ function addOrMergeFromFlag(r){
   const label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
   const existing = findExistingAnimal(r.animalId);
   if(!existing){
-    const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
+    const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', sex:r.sex, noteText:'', otherReminders:[]});
     a.history = label;
     a.flagged = true;
     if(r.problem){
@@ -527,6 +549,7 @@ function addOrMergeFromFlag(r){
     return;
   }
   if(!existing.location && r.location) existing.location = r.location;
+  if(!existing.sex && r.sex) existing.sex = r.sex;
   if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
     existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
   }
@@ -557,6 +580,7 @@ function parseVetReminderReport(aoa){
   }
   if(headerRowIdx===-1 || colMap['animal id']==null) return [];
   const idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'];
+  const sexIdx = colMap['sex'];
   const byId = {};
   for(let i=headerRowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
@@ -564,9 +588,10 @@ function parseVetReminderReport(aoa){
     if(idVal==null || idVal==='') continue;
     const idStr = String(idVal);
     const noteText = (noteIdx!=null && row[noteIdx]!=null) ? String(row[noteIdx]) : '';
-    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', notes:[]};
+    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', sex:'', notes:[]};
     if(!byId[idStr].location && locIdx!=null && row[locIdx]) byId[idStr].location = normaliseRoomToken(row[locIdx]);
     if(!byId[idStr].weight && wIdx!=null && row[wIdx]) byId[idStr].weight = String(row[wIdx]);
+    if(!byId[idStr].sex && sexIdx!=null && row[sexIdx]!=null) byId[idStr].sex = matchSexCode(row[sexIdx]);
     if(noteText && !byId[idStr].notes.includes(noteText)) byId[idStr].notes.push(noteText);
   }
   const results = [];
@@ -575,7 +600,7 @@ function parseVetReminderReport(aoa){
     if(primaryIdx===-1) primaryIdx = 0;
     const primary = rec.notes[primaryIdx] || '';
     const others = rec.notes.filter((t,i)=>i!==primaryIdx);
-    results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, noteText:primary, otherReminders:others});
+    results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, sex:rec.sex, noteText:primary, otherReminders:others});
   });
   return results;
 }
@@ -586,18 +611,19 @@ function renderParsedTable(rows){
     wrap.innerHTML = '<p class="warn">No animals detected — check this is a Vet Reminder Report export, or add the animal manually.</p>';
     return;
   }
-  let html = '<div class="warn">Check ID / Location / Weight before adding — parsed automatically from the report.</div>';
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th></tr>';
+  let html = '<div class="warn">Check ID / Location / Weight / Sex before adding — parsed automatically from the report.</div>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Weight"><input data-i="${i}" data-f="weight" value="${esc(r.weight)}"></td>
+      <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
   html += '</table><div class="row-actions"><button class="btn" id="confirmAddBtn">Add these to the shift</button></div>';
   wrap.innerHTML = html;
-  wrap.querySelectorAll('input').forEach(el=>{
+  wrap.querySelectorAll('input,select').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
   document.getElementById('confirmAddBtn').addEventListener('click', ()=>{
@@ -610,7 +636,7 @@ function renderParsedTable(rows){
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
-  const r = {animalId:'', location:'', weight:'', noteText:'', otherReminders:[]};
+  const r = {animalId:'', location:'', weight:'', sex:'', noteText:'', otherReminders:[]};
   state.animals.push(makeAnimal(r));
   saveShift();
   renderShiftList();
@@ -619,28 +645,47 @@ document.getElementById('manualAddBtn').addEventListener('click', ()=>{
 /* ---------- AA Flag Log import (Location / SM Number / Presenting Problem) ----------
    Header wording isn't fixed to one exact export, so match column headers by
    pattern rather than exact text. */
-function findHeaderRowFuzzy(aoa, patterns){
+/* Only the first `requiredCount` patterns must match (default: all) — later
+   patterns (e.g. an optional Sex column not every export has) are best-effort
+   and come back as -1 when absent, rather than failing the whole match. */
+function findHeaderRowFuzzy(aoa, patterns, requiredCount){
+  const need = requiredCount==null ? patterns.length : requiredCount;
   for(let i=0;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
     const normed = row.map(c=>normHeader(c));
     const idxs = patterns.map(re => normed.findIndex(h=>re.test(h)));
-    if(idxs.every(idx=>idx!==-1)) return {rowIdx:i, idxs};
+    if(idxs.slice(0, need).every(idx=>idx!==-1)) return {rowIdx:i, idxs};
   }
   return null;
 }
 function parseAaFlagLog(aoa){
-  const found = findHeaderRowFuzzy(aoa, [/location/, /(sm|shelter|animal).*(number|id)|tag/, /presenting|problem/]);
+  const found = findHeaderRowFuzzy(aoa, [/location/, /(sm|shelter|animal).*(number|id)|tag/, /presenting|problem/, /^sex$|\bsex\b/], 3);
   if(!found) return [];
-  const [locIdx, idIdx, probIdx] = found.idxs;
+  const [locIdx, idIdx, probIdx, sexIdx] = found.idxs;
+  /* Some exports (e.g. the Cranbourne AA Vet Flag Log) split location into
+     separate "Dog Location" / "Cat Location" columns rather than one generic
+     "Location" column — the generic /location/ pattern above only ever finds
+     the first of those, silently dropping the location for whichever species
+     isn't first (cats, since Dog Location comes first). Look for both
+     explicitly and use whichever is filled for that row; fall back to the
+     generic column for single-"Location" exports. */
+  const headerRow = aoa[found.rowIdx].map(c=>normHeader(c));
+  const dogLocIdx = headerRow.findIndex(h=>/dog.*location/.test(h));
+  const catLocIdx = headerRow.findIndex(h=>/cat.*location/.test(h));
   const results = [];
   for(let i=found.rowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
     const idVal = row[idIdx];
     if(idVal==null || idVal==='') continue;
+    let locVal;
+    if(dogLocIdx!==-1 && row[dogLocIdx]!=null && row[dogLocIdx]!=='') locVal = row[dogLocIdx];
+    else if(catLocIdx!==-1 && row[catLocIdx]!=null && row[catLocIdx]!=='') locVal = row[catLocIdx];
+    else locVal = row[locIdx];
     results.push({
       animalId: String(idVal).trim(),
-      location: normaliseRoomToken(row[locIdx]),
-      problem: row[probIdx]!=null ? String(row[probIdx]).trim() : ''
+      location: normaliseRoomToken(locVal),
+      problem: row[probIdx]!=null ? String(row[probIdx]).trim() : '',
+      sex: sexIdx!==-1 && row[sexIdx]!=null ? matchSexCode(row[sexIdx]) : ''
     });
   }
   return results;
@@ -671,17 +716,18 @@ function renderParsedFlagTable(rows){
     return;
   }
   let html = '<div class="warn">Check ID / Location / Problem before adding — matching IDs already in your list will be merged, not duplicated.</div>';
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th></tr>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Presenting Problem"><input data-i="${i}" data-f="problem" value="${esc(r.problem)}"></td>
+      <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
   html += '</table><div class="row-actions"><button class="btn" id="confirmFlagAddBtn">Add these to the shift</button></div>';
   wrap.innerHTML = html;
-  wrap.querySelectorAll('input').forEach(el=>{
+  wrap.querySelectorAll('input,select').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
   document.getElementById('confirmFlagAddBtn').addEventListener('click', ()=>{
@@ -711,6 +757,7 @@ function makeAnimal(r){
     animalId: r.animalId || '',
     location: r.location || '',
     weight: r.weight || '',
+    sex: r.sex || '',
     lastConsultDate: sections.date || '',
     otherReminders: r.otherReminders || [],
     ppeRequired: '',
@@ -750,15 +797,15 @@ function sortedAnimals(){
 }
 
 function groupedListHtml(animals){
-  let html = '';
-  let lastRoom = null;
+  const rooms = [];
+  const byRoom = new Map();
   animals.forEach(a=>{
     const room = parseLocation(a.location).room;
-    if(room !== lastRoom){
-      html += `<div style="font-size:11.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px">${esc(room)}</div>`;
-      lastRoom = room;
-    }
-    html += `
+    if(!byRoom.has(room)){ byRoom.set(room, []); rooms.push(room); }
+    byRoom.get(room).push(a);
+  });
+  return rooms.map(room=>{
+    const cards = byRoom.get(room).map(a=>`
     <div class="animal-card">
       <div class="info">
         <b>${a.flagged ? '<span title="Flagged by an AA today">🚩</span> ' : ''}${esc(a.animalId||'(no ID)')}</b>
@@ -770,10 +817,12 @@ function groupedListHtml(animals){
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
-    </div>
-  `;
-  });
-  return html;
+    </div>`).join('');
+    return `<div class="room-group">
+      <div class="room-group-hdr"><span>${esc(room)}</span><span class="room-group-count">${byRoom.get(room).length}</span></div>
+      <div class="room-group-body">${cards}</div>
+    </div>`;
+  }).join('');
 }
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
@@ -787,6 +836,7 @@ function bindListButtons(){
 function showTab(name){
   document.querySelectorAll('#mainTabbar button[data-tab]').forEach(b=> b.classList.toggle('on', b.dataset.tab===name));
   document.getElementById('tabShift').classList.toggle('hidden', name!=='shift');
+  document.getElementById('tabCompleted').classList.toggle('hidden', name!=='completed');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
 }
@@ -811,9 +861,8 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
 });
 function renderShiftList(){
   const list = document.getElementById('animalList');
-  const completedWrap = document.getElementById('completedWrap');
+  const completedList = document.getElementById('completedTabList');
   const hasAnimals = state.animals.length>0;
-  document.getElementById('shiftCount').textContent = state.animals.length;
   document.getElementById('exportCard').classList.toggle('hidden', !hasAnimals);
   document.getElementById('exportEmptyMsg').classList.toggle('hidden', hasAnimals);
   document.getElementById('examPickerEmpty').classList.toggle('hidden', hasAnimals);
@@ -821,26 +870,18 @@ function renderShiftList(){
   document.getElementById('examPickerList').innerHTML = hasAnimals ? groupedListHtml(sorted) : '';
   const openAnimal = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
   document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.registered) ? 'inline-block' : 'none';
-  if(!hasAnimals){
-    list.innerHTML = '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>';
-    completedWrap.classList.add('hidden');
-    bindListButtons();
-    return;
-  }
+
   const pending = sorted.filter(a=>!a.registered);
   const completed = sorted.filter(a=>a.registered);
-  list.innerHTML = pending.length ? groupedListHtml(pending) : '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — nice work.</p>';
-  completedWrap.classList.toggle('hidden', completed.length===0);
-  document.getElementById('completedCount').textContent = completed.length;
-  document.getElementById('completedList').innerHTML = groupedListHtml(completed);
+  document.getElementById('shiftCount').textContent = pending.length;
+  document.getElementById('completedTabCount').textContent = completed.length;
+  document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
+  completedList.innerHTML = groupedListHtml(completed);
+  list.innerHTML = pending.length ? groupedListHtml(pending)
+    : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — check the Completed tab.</p>'
+                  : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>');
   bindListButtons();
 }
-document.getElementById('toggleCompletedBtn').addEventListener('click', ()=>{
-  const cl = document.getElementById('completedList');
-  const btn = document.getElementById('toggleCompletedBtn');
-  const isHiddenNow = cl.classList.toggle('hidden');
-  btn.textContent = isHiddenNow ? 'Show completed' : 'Hide completed';
-});
 renderShiftList();
 
 /* If this tool is open in more than one browser tab (easy to do by accident —
@@ -896,7 +937,14 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Animal ID</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%"></div>
   </div>
-  <div style="margin-top:8px"><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>`;
+  <div class="two-col" style="margin-top:8px">
+    <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
+    <div><label style="font-size:12px">Sex</label><br>
+      <select class="plain" id="fld_sex" style="width:100%">
+        <option value="" ${!a.sex?'selected':''}>-</option><option value="M" ${a.sex==='M'?'selected':''}>M</option><option value="F" ${a.sex==='F'?'selected':''}>F</option><option value="U" ${a.sex==='U'?'selected':''}>U</option>
+      </select>
+    </div>
+  </div>`;
 
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">PPE Required</div>
     <div class="opts">
@@ -994,7 +1042,7 @@ function examFormHtml(a){
 
 function bindExamForm(a){
   const body = document.getElementById('examBody');
-  const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', plan:'fld_plan'};
+  const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', sex:'fld_sex', plan:'fld_plan'};
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
     if(!el) return;
@@ -1313,12 +1361,12 @@ function buildExcelFile(){
   const completed = sortedAnimals().filter(a=>a.registered);
   const notCompleted = sortedAnimals().filter(a=>!a.registered);
 
-  const completedAoa = [['Animal ID','Location','Weight','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date','New Med Chart?','S8 Sign-Out?']];
+  const completedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date','New Med Chart?','S8 Sign-Out?']];
   completed.forEach(a=>{
     const nearest = nearestRecheckDate(a);
     const s8 = findS8Drugs(a);
     completedAoa.push([
-      a.animalId, a.location, a.weight||'-', a.ppeRequired||'-', problemSummary(a),
+      a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
       a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
       planSummary(a),
       nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-',
@@ -1326,12 +1374,12 @@ function buildExcelFile(){
       s8.length ? ('🟥 ' + s8.join(', ') + ' — sign out at ' + DDBOOK_URL) : '-'
     ]);
   });
-  const notCompletedAoa = [['Animal ID','Location','Weight','PPE Required','Problem / Type']];
-  notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, a.location, a.weight||'-', a.ppeRequired||'-', problemSummary(a)]));
+  const notCompletedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type']];
+  notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a)]));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,12,35,35,35,16,22,45]), 'Completed');
-  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,12,35]), 'Not Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,6,12,35,35,35,16,22,45]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,6,12,35]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
   const blob = new Blob([wbout], {type:'application/octet-stream'});
   return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/octet-stream'});

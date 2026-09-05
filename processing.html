@@ -33,6 +33,9 @@ button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
 .wrap{max-width:900px;margin:0 auto;padding:0 16px 100px}
 header.top{position:sticky;top:0;z-index:50;background:var(--teal);padding:12px 16px;margin-bottom:18px}
+.back-nav{background:var(--teal-dark);padding:8px 16px}
+.back-nav a{color:#fff;font-size:12.5px;text-decoration:none;font-weight:600}
+.back-nav a:hover{text-decoration:underline}
 .top-in{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;color:#fff}
 .top-in h1{font-size:17px;font-weight:600}
 .top-in .meta{font-size:12px;color:rgba(255,255,255,.8)}
@@ -86,6 +89,12 @@ select.plain, input.plain{border:1px solid var(--line);border-radius:6px;padding
 .tabbar button.on{color:#fff;border-color:#fff}
 .tabbar button .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#fff;margin-left:4px;vertical-align:middle}
 .tab-panel.hidden{display:none}
+.room-group{margin-bottom:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.room-group-hdr{background:var(--teal-soft);color:var(--teal-dark);font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:8px 12px;display:flex;justify-content:space-between;align-items:center}
+.room-group-count{background:rgba(255,255,255,.6);color:var(--teal-dark);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px}
+.room-group-body{padding:10px 10px 2px;background:var(--card)}
+.room-group-body .animal-card{margin-bottom:8px}
+.room-group-body .animal-card:last-child{margin-bottom:0}
 
 /* ---------- mobile (phone/tablet touch) ---------- */
 @media (max-width:600px){
@@ -145,6 +154,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 })();
 </script>
 
+<div class="back-nav"><a href="index.html">&larr; Shift Tools</a></div>
 <header class="top">
   <div class="top-in">
     <div>
@@ -163,6 +173,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   </div>
   <div class="tabbar" id="mainTabbar">
     <button type="button" class="on" data-tab="shift">Shift List</button>
+    <button type="button" data-tab="completed">Completed</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
   </div>
@@ -183,12 +194,20 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">Today's list (<span id="shiftCount">0</span>)</h2>
+      <h2 style="margin:0">Not yet reviewed (<span id="shiftCount">0</span>)</h2>
       <button class="btn rust small" id="clearListBtn">Clear list</button>
     </div>
     <div id="animalList"></div>
   </div>
 
+</div>
+
+<div class="wrap tab-panel hidden" id="tabCompleted">
+  <div class="card" id="completedCard">
+    <h2>Reviewed (<span id="completedTabCount">0</span>)</h2>
+    <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals marked reviewed yet.</p>
+    <div id="completedTabList"></div>
+  </div>
 </div>
 
 <div class="wrap tab-panel hidden" id="tabExam">
@@ -461,6 +480,13 @@ function fmtExcelDate(v){
   }
   return v==null ? '' : String(v);
 }
+function matchSexCode(v){
+  const t = (v==null ? '' : String(v)).trim().toLowerCase();
+  if(/^f(emale)?$/.test(t)) return 'F';
+  if(/^m(ale)?$/.test(t)) return 'M';
+  if(/^u(nknown)?$/.test(t)) return 'U';
+  return '';
+}
 
 function parseInCareInventory(aoa){
   const rows = [];
@@ -504,7 +530,8 @@ function parseInCareInventory(aoa){
       location: String(row[colMap['shelter loc. / kennel']] ?? ''),
       dueDate: fmtExcelDate(row[colMap['due date out']]),
       species: currentSpecies,
-      ageYears
+      ageYears,
+      sex: matchSexCode(row[colMap['sex']])
     });
   });
   return rows;
@@ -517,7 +544,7 @@ function renderParsedTable(rows){
     return;
   }
   let html = '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns.</div>';
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th></tr>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
@@ -525,6 +552,7 @@ function renderParsedTable(rows){
       <td data-label="Age (yrs)"><input data-i="${i}" data-f="ageYears" value="${esc(r.ageYears)}" placeholder="est. on exam"></td>
       <td data-label="Due date"><input data-i="${i}" data-f="dueDate" value="${esc(r.dueDate)}"></td>
       <td data-label="Species"><select data-i="${i}" data-f="species"><option value="cat" ${r.species==='cat'?'selected':''}>Cat</option><option value="dog" ${r.species==='dog'?'selected':''}>Dog</option></select></td>
+      <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
   html += '</table><div class="row-actions"><button class="btn" id="confirmAddBtn">Add these to the shift</button></div>';
@@ -547,7 +575,7 @@ function renderParsedTable(rows){
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
-  const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:''};
+  const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:'', sex:''};
   state.animals.push(makeAnimal(r));
   saveShift();
   renderShiftList();
@@ -560,6 +588,7 @@ function makeAnimal(r){
     location: r.location||'',
     dueDate: r.dueDate||'',
     species: r.species||'cat',
+    sex: r.sex||'',
     name: '',
     nsf: {eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true}, // NSF = normal, default on
     notes: {},          // key -> free-text notes (used when NSF is off)
@@ -602,15 +631,15 @@ function sortedAnimals(){
 }
 
 function groupedListHtml(animals){
-  let html = '';
-  let lastRoom = null;
+  const rooms = [];
+  const byRoom = new Map();
   animals.forEach(a=>{
     const room = parseLocation(a.location).room;
-    if(room !== lastRoom){
-      html += `<div style="font-size:11.5px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;margin:14px 0 6px">${esc(room)}</div>`;
-      lastRoom = room;
-    }
-    html += `
+    if(!byRoom.has(room)){ byRoom.set(room, []); rooms.push(room); }
+    byRoom.get(room).push(a);
+  });
+  return rooms.map(room=>{
+    const cards = byRoom.get(room).map(a=>`
     <div class="animal-card">
       <div class="info">
         <b>${esc(a.animalId||'(no ID)')} \u2014 ${a.species==='cat'?'Cat':'Dog'}</b>
@@ -621,10 +650,12 @@ function groupedListHtml(animals){
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
-    </div>
-  `;
-  });
-  return html;
+    </div>`).join('');
+    return `<div class="room-group">
+      <div class="room-group-hdr"><span>${esc(room)}</span><span class="room-group-count">${byRoom.get(room).length}</span></div>
+      <div class="room-group-body">${cards}</div>
+    </div>`;
+  }).join('');
 }
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
@@ -638,6 +669,7 @@ function bindListButtons(){
 function showTab(name){
   document.querySelectorAll('#mainTabbar button[data-tab]').forEach(b=> b.classList.toggle('on', b.dataset.tab===name));
   document.getElementById('tabShift').classList.toggle('hidden', name!=='shift');
+  document.getElementById('tabCompleted').classList.toggle('hidden', name!=='completed');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
 }
@@ -662,8 +694,8 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
 });
 function renderShiftList(){
   const list = document.getElementById('animalList');
+  const completedList = document.getElementById('completedTabList');
   const hasAnimals = state.animals.length>0;
-  document.getElementById('shiftCount').textContent = state.animals.length;
   document.getElementById('exportCard').classList.toggle('hidden', !hasAnimals);
   document.getElementById('exportEmptyMsg').classList.toggle('hidden', hasAnimals);
   document.getElementById('examPickerEmpty').classList.toggle('hidden', hasAnimals);
@@ -671,12 +703,16 @@ function renderShiftList(){
   document.getElementById('examPickerList').innerHTML = hasAnimals ? groupedListHtml(sorted) : '';
   const openAnimal = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
   document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.done) ? 'inline-block' : 'none';
-  if(!hasAnimals){
-    list.innerHTML = '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>';
-    bindListButtons();
-    return;
-  }
-  list.innerHTML = groupedListHtml(sorted);
+
+  const pending = sorted.filter(a=>!a.done);
+  const completed = sorted.filter(a=>a.done);
+  document.getElementById('shiftCount').textContent = pending.length;
+  document.getElementById('completedTabCount').textContent = completed.length;
+  document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
+  completedList.innerHTML = groupedListHtml(completed);
+  list.innerHTML = pending.length ? groupedListHtml(pending)
+    : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed tab.</p>'
+                  : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>');
   bindListButtons();
 }
 renderShiftList();
