@@ -1374,12 +1374,24 @@ function buildExcelFile(){
       s8.length ? ('🟥 ' + s8.join(', ') + ' — sign out at ' + DDBOOK_URL) : '-'
     ]);
   });
-  const notCompletedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type']];
-  notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a)]));
+  /* Animal attendants use this sheet as their only view into what's going
+     on with an animal — they don't have ShelterMate access — so the plan
+     (treatment/revisit) needs to show here even before a vet has finished
+     registering the note, not just on the Completed sheet. */
+  const notCompletedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date']];
+  notCompleted.forEach(a=>{
+    const nearest = nearestRecheckDate(a);
+    notCompletedAoa.push([
+      a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
+      a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
+      planSummary(a),
+      nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-'
+    ]);
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,6,12,35,35,35,16,22,45]), 'Completed');
-  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,6,12,35]), 'Not Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,6,12,35,35,35,16]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
   const blob = new Blob([wbout], {type:'application/octet-stream'});
   return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/octet-stream'});
