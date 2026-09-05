@@ -898,7 +898,12 @@ function matchSex(text){
    add to this list as she reports more brands. */
 const VACCINE_TREATMENT_NAMES = ['nobivac flex tricat', 'nobivac kc intranasal', 'nobivac dhp'];
 function classifyTreatment(text){
-  const t = (text||'').toLowerCase();
+  /* ShelterMate cell text can wrap onto a new line mid brand-name (e.g.
+     "Nobivac Flex \nTricat"), which breaks a literal-substring match
+     against "nobivac flex tricat" — collapse all whitespace (newlines
+     included) to single spaces first, same as normHeader does for
+     headers. */
+  const t = (text||'').replace(/\s+/g,' ').trim().toLowerCase();
   if(/flea/.test(t)) return 'flea';
   if(/worm/.test(t)) return 'worm';
   if(VACCINE_TREATMENT_NAMES.some(name=>t.includes(name))) return 'vacc';
@@ -924,6 +929,16 @@ function parseSmExport(aoa){
     const row = aoa[i]; if(!row) continue;
     const idVal = row[idIdx];
     if(idVal==null || idVal==='') continue;
+    /* The "In Care Inventory" report interleaves species-section headers
+       ("Cat"/"Kitten"/"Dog"/"Puppy"), per-section subtotal rows, and a
+       final "Grand Total:" row among the real animal rows — all of which
+       only ever have that one cell populated. A real animal row always has
+       other columns filled in, so skip any row where everything besides
+       the ID cell is empty rather than trying to enumerate every possible
+       section/total label. */
+    const restEmpty = row.every((c,ci)=> ci===idIdx || c==null || c==='');
+    if(restEmpty) continue;
+    if(normHeader(idVal).startsWith('grand total')) continue;
     const animalId = String(idVal).trim();
     if(!byId.has(animalId)){
       byId.set(animalId, {
