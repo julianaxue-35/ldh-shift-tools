@@ -1356,37 +1356,54 @@ function styledSheet(aoa, colWidths){
   }
   return ws;
 }
+/* Inserts a "ROOM NAME" row (just one cell filled, rest blank) before each
+   room's group of animals, in the same room order sortedAnimals() already
+   produces — so the export reads grouped by location the same way the
+   on-screen lists do, not just a Location column repeated on every row. */
+function pushGroupedRows(aoa, animals, numCols, rowBuilder){
+  let lastRoom = null;
+  animals.forEach(a=>{
+    const room = parseLocation(a.location).room;
+    if(room !== lastRoom){
+      const roomRow = new Array(numCols).fill('');
+      roomRow[0] = room.toUpperCase();
+      aoa.push(roomRow);
+      lastRoom = room;
+    }
+    aoa.push(rowBuilder(a));
+  });
+}
 function buildExcelFile(){
   if(!state.animals.length) return null;
   const completed = sortedAnimals().filter(a=>a.registered);
   const notCompleted = sortedAnimals().filter(a=>!a.registered);
 
   const completedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date','New Med Chart?','S8 Sign-Out?']];
-  completed.forEach(a=>{
+  pushGroupedRows(completedAoa, completed, 11, a=>{
     const nearest = nearestRecheckDate(a);
     const s8 = findS8Drugs(a);
-    completedAoa.push([
+    return [
       a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
       a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
       planSummary(a),
       nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-',
       needsNewMedChart(a) ? '🟨 Yes — print new chart' : '-',
       s8.length ? ('🟥 ' + s8.join(', ') + ' — sign out at ' + DDBOOK_URL) : '-'
-    ]);
+    ];
   });
   /* Animal attendants use this sheet as their only view into what's going
      on with an animal — they don't have ShelterMate access — so the plan
      (treatment/revisit) needs to show here even before a vet has finished
      registering the note, not just on the Completed sheet. */
   const notCompletedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date']];
-  notCompleted.forEach(a=>{
+  pushGroupedRows(notCompletedAoa, notCompleted, 9, a=>{
     const nearest = nearestRecheckDate(a);
-    notCompletedAoa.push([
+    return [
       a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
       a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
       planSummary(a),
       nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-'
-    ]);
+    ];
   });
 
   const wb = XLSX.utils.book_new();
