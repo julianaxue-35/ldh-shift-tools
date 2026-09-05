@@ -190,6 +190,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="row-actions">
       <button class="btn" id="parseXlsxBtn">Parse Excel</button>
       <button class="btn secondary" id="manualAddBtn">Add one manually</button>
+      <button class="btn secondary" id="add28DayBtn">+ 28-day health check (court hold)</button>
     </div>
     <div id="parsedWrap"></div>
 
@@ -392,7 +393,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
@@ -732,6 +733,14 @@ document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   saveShift();
   renderShiftList();
 });
+document.getElementById('add28DayBtn').addEventListener('click', ()=>{
+  const a = makeAnimal({animalId:'', location:'', weight:'', sex:'', noteText:'', otherReminders:[]});
+  a.template = '28day';
+  state.animals.push(a);
+  saveShift();
+  renderShiftList();
+  openExam(a.id);
+});
 
 /* ---------- AA Flag Log import (Location / SM Number / Presenting Problem) ----------
    Header wording isn't fixed to one exact export, so match column headers by
@@ -871,7 +880,17 @@ function makeAnimal(r){
     planItems: [],
     noteEdited: null,
     registered: false,
-    flagged: false
+    flagged: false,
+    /* ---- 28-day health check template (court hold dogs) only ---- */
+    template: 'revisit',
+    desex: '',
+    nsf: {eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true},
+    peNotes: {},
+    dental: {grade:'0', desc:''},
+    heart: {murmur:false, grade:'', gallop:false, free:''},
+    bcs: '', vhc: '',
+    testes: '', pregnant: '',
+    visualOnly: false
   };
 }
 
@@ -1027,6 +1046,178 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
   showTab('shift');
 });
 
+/* ---------- 28-day health check template (court hold dogs) ----------
+   Full multi-system physical exam, same data shape/rendering pattern as
+   Processing's intake exam (dog only, since that's the stated use case),
+   swapped in for the revisit template's simple demeanour/eating/
+   urinating/defecating exam. Assessment/Treatment/Plan/Pathway stay S&I's
+   own manual sections either way. */
+const PE_FIELDS_28DAY = [
+  {key:'eyes', label:'Eyes'}, {key:'nose', label:'Nose'}, {key:'ears', label:'Ears'},
+  {key:'teeth', label:'Teeth', special:'teeth'}, {key:'skin', label:'Skin'},
+  {key:'heart', label:'Heart', special:'heart'}, {key:'lungs', label:'Lungs'},
+  {key:'abdomen', label:'Abdomen'}, {key:'ortho', label:'Ortho'}, {key:'neuro', label:'Neurological'}
+];
+function examination28DayHtml(a){
+  let h = `<div class="pe-field"><div class="lbl">Examination</div>`;
+  h += `<div class="opts" style="margin-bottom:10px">
+    <button type="button" class="opt-btn ${a.visualOnly?'selected abn':''}" data-visualonly="1">Visual check only — not safely handleable</button>
+  </div>`;
+  if(a.visualOnly){
+    h += `<div class="warn" style="margin-bottom:10px">Visual exam only recorded below — fill in what you can observe without handling; leave the rest as NSF/blank.</div>`;
+  }
+  PE_FIELDS_28DAY.forEach(f=>{
+    if(f.special==='teeth'){
+      h += `<div class="pe-field" style="margin-top:10px">
+        <div class="lbl">Teeth</div>
+        <div class="opts">`;
+      ['0','1','2','3','4'].forEach(g=>{
+        h += `<button type="button" class="opt-btn ${a.dental.grade===g?'selected':''}" data-dentalgrade="${g}">${g}</button>`;
+      });
+      h += `</div>
+        <textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea>
+      </div>`;
+      return;
+    }
+    if(f.special==='heart'){
+      const normal = !a.heart.murmur && !a.heart.gallop;
+      h += `<div class="pe-field" style="margin-top:10px">
+        <div class="lbl">Heart</div>
+        <div class="opts">
+          <button type="button" class="opt-btn ${normal?'selected':''}" data-heartnormal="1">Normal heart sounds</button>
+          <button type="button" class="opt-btn ${a.heart.murmur?'selected abn':''}" data-heartmurmur="1">Heart murmur</button>
+          <button type="button" class="opt-btn ${a.heart.gallop?'selected abn':''}" data-heartgallop="1">Gallop rhythm</button>
+        </div>`;
+      if(a.heart.murmur){
+        h += `<div class="opts" style="margin-top:6px">`;
+        ['1/6','2/6','3/6','4/6','5/6','6/6'].forEach(g=>{
+          h += `<button type="button" class="opt-btn ${a.heart.grade===g?'selected abn':''}" data-heartgrade="${g}">${g}</button>`;
+        });
+        h += `</div>`;
+      }
+      h += `<textarea class="free-input" id="heart_free" placeholder="Additional cardiovascular notes (optional)...">${esc(a.heart.free||'')}</textarea>
+      </div>`;
+      return;
+    }
+    const isNsf = a.nsf[f.key] !== false;
+    h += `<div class="pe-field" style="margin-top:10px">
+      <div class="lbl">${f.label}</div>
+      <button type="button" class="opt-btn ${isNsf?'selected':''}" data-nsfkey="${f.key}">NSF</button>
+      <textarea class="free-input" data-noteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.peNotes[f.key]||'')}</textarea>
+    </div>`;
+  });
+
+  h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Desexing status</div>
+    <select class="plain" id="fld_desex" style="width:100%"><option value="">-</option><option ${a.desex==='DESEXED'?'selected':''}>DESEXED</option><option ${a.desex==='ENTIRE'?'selected':''}>ENTIRE</option></select></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Urogenital</div>`;
+  if(a.sex==='M'){
+    if(a.desex==='ENTIRE'){
+      h += `<div class="opts">`;
+      [['Bilateral','Testicles descended bilaterally',false],['R only','R testicle descended',true],['L only','L testicle descended',true],['None','No testicles present',true]].forEach(([v,label,abn])=>{
+        h += `<button type="button" class="opt-btn ${a.testes===v?'selected':''}${abn?' abn':''}" data-testes="${v}">${label}</button>`;
+      });
+      h += `</div>`;
+    } else {
+      h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Desexed — testes assessment not applicable.</div>`;
+    }
+  } else if(a.sex==='F'){
+    h += `<div class="opts">
+      <button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button>
+      <button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button>
+    </div>`;
+  } else {
+    h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
+  }
+  h += `</div>`;
+
+  h += `<div class="pe-field"><div class="lbl">BCS / VHC</div>
+    <div class="two-col">
+      <div><input class="plain" id="fld_bcs" style="width:100%" value="${esc(a.bcs)}" placeholder="BCS /5"></div>
+      <div><input class="plain" id="fld_vhc" style="width:100%" value="${esc(a.vhc)}" placeholder="VHC /6"></div>
+    </div></div>
+  </div>`;
+  return h;
+}
+function bind28DayExamForm(a){
+  const body = document.getElementById('examBody');
+  const visualBtn = body.querySelector('[data-visualonly]');
+  if(visualBtn) visualBtn.addEventListener('click', ()=>{
+    a.visualOnly = !a.visualOnly; saveShift(); openExam(a.id);
+  });
+  const dentalDesc = document.getElementById('dental_desc');
+  if(dentalDesc){
+    dentalDesc.addEventListener('input', ()=>{ a.dental.desc = dentalDesc.value; refreshNote(a); });
+    dentalDesc.addEventListener('change', ()=>{ a.dental.desc = dentalDesc.value; refreshNote(a); saveShift(); });
+  }
+  body.querySelectorAll('[data-dentalgrade]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.dental.grade = btn.dataset.dentalgrade; saveShift(); openExam(a.id);
+    });
+  });
+  const heartFree = document.getElementById('heart_free');
+  if(heartFree){
+    heartFree.addEventListener('input', ()=>{ a.heart.free = heartFree.value; refreshNote(a); });
+    heartFree.addEventListener('change', ()=>{ a.heart.free = heartFree.value; refreshNote(a); saveShift(); });
+  }
+  const heartNormalBtn = body.querySelector('[data-heartnormal]');
+  if(heartNormalBtn) heartNormalBtn.addEventListener('click', ()=>{
+    a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = '';
+    saveShift(); openExam(a.id);
+  });
+  const heartMurmurBtn = body.querySelector('[data-heartmurmur]');
+  if(heartMurmurBtn) heartMurmurBtn.addEventListener('click', ()=>{
+    a.heart.murmur = !a.heart.murmur;
+    if(!a.heart.murmur) a.heart.grade = '';
+    saveShift(); openExam(a.id);
+  });
+  const heartGallopBtn = body.querySelector('[data-heartgallop]');
+  if(heartGallopBtn) heartGallopBtn.addEventListener('click', ()=>{
+    a.heart.gallop = !a.heart.gallop; saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-heartgrade]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.heart.grade = a.heart.grade===btn.dataset.heartgrade ? '' : btn.dataset.heartgrade;
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-nsfkey]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const k = btn.dataset.nsfkey;
+      a.nsf[k] = !(a.nsf[k] !== false);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-noteskey]').forEach(el=>{
+    const k = el.dataset.noteskey;
+    el.addEventListener('input', ()=>{ a.peNotes[k] = el.value; refreshNote(a); });
+    el.addEventListener('change', ()=>{ a.peNotes[k] = el.value; refreshNote(a); saveShift(); });
+  });
+  const desexEl = document.getElementById('fld_desex');
+  if(desexEl) desexEl.addEventListener('change', ()=>{
+    a.desex = desexEl.value; saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-testes]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.testes = btn.dataset.testes; saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-pregnant]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.pregnant = btn.dataset.pregnant; saveShift(); openExam(a.id);
+    });
+  });
+  const bcsEl = document.getElementById('fld_bcs');
+  if(bcsEl){
+    bcsEl.addEventListener('input', ()=>{ a.bcs = bcsEl.value; refreshNote(a); });
+    bcsEl.addEventListener('change', ()=>{ a.bcs = bcsEl.value; refreshNote(a); saveShift(); });
+  }
+  const vhcEl = document.getElementById('fld_vhc');
+  if(vhcEl){
+    vhcEl.addEventListener('input', ()=>{ a.vhc = vhcEl.value; refreshNote(a); });
+    vhcEl.addEventListener('change', ()=>{ a.vhc = vhcEl.value; refreshNote(a); saveShift(); });
+  }
+}
 function examFormHtml(a){
   let h = '';
   h += `<div class="two-col">
@@ -1057,7 +1248,10 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Current medication</div>
     <textarea class="free-input" id="fld_currentMed" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.currentMed||'')}</textarea></div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Examination</div>
+  if(a.template==='28day'){
+    h += examination28DayHtml(a);
+  } else {
+    h += `<div class="pe-field"><div class="lbl">Examination</div>
     <div style="margin-bottom:8px">
       <span style="font-size:11px;color:var(--ink-soft);display:block;margin-bottom:4px">Demeanour</span>
       <div class="opts">
@@ -1079,6 +1273,7 @@ function examFormHtml(a){
     </div>
     <textarea class="free-input" id="fld_examFree" placeholder="Other findings...">${esc(a.exam.free||'')}</textarea>
   </div>`;
+  }
 
   h += `<div class="pe-field"><div class="lbl">Assessment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Carried forward from the last note. Conditions that can resolve are flagged — mark Ongoing or Resolved.</p>
@@ -1140,11 +1335,15 @@ function examFormHtml(a){
 
 function bindExamForm(a){
   const body = document.getElementById('examBody');
+  if(a.template==='28day') bind28DayExamForm(a);
   const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', sex:'fld_sex', plan:'fld_plan'};
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
     if(!el) return;
-    el.addEventListener('change', ()=>{ a[k]=el.value; refreshNote(a); saveShift(); });
+    el.addEventListener('change', ()=>{
+      a[k]=el.value; refreshNote(a); saveShift();
+      if(k==='sex' && a.template==='28day') openExam(a.id);
+    });
     el.addEventListener('input', ()=>{ a[k]=el.value; refreshNote(a); });
   });
 
@@ -1281,15 +1480,40 @@ function assembleNote(a){
   L.push(a.history && a.history.trim() ? a.history.trim() : '-');
   L.push('');
   L.push('Examination:');
-  const examParts = [];
-  if(a.exam.demeanour) examParts.push(a.exam.demeanour);
-  const scores = [];
-  if(a.exam.eating!=='') scores.push('Eating '+a.exam.eating+'/3');
-  if(a.exam.urinating!=='') scores.push('Urinating '+a.exam.urinating+'/3');
-  if(a.exam.defecating!=='') scores.push('Defecating '+a.exam.defecating+'/3');
-  if(scores.length) examParts.push(scores.join(', '));
-  if(a.exam.free && a.exam.free.trim()) examParts.push(a.exam.free.trim());
-  L.push(examParts.length ? examParts.join('\n') : '-');
+  if(a.template==='28day'){
+    if(a.visualOnly) L.push('VISUAL CHECK ONLY — not safely handleable.');
+    L.push(`Desexing status: ${a.desex||'-'}`);
+    PE_FIELDS_28DAY.forEach(f=>{
+      if(f.special==='teeth'){
+        L.push(`Teeth: Dental Grade ${a.dental.grade||'0'}/4  ${a.dental.desc||''}`);
+        return;
+      }
+      if(f.special==='heart'){
+        const parts=[];
+        if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` (${a.heart.grade})`:''));
+        if(a.heart.gallop) parts.push('Gallop rhythm');
+        if(!parts.length) parts.push('Normal heart sounds');
+        if(a.heart.free && a.heart.free.trim()) parts.push(a.heart.free.trim());
+        L.push(`Heart: ${parts.join(', ')}`);
+        return;
+      }
+      const isNsf = a.nsf[f.key] !== false;
+      L.push(`${f.label}: ${isNsf ? 'NSF' : (a.peNotes[f.key]||'-')}`);
+    });
+    if(a.sex==='M') L.push(`Testes: ${a.desex==='DESEXED' ? 'Desexed' : (a.testes||'-')}`);
+    else if(a.sex==='F') L.push(`Pregnant: ${a.pregnant||'-'}`);
+    L.push(`BCS: ${a.bcs||'-'}    VHC: ${a.vhc||'-'}`);
+  } else {
+    const examParts = [];
+    if(a.exam.demeanour) examParts.push(a.exam.demeanour);
+    const scores = [];
+    if(a.exam.eating!=='') scores.push('Eating '+a.exam.eating+'/3');
+    if(a.exam.urinating!=='') scores.push('Urinating '+a.exam.urinating+'/3');
+    if(a.exam.defecating!=='') scores.push('Defecating '+a.exam.defecating+'/3');
+    if(scores.length) examParts.push(scores.join(', '));
+    if(a.exam.free && a.exam.free.trim()) examParts.push(a.exam.free.trim());
+    L.push(examParts.length ? examParts.join('\n') : '-');
+  }
   L.push('');
   L.push('Assessment:');
   const assessLines = [];
