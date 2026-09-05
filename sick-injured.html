@@ -426,6 +426,18 @@ function parseNoteSections(text){
     const end = (i+1<found.length) ? found[i+1].start : text.length;
     sections[f.key] = text.slice(f.end, end).trim();
   });
+  /* If "Reason / History:" wasn't found with that exact wording, whatever
+     text precedes the first header that WAS found is still almost always
+     the history/reason content in this note format — capture it rather
+     than silently losing it (this is the "some histories aren't being
+     picked up" case). If no headers matched at all, treat the whole note
+     as history. */
+  if(!sections.reasonHistory){
+    const leadingEnd = found.length ? found[0].start : text.length;
+    let leading = text.slice(0, leadingEnd);
+    leading = leading.replace(/^\s*Date\s*:.*$/im, '').trim();
+    if(leading) sections.reasonHistory = leading;
+  }
   return {
     date: dateMatch ? dateMatch[1].trim() : '',
     reasonHistory: sections.reasonHistory || '',
@@ -439,6 +451,30 @@ function splitAssessmentLines(text){
   return (text||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>
     l.replace(/^\(?\d+[.)]\)?\.?\s*/, '').replace(/^[-•]\s*/, '').trim()
   ).filter(Boolean);
+}
+/* Assessment should only ever be the problem + DDx (e.g. "FURI DDx viral vs
+   bacterial") — medication mentions belong in Treatment. Imported consult
+   notes don't reliably keep the two apart (shorthand like "doxy" or "bup"
+   ends up on an assessment line), so route any line naming a recognised
+   drug (by generic or common shorthand/brand) to Treatment instead of
+   Assessment. Extend this list as more shorthand turns up. */
+const MEDICATION_KEYWORDS = [
+  'gaba','gabapentin',
+  'doxy','doxycycline','doxybrom','doxybrome',
+  'panadol','paracetamol',
+  'famvir','famciclovir',
+  'meloxicam','metacam',
+  'bup','buprenorphine',
+  'fentanyl',
+  'mirtaz','mirtazapine'
+];
+const MEDICATION_RE = new RegExp('\\b(' + MEDICATION_KEYWORDS.join('|') + ')\\b', 'i');
+function isMedicationLine(text){ return MEDICATION_RE.test(text||''); }
+function splitAssessmentAndMeds(assessmentText){
+  const lines = splitAssessmentLines(assessmentText);
+  const assessmentLines = [], medLines = [];
+  lines.forEach(l=> (isMedicationLine(l) ? medLines : assessmentLines).push(l));
+  return {assessmentLines, medLines};
 }
 
 /* ---------- init top bar ---------- */
@@ -516,9 +552,14 @@ function addOrMergeFromRecheck(r){
     const label = `Recheck history (from last consult${sections.date ? ', '+sections.date : ''}):\n${sections.reasonHistory}`;
     existing.history = existing.history ? (existing.history + '\n\n' + label) : label;
   }
-  if(sections.treatment && !existing.currentMed) existing.currentMed = sections.treatment;
-  if(sections.treatment && !existing.treatment) existing.treatment = sections.treatment;
-  splitAssessmentLines(sections.assessment).forEach(t=>{
+  const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
+  const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
+  if(importedTreatment && !existing.currentMed) existing.currentMed = importedTreatment;
+  if(importedTreatment && !existing.treatment) existing.treatment = importedTreatment;
+  else if(medLines.length){
+    medLines.forEach(ml=>{ if(!existing.treatment.includes(ml)) existing.treatment = existing.treatment ? existing.treatment+'\n'+ml : ml; });
+  }
+  assessmentLines.forEach(t=>{
     if(!existing.assessment.some(p=>p.text===t)){
       const m = matchResolvable(t);
       existing.assessment.push({id:uid(), text:t, matched:m?m.key:null, resolved:null});
@@ -758,6 +799,8 @@ document.getElementById('manualFlagAddBtn').addEventListener('click', ()=>{
 
 function makeAnimal(r){
   const sections = parseNoteSections(r.noteText || '');
+  const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
+  const treatmentText = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
   return {
     id: uid(),
     animalId: r.animalId || '',
@@ -769,13 +812,13 @@ function makeAnimal(r){
     ppeRequired: '',
     history: sections.reasonHistory || '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
-    assessment: splitAssessmentLines(sections.assessment).map(t=>{
+    assessment: assessmentLines.map(t=>{
       const m = matchResolvable(t);
       return {id: uid(), text: t, matched: m ? m.key : null, resolved: null};
     }),
     assessmentNotes: '',
-    currentMed: sections.treatment || '',
-    treatment: sections.treatment || '',
+    currentMed: treatmentText,
+    treatment: treatmentText,
     pathway: matchPathway(sections.pathway),
     plan: '',
     planItems: [],
@@ -952,21 +995,16 @@ function examFormHtml(a){
     </div>
   </div>`;
 
-  h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">PPE Required</div>
-    <div class="opts">
-      <button type="button" class="opt-btn ${a.ppeRequired==='YES'?'selected abn':''}" data-ppe="YES">Yes</button>
-      <button type="button" class="opt-btn ${a.ppeRequired==='NO'?'selected':''}" data-ppe="NO">No</button>
-    </div></div>`;
-
   if(a.lastConsultDate){
     h += `<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Last consult: ${esc(a.lastConsultDate)}</div>`;
   }
   if(a.otherReminders && a.otherReminders.length){
     h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Other active reminders (reference)</div>
+      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Carried over from earlier consult notes — not part of the medical record, just a note on what's already happened.</p>
       <div class="ref-box">${a.otherReminders.map(t=>esc(t)).join('\n\n---\n\n')}</div></div>`;
   }
 
-  h += `<div class="pe-field"><div class="lbl">Reason / History</div>
+  h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
     <textarea class="free-input" id="fld_history" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
 
   h += `<div class="pe-field"><div class="lbl">Current medication</div>
@@ -1020,8 +1058,18 @@ function examFormHtml(a){
       <textarea class="free-input" id="fld_assessmentNotes">${esc(a.assessmentNotes||'')}</textarea></div>
   </div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Treatment (new medication plan)</div>
-    <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea>
+  h += `<div class="pe-field"><div class="lbl">Treatment</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Medication given today — dose, route, frequency (e.g. "Doxycycline 50mg PO BID").</p>
+    <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">PPE Required</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.ppeRequired==='YES'?'selected abn':''}" data-ppe="YES">Yes</button>
+      <button type="button" class="opt-btn ${a.ppeRequired==='NO'?'selected':''}" data-ppe="NO">No</button>
+    </div></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Plan</div>
+    <textarea class="free-input" id="fld_plan">${esc(a.plan||'')}</textarea>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:10px 0 8px">Add each medication (or task) that needs a recheck, with its own date — each becomes a row in the Excel reminder export.</p>
     <div id="planList">`;
   a.planItems.forEach(pi=>{
@@ -1038,9 +1086,6 @@ function examFormHtml(a){
       <option value="">-</option>
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
-
-  h += `<div class="pe-field"><div class="lbl">Plan</div>
-    <textarea class="free-input" id="fld_plan">${esc(a.plan||'')}</textarea></div>`;
 
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
   return h;
