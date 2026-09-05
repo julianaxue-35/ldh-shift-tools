@@ -393,7 +393,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
@@ -595,8 +595,8 @@ function addOrMergeFromRecheck(r){
   if(!existing.sex && r.sex) existing.sex = r.sex;
   const sections = parseNoteSections(r.noteText || '');
   if(sections.reasonHistory){
-    const label = `Recheck history (from last consult${sections.date ? ', '+sections.date : ''}):\n${sections.reasonHistory}`;
-    existing.history = existing.history ? (existing.history + '\n\n' + label) : label;
+    const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${sections.reasonHistory}`;
+    existing.otherReminders = (existing.otherReminders||[]).concat([label]);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
@@ -864,9 +864,15 @@ function makeAnimal(r){
     weight: r.weight || '',
     sex: r.sex || '',
     lastConsultDate: sections.date || '',
-    otherReminders: r.otherReminders || [],
+    /* The previous vet's full history/exam narrative is reference material
+       for THIS visit, not the current History field — dumping the whole
+       thing into an active "Reason / History" box meant it read as if it
+       were today's note. Keep it reviewable here (labelled with the
+       consult date) and leave history below blank for a short current
+       summary instead. */
+    otherReminders: (sections.reasonHistory ? [`Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${sections.reasonHistory}`] : []).concat(r.otherReminders || []),
     ppeRequired: '',
-    history: sections.reasonHistory || '',
+    history: '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
     assessment: assessmentLines.map(t=>{
       const m = matchResolvable(t);
@@ -1237,9 +1243,10 @@ function examFormHtml(a){
     h += `<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Last consult: ${esc(a.lastConsultDate)}</div>`;
   }
   if(a.otherReminders && a.otherReminders.length){
-    h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Other active reminders (reference)</div>
-      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Carried over from earlier consult notes — not part of the medical record, just a note on what's already happened.</p>
-      <div class="ref-box">${a.otherReminders.map(t=>esc(t)).join('\n\n---\n\n')}</div></div>`;
+    h += `<details class="pe-field" style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--teal-dark)">Previous notes (tap to review) — ${a.otherReminders.length}</summary>
+      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 6px">Carried over from earlier consult notes — reference only, not part of today's medical record. Write today's history below in your own words.</p>
+      <div class="ref-box">${a.otherReminders.map(t=>esc(t)).join('\n\n---\n\n')}</div></details>`;
   }
 
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
