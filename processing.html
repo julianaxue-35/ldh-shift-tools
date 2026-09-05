@@ -194,7 +194,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">Not yet reviewed (<span id="shiftCount">0</span>)</h2>
+      <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
       <button class="btn rust small" id="clearListBtn">Clear list</button>
     </div>
     <div id="animalList"></div>
@@ -204,8 +204,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <div class="wrap tab-panel hidden" id="tabCompleted">
   <div class="card" id="completedCard">
-    <h2>Reviewed (<span id="completedTabCount">0</span>)</h2>
-    <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals marked reviewed yet.</p>
+    <h2>Registered to Word &amp; Excel (<span id="completedTabCount">0</span>)</h2>
+    <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
     <div id="completedTabList"></div>
   </div>
 </div>
@@ -322,8 +322,44 @@ function peFields(species){
 
 /* DDx blurbs — Claude-drafted clinical drafts for review, one per field,
    attached automatically to a flagged finding. Edit or delete freely. */
-function ddxBlurb(key, species){
+function isUnderOneYear(approxAge){
+  const t = (approxAge||'').toLowerCase();
+  if(!t.trim()) return false;
+  if(/\bpupp/.test(t)) return true;
+  if(/\b(week|wk|month|mo)\b/.test(t)) return true;
+  const m = t.match(/[\d.]+/);
+  if(m){ const n = parseFloat(m[0]); if(!isNaN(n) && n < 1) return true; }
+  return false;
+}
+/* Cats: grade >2/6 needs a vet to confirm before anything further (flag for
+   lead vet review once confirmed) — 2 vets are only required below age <1yr
+   (dogs) or grade >=3/6 (cats), handled separately in computeProblemList.
+   Shelter can't action an echocardiogram/ProBNP workup, so that
+   recommendation is deliberately left out here (kept for dogs, unchanged
+   per her instructions — only the cat text was flagged for removal). */
+function heartMurmurTier(a){
+  if(!a.heart || !a.heart.murmur) return null;
+  if(a.species==='cat'){
+    if(['3/6','4/6','5/6','6/6'].includes(a.heart.grade)) return 'twovet';
+    if(['1/6','2/6'].includes(a.heart.grade)) return 'waiver';
+    return null;
+  }
+  if(a.species==='dog'){
+    return isUnderOneYear(a.approxAge) ? 'twovet' : 'waiver';
+  }
+  return null;
+}
+function ddxBlurb(key, species, grade){
   const cat = species==='cat';
+  const catHeartDiff = 'hypertrophic cardiomyopathy (HCM — most common in cats) vs congenital defect vs hyperthyroidism-associated';
+  let catHeart;
+  if(['1/6','2/6'].includes(grade)){
+    catHeart = `Likely a physiological/anxiety-related murmur at this grade, though DDx still includes: ${catHeartDiff}.`;
+  } else if(['3/6','4/6','5/6','6/6'].includes(grade)){
+    catHeart = `DDx: ${catHeartDiff}. Grade >2/6 — vet to confirm the murmur/grade as the next step; if confirmed, flag for lead vet review.`;
+  } else {
+    catHeart = `DDx: ${catHeartDiff}. Select a grade above.`;
+  }
   const blurbs = {
     eyes: cat
       ? 'DDx: FHV-1 vs feline calicivirus vs Chlamydophila felis vs conjunctivitis vs corneal disease; recommend ophthalmic exam.'
@@ -335,7 +371,7 @@ function ddxBlurb(key, species){
     teeth: 'DDx: periodontal disease secondary to plaque/calculus vs tooth fracture vs endodontic disease; recommend dental assessment +/- scale and polish.',
     skin: 'DDx: allergic dermatitis vs ectoparasites (fleas/mites) vs dermatophytosis vs pyoderma; recommend skin scrape/cytology if indicated.',
     heart: cat
-      ? 'DDx: hypertrophic cardiomyopathy (HCM — most common in cats) vs physiological/anxiety-related murmur vs congenital defect vs hyperthyroidism-associated; recommend echocardiogram, BP, T4 if >6yr.'
+      ? catHeart
       : 'DDx: degenerative valvular disease (MMVD — most common in dogs) vs congenital defect (PDA/PS/SAS/VSD — younger patients) vs physiological/anaemic flow murmur; recommend echocardiogram and BP.',
     gallop: cat
       ? 'DDx: gallop rhythm — hypertrophic cardiomyopathy (HCM) vs severe systemic disease vs tachycardia-associated S4; often indicates more advanced cardiac disease than a murmur alone; recommend echocardiogram and BP.'
@@ -603,13 +639,13 @@ function makeAnimal(r){
     assessmentDismissed: {}, // key -> true if that auto problem was deleted
     assessmentNotes: '',      // additional free-text assessment notes
     customProblems: [],       // [{id, title, ddx}]
-    pathway:'', waivers:'', vetChat:'',
+    pathway:'', waiversDismissed:{}, waiversCustom:[], vetChat:'',
     treatments:'Physical exam and wormer',
     nextStep:'', procedures:'', proceduresOther:'', chillRequired:'',
     bloodwork:'', bloodworkType:'', bloodworkAuto:false,
     vetNurse:'',
     noteEdited: null,   // if set, user has manually edited the note
-    done:false
+    registered:false
   };
 }
 
@@ -646,7 +682,7 @@ function groupedListHtml(animals){
         <div class="sub">${esc(a.location||'no location')} &middot; due ${esc(a.dueDate||'-')}</div>
       </div>
       <div>
-        <span class="badge ${a.done?'done':''}">${a.done?'Reviewed':'Open'}</span>
+        <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -675,7 +711,7 @@ function showTab(name){
 }
 function goToExamTab(){
   const last = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
-  if(last && !last.done){ openExam(last.id); return; }
+  if(last && !last.registered){ openExam(last.id); return; }
   showTab('exam');
 }
 document.getElementById('mainTabbar').addEventListener('click', e=>{
@@ -702,10 +738,10 @@ function renderShiftList(){
   const sorted = sortedAnimals();
   document.getElementById('examPickerList').innerHTML = hasAnimals ? groupedListHtml(sorted) : '';
   const openAnimal = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
-  document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.done) ? 'inline-block' : 'none';
+  document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.registered) ? 'inline-block' : 'none';
 
-  const pending = sorted.filter(a=>!a.done);
-  const completed = sorted.filter(a=>a.done);
+  const pending = sorted.filter(a=>!a.registered);
+  const completed = sorted.filter(a=>a.registered);
   document.getElementById('shiftCount').textContent = pending.length;
   document.getElementById('completedTabCount').textContent = completed.length;
   document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
@@ -805,22 +841,6 @@ function examFormHtml(a){
     </div>`;
   });
 
-  h += `<div class="pe-field"><div class="lbl">BCS / VHC</div>
-    <div class="two-col">
-      <div><input class="plain" id="fld_bcs" style="width:100%" value="${esc(a.bcs)}" placeholder="BCS /5"></div>
-      <div><input class="plain" id="fld_vhc" style="width:100%" value="${esc(a.vhc)}" placeholder="VHC /6"></div>
-    </div></div>`;
-
-  if(a.species==='cat'){
-    h += `<div class="pe-field"><div class="lbl">UV lamp / FIV test</div>
-      <div class="two-col">
-        <select class="plain" id="fld_uv" style="width:100%"><option value="">UV lamp: -</option><option ${a.uvLamp==='POSITIVE'?'selected':''}>POSITIVE</option><option ${a.uvLamp==='NEGATIVE'?'selected':''}>NEGATIVE</option></select>
-        <select class="plain" id="fld_fiv" style="width:100%"><option value="">FIV required: -</option><option ${a.fivTest==='YES'?'selected':''}>YES</option><option ${a.fivTest==='NO'?'selected':''}>NO</option></select>
-      </div>
-      <div style="margin-top:6px"><select class="plain" id="fld_fivresult" style="width:100%"><option value="">FIV result: -</option><option ${a.fivResult==='POSITIVE'?'selected':''}>POSITIVE</option><option ${a.fivResult==='NEGATIVE'?'selected':''}>NEGATIVE</option></select></div>
-      </div>`;
-  }
-
   h += `<div class="pe-field"><div class="lbl">Urogenital</div>`;
   if(a.sex==='M'){
     if(a.desex==='ENTIRE'){
@@ -841,6 +861,22 @@ function examFormHtml(a){
     h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
   }
   h += `</div>`;
+
+  if(a.species==='cat'){
+    h += `<div class="pe-field"><div class="lbl">UV lamp / FIV test</div>
+      <div class="two-col">
+        <select class="plain" id="fld_uv" style="width:100%"><option value="">UV lamp: -</option><option ${a.uvLamp==='POSITIVE'?'selected':''}>POSITIVE</option><option ${a.uvLamp==='NEGATIVE'?'selected':''}>NEGATIVE</option></select>
+        <select class="plain" id="fld_fiv" style="width:100%"><option value="">FIV required: -</option><option ${a.fivTest==='YES'?'selected':''}>YES</option><option ${a.fivTest==='NO'?'selected':''}>NO</option></select>
+      </div>
+      <div style="margin-top:6px"><select class="plain" id="fld_fivresult" style="width:100%"><option value="">FIV result: -</option><option ${a.fivResult==='POSITIVE'?'selected':''}>POSITIVE</option><option ${a.fivResult==='NEGATIVE'?'selected':''}>NEGATIVE</option></select></div>
+      </div>`;
+  }
+
+  h += `<div class="pe-field"><div class="lbl">BCS / VHC</div>
+    <div class="two-col">
+      <div><input class="plain" id="fld_bcs" style="width:100%" value="${esc(a.bcs)}" placeholder="BCS /5"></div>
+      <div><input class="plain" id="fld_vhc" style="width:100%" value="${esc(a.vhc)}" placeholder="VHC /6"></div>
+    </div></div>`;
 
   const problems = computeProblemList(a);
   h += `<div class="pe-field" style="border-top:2px solid var(--line);padding-top:14px">
@@ -877,11 +913,26 @@ function examFormHtml(a){
       <option ${a.pathway.startsWith('Medically NSGS, Medical')?'selected':''}>Medically NSGS, Medical euthanasia recommended</option>
     </select></div>`;
 
-  h += `<div class="two-col">
-    <div><label style="font-size:12px">Waivers</label><br><input class="plain" id="fld_waivers" style="width:100%" value="${esc(a.waivers)}"></div>
-    <div><label style="font-size:12px">Vet chat</label><br>
-      <select class="plain" id="fld_vetchat" style="width:100%"><option value="">-</option><option ${a.vetChat==='YES'?'selected':''}>YES</option><option ${a.vetChat==='NO'?'selected':''}>NO</option></select></div>
-  </div>`;
+  {
+    const autoWaivers = computeAutoWaivers(a);
+    const customWaivers = a.waiversCustom||[];
+    h += `<div class="pe-field"><div class="lbl">Waivers</div>
+      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Auto-suggested from findings above — remove any that don't apply, or add another.</p>`;
+    if(!autoWaivers.length && !customWaivers.length){
+      h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px">None yet.</div>`;
+    }
+    autoWaivers.forEach(w=>{
+      h += `<div class="plan-item"><span>${esc(w.label)}</span><button type="button" class="btn small rust" data-waiverdismiss="${w.id}">Remove</button></div>`;
+    });
+    customWaivers.forEach((w,i)=>{
+      h += `<div class="plan-item"><span>${esc(w)}</span><button type="button" class="btn small rust" data-waivercustomdel="${i}">Remove</button></div>`;
+    });
+    h += `<button type="button" class="btn small secondary" id="addWaiverBtn" style="margin-top:6px">+ Add other waiver</button>
+    </div>`;
+  }
+
+  h += `<div class="pe-field"><div class="lbl">Vet chat</div>
+    <select class="plain" id="fld_vetchat" style="width:100%"><option value="">-</option><option ${a.vetChat==='YES'?'selected':''}>YES</option><option ${a.vetChat==='NO'?'selected':''}>NO</option></select></div>`;
 
   h += `<div class="pe-field"><div class="lbl">Treatments provided</div><input class="plain" id="fld_treatments" style="width:100%" value="${esc(a.treatments)}"></div>`;
 
@@ -889,6 +940,7 @@ function examFormHtml(a){
     <select class="plain" id="fld_nextstep" style="width:100%">
       <option value="">-</option>
       <option ${a.nextStep==='Hold in vet care'?'selected':''}>Hold in vet care</option>
+      <option ${a.nextStep==='Hold in vet care, requesting lead vet review'?'selected':''}>Hold in vet care, requesting lead vet review</option>
       <option ${a.nextStep==='Awaiting triage'?'selected':''}>Awaiting triage</option>
       <option ${a.nextStep==='Awaiting behavioural assessment'?'selected':''}>Awaiting behavioural assessment</option>
       <option ${a.nextStep==='Awaiting spay/neuter'?'selected':''}>Awaiting spay/neuter</option>
@@ -923,7 +975,7 @@ function examFormHtml(a){
       <input class="plain" id="fld_nurse2" style="width:100%" value="${esc(nurseInitEl.value)}" placeholder="Nurse initials" disabled>
     </div></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.done?'Mark not reviewed':'Mark reviewed'}</button></div>`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
 
   return h;
 }
@@ -932,7 +984,7 @@ function bindExamForm(a){
   const body = document.getElementById('examBody');
   const map = {microchip:'fld_microchip',
     behaviour:'fld_behaviour',vhc:'fld_vhc',fivTest:'fld_fiv',
-    pathway:'fld_pathway',waivers:'fld_waivers',vetChat:'fld_vetchat',
+    pathway:'fld_pathway',vetChat:'fld_vetchat',
     treatments:'fld_treatments',nextStep:'fld_nextstep',chillRequired:'fld_chill',
     bloodworkType:'fld_bwtype'};
   Object.keys(map).forEach(k=>{
@@ -1111,6 +1163,27 @@ function bindExamForm(a){
     saveShift();
     openExam(a.id);
   });
+  body.querySelectorAll('[data-waiverdismiss]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.waiversDismissed[btn.dataset.waiverdismiss] = true;
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-waivercustomdel]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.waiversCustom.splice(Number(btn.dataset.waivercustomdel), 1);
+      saveShift(); openExam(a.id);
+    });
+  });
+  const addWaiverBtn = document.getElementById('addWaiverBtn');
+  if(addWaiverBtn) addWaiverBtn.addEventListener('click', ()=>{
+    const text = window.prompt('Waiver condition (e.g. "Luxating patella"):');
+    if(!text) return;
+    a.waiversCustom = a.waiversCustom || [];
+    a.waiversCustom.push(text.trim());
+    saveShift();
+    openExam(a.id);
+  });
   const assessNotesEl = document.getElementById('fld_assessmentNotes');
   if(assessNotesEl) assessNotesEl.addEventListener('change', ()=>{
     a.assessmentNotes = assessNotesEl.value; refreshNote(a); saveShift();
@@ -1118,7 +1191,9 @@ function bindExamForm(a){
 
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
-    a.done = !a.done; saveShift(); openExam(a.id);
+    a.registered = !a.registered;
+    if(a.registered) alert('Saved to register.');
+    saveShift(); openExam(a.id);
   });
 }
 
@@ -1142,8 +1217,14 @@ function computeProblemList(a){
         if(a.heart.gallop) parts.push('Gallop rhythm');
         const title = `Heart: ${parts.join(', ')}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`;
         const ddxKey = a.heart.gallop ? 'gallop' : 'heart';
-        const ddx = (a.assessmentOverrides['heart'] != null) ? a.assessmentOverrides['heart'] : ddxBlurb(ddxKey, a.species);
+        const ddx = (a.assessmentOverrides['heart'] != null) ? a.assessmentOverrides['heart'] : ddxBlurb(ddxKey, a.species, a.heart.grade);
         problems.push({id:'heart', title, ddx, custom:false});
+      }
+      if(heartMurmurTier(a)==='twovet' && !a.assessmentDismissed['heart2vet']){
+        const reason = a.species==='cat' ? `grade ${a.heart.grade}` : 'dog under 1 year old';
+        const ddx = (a.assessmentOverrides['heart2vet'] != null) ? a.assessmentOverrides['heart2vet']
+          : 'Two veterinarians must independently auscultate and confirm the murmur/grade before this animal proceeds further in its pathway.';
+        problems.push({id:'heart2vet', title:`Heart murmur (${reason}) — 2 vets required to confirm`, ddx, custom:false});
       }
       return;
     }
@@ -1187,6 +1268,30 @@ function computeProblemList(a){
     problems.push({id:'pregnant', title:'Pregnant', ddx, custom:false});
   }
   return problems;
+}
+
+/* Waivers a prospective adopter needs disclosed — auto-suggested from
+   exam findings that don't rise to the 2-vet-confirm bar (see
+   heartMurmurTier), plus anything the vet adds manually. Dismissing one
+   here only hides it until the underlying finding changes again (it isn't
+   deleted from history), matching the assessmentDismissed pattern used for
+   the Assessment list above. */
+function computeAutoWaivers(a){
+  const items = [];
+  if(heartMurmurTier(a)==='waiver' && !a.waiversDismissed['heart']){
+    items.push({id:'heart', label:'Heart murmur'});
+  }
+  if(a.dental && a.dental.grade && a.dental.grade!=='0' && !a.waiversDismissed['dental']){
+    const label = ['1','2'].includes(a.dental.grade) ? 'Dental disease (low grade)' : 'Dental disease (high grade)';
+    items.push({id:'dental', label});
+  }
+  if(a.species==='cat' && a.fivResult==='POSITIVE' && !a.waiversDismissed['fiv']){
+    items.push({id:'fiv', label:'FIV'});
+  }
+  return items;
+}
+function allWaiverLabels(a){
+  return computeAutoWaivers(a).map(w=>w.label).concat(a.waiversCustom||[]);
 }
 
 function assembleNote(a){
@@ -1241,7 +1346,8 @@ function assembleNote(a){
   if(a.assessmentNotes && a.assessmentNotes.trim()) L.push(`Additional notes: ${a.assessmentNotes.trim()}`);
   L.push('');
   L.push(`PATHWAY: ${a.pathway||'-'}`);
-  L.push(`WAIVERS: ${a.waivers||'-'}    VET CHAT: ${a.vetChat||'-'}`);
+  const waiverLabels = allWaiverLabels(a);
+  L.push(`WAIVERS: ${waiverLabels.length ? waiverLabels.join(', ') : '-'}    VET CHAT: ${a.vetChat||'-'}`);
   L.push('');
   L.push(`Treatments provided: ${a.treatments||'-'}`);
   L.push(`Next step in pathway: ${a.nextStep||'-'}`);
@@ -1276,9 +1382,10 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
 
 /* ---------- export: Word (.doc) ---------- */
 function buildWordFile(){
-  if(!state.animals.length) return null;
+  const toExport = sortedAnimals().filter(a=>a.registered);
+  if(!toExport.length) return null;
   let body = `<h1 style="font-family:Arial">Processing Notes \u2014 ${esc(todayStr())}</h1>`;
-  sortedAnimals().forEach(a=>{
+  toExport.forEach(a=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
     body += `<div style="page-break-after:always">
       <pre style="font-family:Arial;font-size:11pt;white-space:pre-wrap">${esc(noteText)}</pre>
@@ -1303,7 +1410,7 @@ function showClearReminder(){
 }
 document.getElementById('exportWordBtn').addEventListener('click', ()=>{
   const file = buildWordFile();
-  if(!file){ alert('No animals in the shift list.'); return; }
+  if(!file){ alert('No animals have been registered to Word & Excel yet — click "Register to Word & Excel" on an animal\'s exam first.'); return; }
   downloadFile(file);
   showClearReminder();
 });
