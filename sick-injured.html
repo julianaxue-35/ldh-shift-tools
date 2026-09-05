@@ -408,12 +408,19 @@ function matchPathway(text){
 function parseNoteSections(text){
   text = text || '';
   const dateMatch = text.match(/^\s*Date\s*:\s*(.+)$/im);
+  /* Headers are matched loosely (the full compound wording OR just the
+     first word) since real notes don't reliably use the full "Treatment /
+     Fees:" / "Pathway / Plan / Waivers:" phrasing — a note that just says
+     "Plan:" was previously invisible to this matcher, so everything from
+     "Assessment:" onward (including the plan text and the vet's sign-off
+     initials) was swallowing into the Assessment section instead of being
+     cut off at the right boundary. */
   const headerDefs = [
-    {key:'reasonHistory', re:/Reason\s*\/\s*History\s*:/i},
+    {key:'reasonHistory', re:/Reason(\s*\/\s*History)?\s*:/i},
     {key:'examination', re:/Examination\s*:/i},
     {key:'assessment', re:/Assessment\s*:/i},
-    {key:'treatment', re:/Treatment\s*\/\s*Fees\s*:/i},
-    {key:'pathway', re:/Pathway\s*\/\s*Plan\s*\/\s*Waivers\s*:/i}
+    {key:'treatment', re:/Treatment(\s*\/\s*Fees)?\s*:/i},
+    {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/i}
   ];
   const found = [];
   headerDefs.forEach(h=>{
@@ -448,9 +455,41 @@ function parseNoteSections(text){
   };
 }
 function splitAssessmentLines(text){
-  return (text||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>
+  const rawLines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  /* One problem per line is the convention, but Excel's cell-text wrap can
+     still break a single problem's sentence across two lines mid-word
+     (e.g. "...post major" / "dental site healing well." landing on
+     consecutive lines). Only treat a line as an unfinished, wrapped
+     sentence — and rejoin it with the next line — when BOTH: the line
+     doesn't end in terminal punctuation, AND the next line starts
+     lowercase (wrapped text resumes mid-clause, it doesn't start a new
+     capitalised sentence). Terse-but-complete lines like "Suspected URTI"
+     or "Mild SS noted" don't end in punctuation either, but the next line
+     starting with a capital confirms they're already a whole statement —
+     without that second check this used to swallow separate problems
+     into one. */
+  const merged = [];
+  rawLines.forEach(line=>{
+    const prev = merged.length ? merged[merged.length-1] : null;
+    const prevIncomplete = prev!=null && !/[.!?:;]$/.test(prev);
+    const continuesLowercase = /^[a-z]/.test(line);
+    if(prevIncomplete && continuesLowercase){
+      merged[merged.length-1] = prev + ' ' + line;
+    } else {
+      merged.push(line);
+    }
+  });
+  return merged.map(l=>
     l.replace(/^\(?\d+[.)]\)?\.?\s*/, '').replace(/^[-•]\s*/, '').trim()
   ).filter(Boolean);
+}
+/* Vet sign-off initials (e.g. "ADL") appear as a short standalone token,
+   usually the very last line of the note, after the Plan text — drop them
+   rather than carrying them into the Plan field. */
+function stripTrailingInitials(text){
+  const lines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  while(lines.length && /^[A-Z]{2,5}$/.test(lines[lines.length-1])) lines.pop();
+  return lines.join('\n');
 }
 /* Assessment should only ever be the problem + DDx (e.g. "FURI DDx viral vs
    bacterial") — medication mentions belong in Treatment. Imported consult
@@ -466,7 +505,13 @@ const MEDICATION_KEYWORDS = [
   'meloxicam','metacam',
   'bup','buprenorphine',
   'fentanyl',
-  'mirtaz','mirtazapine'
+  'mirtaz','mirtazapine',
+  'clav','clavulox','amoxyclav','amoxicillin',
+  'lactulose',
+  'ekt','pmp','neptra','osurnia', // ear medications
+  'chlorsig',
+  'drontal','panacur',
+  'trazodone','clonidine','pregabalin','fluoxetine'
 ];
 const MEDICATION_RE = new RegExp('\\b(' + MEDICATION_KEYWORDS.join('|') + ')\\b', 'i');
 function isMedicationLine(text){ return MEDICATION_RE.test(text||''); }
@@ -569,6 +614,8 @@ function addOrMergeFromRecheck(r){
   existing.otherReminders = (existing.otherReminders||[]).concat(r.otherReminders||[]);
   const matchedPathway = matchPathway(sections.pathway);
   if(matchedPathway) existing.pathway = matchedPathway;
+  const importedPlan = stripTrailingInitials(sections.pathway);
+  if(importedPlan && !existing.plan) existing.plan = importedPlan;
 }
 
 /* Adds an AA Flag Log row, merging into an existing animal (matched by ID) if
@@ -820,7 +867,7 @@ function makeAnimal(r){
     currentMed: treatmentText,
     treatment: treatmentText,
     pathway: matchPathway(sections.pathway),
-    plan: '',
+    plan: stripTrailingInitials(sections.pathway),
     planItems: [],
     noteEdited: null,
     registered: false,
