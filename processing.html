@@ -580,6 +580,7 @@ function renderParsedTable(rows){
     return;
   }
   let html = '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns.</div>';
+  html += `<div class="row-actions"><button class="btn" id="confirmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
   html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
@@ -599,7 +600,7 @@ function renderParsedTable(rows){
       rows[el.dataset.i][el.dataset.f] = el.value;
     });
   });
-  document.getElementById('confirmAddBtn').addEventListener('click', ()=>{
+  function confirmAdd(){
     rows.forEach(r=>{
       state.animals.push(makeAnimal(r));
     });
@@ -607,7 +608,9 @@ function renderParsedTable(rows){
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
     wrap.innerHTML = '';
-  });
+  }
+  document.getElementById('confirmAddBtnTop').addEventListener('click', confirmAdd);
+  document.getElementById('confirmAddBtn').addEventListener('click', confirmAdd);
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{

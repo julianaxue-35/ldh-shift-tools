@@ -612,6 +612,7 @@ function renderParsedTable(rows){
     return;
   }
   let html = '<div class="warn">Check ID / Location / Weight / Sex before adding — parsed automatically from the report.</div>';
+  html += `<div class="row-actions"><button class="btn" id="confirmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
   html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
@@ -626,13 +627,15 @@ function renderParsedTable(rows){
   wrap.querySelectorAll('input,select').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
-  document.getElementById('confirmAddBtn').addEventListener('click', ()=>{
+  function confirmAdd(){
     rows.forEach(r=> addOrMergeFromRecheck(r));
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
     wrap.innerHTML = '';
-  });
+  }
+  document.getElementById('confirmAddBtnTop').addEventListener('click', confirmAdd);
+  document.getElementById('confirmAddBtn').addEventListener('click', confirmAdd);
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
@@ -716,6 +719,7 @@ function renderParsedFlagTable(rows){
     return;
   }
   let html = '<div class="warn">Check ID / Location / Problem before adding — matching IDs already in your list will be merged, not duplicated.</div>';
+  html += `<div class="row-actions"><button class="btn" id="confirmFlagAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
   html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
@@ -730,13 +734,15 @@ function renderParsedFlagTable(rows){
   wrap.querySelectorAll('input,select').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
-  document.getElementById('confirmFlagAddBtn').addEventListener('click', ()=>{
+  function confirmFlagAdd(){
     rows.forEach(r=> addOrMergeFromFlag(r));
     saveShift();
     renderShiftList();
     document.getElementById('flagXlsxInput').value = '';
     wrap.innerHTML = '';
-  });
+  }
+  document.getElementById('confirmFlagAddBtnTop').addEventListener('click', confirmFlagAdd);
+  document.getElementById('confirmFlagAddBtn').addEventListener('click', confirmFlagAdd);
 }
 document.getElementById('manualFlagAddBtn').addEventListener('click', ()=>{
   const location = window.prompt('Location (e.g. "Cat Room 1 / 08"):');

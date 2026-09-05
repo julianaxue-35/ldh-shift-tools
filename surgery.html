@@ -993,6 +993,7 @@ function renderParsedSmTable(rows){
     return;
   }
   let html = '<div class="warn">Check every field before adding — this report has no procedure/surgery column, so fill in Procedure manually for each animal.</div>';
+  html += `<div class="row-actions"><button class="btn" id="confirmSmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
   html += '<table class="parsed"><tr><th>ID</th><th>Weight</th><th>Species</th><th>Sex</th><th>Flea Due</th><th>Worm Due</th><th>Vacc Due</th><th>Procedure</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
@@ -1011,7 +1012,7 @@ function renderParsedSmTable(rows){
   wrap.querySelectorAll('input').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
-  document.getElementById('confirmSmAddBtn').addEventListener('click', ()=>{
+  function confirmSmAdd(){
     rows.forEach(r=>{
       const a = normalizeAnimal({animalId:r.animalId, weight:r.weight, species:r.species, sex:r.sex, fleaDueDate:r.fleaDueDate, wormDueDate:r.wormDueDate, vaccDue:r.vaccDue});
       if(r.surgType) a.surgType = r.surgType;
@@ -1021,7 +1022,9 @@ function renderParsedSmTable(rows){
     saveShift(); renderShiftList();
     document.getElementById('smXlsxInput').value = '';
     wrap.innerHTML = '';
-  });
+  }
+  document.getElementById('confirmSmAddBtnTop').addEventListener('click', confirmSmAdd);
+  document.getElementById('confirmSmAddBtn').addEventListener('click', confirmSmAdd);
 }
 
 /* ---------- shift list ---------- */
