@@ -939,6 +939,12 @@ function parseSmExport(aoa){
     const restEmpty = row.every((c,ci)=> ci===idIdx || c==null || c==='');
     if(restEmpty) continue;
     if(normHeader(idVal).startsWith('grand total')) continue;
+    /* The report also repeats its own column-header row at the start of
+       each later species section (e.g. before the Kitten rows) — that row
+       isn't "empty" (every header label is a populated cell), so it needs
+       its own check: skip it if the ID cell itself still matches the ID
+       column's header pattern (i.e. it says "AnimalId", not a real ID). */
+    if(/animal.*id|shelter.*number|sm.*number|tag/.test(normHeader(idVal))) continue;
     const animalId = String(idVal).trim();
     if(!byId.has(animalId)){
       byId.set(animalId, {
