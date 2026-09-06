@@ -235,9 +235,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <!-- EXAM MODAL -->
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
-  <div class="wrap" style="padding-top:16px">
-    <div class="row-actions" style="margin-bottom:10px">
+  <div class="wrap" style="padding-top:0">
+    <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line)">
       <button class="btn secondary" id="closeExamBtn">&larr; Back to list</button>
+      <span id="examProgress" style="font-size:12.5px;color:var(--ink-soft);font-weight:600;white-space:nowrap"></span>
     </div>
     <div class="card">
       <h2 id="examTitle">Exam</h2>
@@ -324,8 +325,92 @@ const DOG_HANDLING_OPTIONS = [
 const UNSAFE_HANDLING = {cat:'Not able to be safely handled', dog:'Showing defensive/offensive aggression, cannot be checked safely'};
 function isUnsafeHandling(a){ return !!a.handling && a.handling === UNSAFE_HANDLING[a.species]; }
 
+/* Full waiver library grouped by category — mirrors the options available in
+   ShelterMate's own Waivers field. Categories relevant to a flagged PE finding
+   are opened automatically (see waiverOpenCategories); nothing is force-ticked
+   except the two deterministic cases in ensureAutoWaivers below, since which
+   specific waiver applies (e.g. which dental tier, which GI cause) is a
+   clinical call only the vet can make. */
+const WAIVER_CATEGORIES = [
+  {key:'cardiac', label:'Cardiac', items:['Innocent Heart Murmur','Heart Disease']},
+  {key:'dental', label:'Dental', items:[
+    'Dental Care Recommended (Dental Work Done)',
+    'Dental Care Recommended (No Surgery)',
+    'Dental Care Recommended (future Surgery Required)',
+    'Dental G1 - Nonsurgical',
+    'Dental G1-2 Minor - Procedure Performed',
+    'Dental G2 - Nonsurgical',
+    'Dental G3-4 - Surgery Performed',
+    'Jaw Conformation (Dental Care Recommended)',
+    'Worn Teeth'
+  ]},
+  {key:'gi', label:'Gastrointestinal / Abdominal', items:[
+    'Giardia - On Treatment','Flutd','Gastrointestinal Infection Waiver','Parvo','Panleukopaenia Exposure','Bladder Issue (recovered)'
+  ]},
+  {key:'skin', label:'Skin / Integument', items:['Skin Conditions','Recovered Ringworm','Ringworm: In Contact']},
+  {key:'eyesEars', label:'Eyes / Ears', items:['Entropion','Ears','Deaf']},
+  {key:'ortho', label:'Musculoskeletal', items:[
+    'Conformation-Musculoskeletal','Luxating Patella(s) - No Surgical Intervention','Luxating Patella(s) - Surgical Intervention','Large Breed Waiver'
+  ]},
+  {key:'feline', label:'Feline infectious / vaccination', items:[
+    'Feline Immunodeficiency Virus','Feline Vaccine Shortage – No Vaccination','Feline Vaccine Shortage – Partial Vaccination'
+  ]},
+  {key:'behaviour', label:'Behavioural', items:[
+    'Behavioural Challenges','Fear Of Dogs','Fear Of Storms/fireworks','Fear Of Unfamiliar People',
+    'Fear Of Vet Handling','Fear Of Vet Handling (cat)','Lead Reactivity','Resource Guarding',
+    'Risk Of Anxiety','Risk Of Predatory Aggression'
+  ]},
+  {key:'general', label:'General / Other', items:[
+    'Age Disclaimer','E-Collar (post Op)','Further Surgical Treatment Required','Grooming',
+    'Happy Tail','Obesity','Palliative','Pre-Existing Condition','Shelter Stress Medication','Other'
+  ]}
+];
+/* Only auto-ADDS a waiver when the finding deterministically implies it
+   (cat innocent murmur, confirmed FIV) — never removes one she's ticked, so
+   unchecking a box is always the way to undo it, same as any other item. */
+function ensureAutoWaivers(a){
+  if(!Array.isArray(a.waiversSelected)) a.waiversSelected = [];
+  const add = label => { if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); };
+  if(heartMurmurTier(a)==='waiver') add('Innocent Heart Murmur');
+  if(a.species==='cat' && a.fivResult==='POSITIVE') add('Feline Immunodeficiency Virus');
+}
+/* Which categories to auto-expand (not auto-select) based on flagged findings
+   elsewhere in the exam, per her rule: abdomen abnormal -> GI causes, skin
+   abnormal -> skin/ringworm, teeth graded -> the dental ladder, etc. */
+function waiverOpenCategories(a){
+  const open = new Set();
+  if(a.nsf.abdomen===false) open.add('gi');
+  if(a.nsf.skin===false) open.add('skin');
+  if(a.nsf.eyes===false || a.nsf.ears===false) open.add('eyesEars');
+  if(a.nsf.ortho===false) open.add('ortho');
+  if(a.dental && a.dental.grade && a.dental.grade!=='0') open.add('dental');
+  if(a.heart && a.heart.murmur) open.add('cardiac');
+  if(a.species==='cat' && (a.fivResult==='POSITIVE' || a.fivTest==='YES')) open.add('feline');
+  return open;
+}
+function allWaiverLabels(a){ return a.waiversSelected||[]; }
+
+/* Backfills any animal record onto the current field shape so a shift saved
+   before a schema change still opens — see the localStorage-schema-migration
+   pattern used across all 3 LDH shift tools. */
+function normalizeAnimal(a){
+  if(!Array.isArray(a.waiversSelected)){
+    const migrated = [];
+    const dismissed = a.waiversDismissed||{};
+    if(a.heart && a.heart.murmur && !dismissed.heart) migrated.push('Innocent Heart Murmur');
+    if(a.dental && a.dental.grade && a.dental.grade!=='0' && !dismissed.dental){
+      migrated.push(['1','2'].includes(a.dental.grade) ? 'Dental Care Recommended (No Surgery)' : 'Dental G3-4 - Surgery Performed');
+    }
+    if(a.species==='cat' && a.fivResult==='POSITIVE' && !dismissed.fiv) migrated.push('Feline Immunodeficiency Virus');
+    if(Array.isArray(a.waiversCustom)) migrated.push(...a.waiversCustom);
+    a.waiversSelected = migrated;
+  }
+  if(a.waiversRequired==null) a.waiversRequired = '';
+  return a;
+}
+
 function loadShift(){
-  try{ return JSON.parse(localStorage.getItem(LS_SHIFT)) || []; }catch(e){ return []; }
+  try{ return (JSON.parse(localStorage.getItem(LS_SHIFT)) || []).map(normalizeAnimal); }catch(e){ return []; }
 }
 function saveShift(){ localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals)); }
 
@@ -686,7 +771,7 @@ function makeAnimal(r){
     assessmentDismissed: {}, // key -> true if that auto problem was deleted
     assessmentNotes: '',      // additional free-text assessment notes
     customProblems: [],       // [{id, title, ddx}]
-    pathway:'', waiversDismissed:{}, waiversCustom:[], vetChat:'',
+    pathway:'', waiversRequired:'', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
     nextStep:'', procedures:'', proceduresOther:'', chillRequired:'',
     bloodwork:'', bloodworkType:'', bloodworkAuto:false,
@@ -807,6 +892,11 @@ function openExam(id){
   const a = state.animals.find(x=>x.id===id);
   document.getElementById('examTitle').textContent =
     `${a.species==='cat'?'Cat':'Dog'} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
+  {
+    const total = state.animals.length;
+    const remaining = state.animals.filter(x=>!x.registered).length;
+    document.getElementById('examProgress').textContent = `${remaining} to go \u00b7 ${total} total`;
+  }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
   refreshNote(a);
@@ -984,21 +1074,44 @@ function examFormHtml(a){
     </select></div>`;
 
   {
-    const autoWaivers = computeAutoWaivers(a);
-    const customWaivers = a.waiversCustom||[];
-    h += `<div class="pe-field"><div class="lbl">Waivers</div>
-      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Auto-suggested from findings above — remove any that don't apply, or add another.</p>`;
-    if(!autoWaivers.length && !customWaivers.length){
-      h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px">None yet.</div>`;
-    }
-    autoWaivers.forEach(w=>{
-      h += `<div class="plan-item"><span>${esc(w.label)}</span><button type="button" class="btn small rust" data-waiverdismiss="${w.id}">Remove</button></div>`;
-    });
-    customWaivers.forEach((w,i)=>{
-      h += `<div class="plan-item"><span>${esc(w)}</span><button type="button" class="btn small rust" data-waivercustomdel="${i}">Remove</button></div>`;
-    });
-    h += `<button type="button" class="btn small secondary" id="addWaiverBtn" style="margin-top:6px">+ Add other waiver</button>
+    ensureAutoWaivers(a);
+    const openCats = waiverOpenCategories(a);
+    const selected = a.waiversSelected;
+    h += `<div class="pe-field"><div class="lbl">Waivers required?</div>
+      <div class="opts">
+        <button type="button" class="opt-btn ${a.waiversRequired!=='NO'?'selected':''}" data-waiversreq="YES">Yes</button>
+        <button type="button" class="opt-btn ${a.waiversRequired==='NO'?'selected':''}" data-waiversreq="NO">No</button>
+      </div>
     </div>`;
+    if(a.waiversRequired!=='NO'){
+      h += `<div class="pe-field"><div class="lbl">Waivers</div>`;
+      if(selected.length){
+        h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">`;
+        selected.forEach((label,i)=>{
+          h += `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper-2);border-radius:20px;padding:4px 6px 4px 12px;font-size:12px">${esc(label)}<button type="button" data-waiverremove="${i}" style="border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:14px;line-height:1;padding:0 4px">&times;</button></span>`;
+        });
+        h += `</div>`;
+      } else {
+        h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">None selected yet.</div>`;
+      }
+      h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
+      WAIVER_CATEGORIES.forEach(cat=>{
+        h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
+          <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
+          <div style="padding:4px 0 6px 4px">`;
+        cat.items.forEach(item=>{
+          h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
+            <input type="checkbox" data-waiveritem="${esc(item)}" ${selected.includes(item)?'checked':''}> ${esc(item)}
+          </label>`;
+        });
+        h += `</div></details>`;
+      });
+      h += `<div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" class="plain" id="waiverCustomInput" placeholder="Other waiver not listed..." style="flex:1">
+        <button type="button" class="btn small secondary" id="addWaiverBtn">Add</button>
+      </div>
+      </div>`;
+    }
   }
 
   h += `<div class="pe-field"><div class="lbl">Vet chat</div>
@@ -1252,24 +1365,32 @@ function bindExamForm(a){
     saveShift();
     openExam(a.id);
   });
-  body.querySelectorAll('[data-waiverdismiss]').forEach(btn=>{
+  body.querySelectorAll('[data-waiversreq]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      a.waiversDismissed[btn.dataset.waiverdismiss] = true;
+      a.waiversRequired = btn.dataset.waiversreq;
       saveShift(); openExam(a.id);
     });
   });
-  body.querySelectorAll('[data-waivercustomdel]').forEach(btn=>{
+  body.querySelectorAll('[data-waiveritem]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      const label = cb.dataset.waiveritem;
+      if(cb.checked){ if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); }
+      else { a.waiversSelected = a.waiversSelected.filter(x=>x!==label); }
+      saveShift(); refreshNote(a);
+    });
+  });
+  body.querySelectorAll('[data-waiverremove]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      a.waiversCustom.splice(Number(btn.dataset.waivercustomdel), 1);
+      a.waiversSelected.splice(Number(btn.dataset.waiverremove), 1);
       saveShift(); openExam(a.id);
     });
   });
   const addWaiverBtn = document.getElementById('addWaiverBtn');
   if(addWaiverBtn) addWaiverBtn.addEventListener('click', ()=>{
-    const text = window.prompt('Waiver condition (e.g. "Luxating patella"):');
+    const input = document.getElementById('waiverCustomInput');
+    const text = (input.value||'').trim();
     if(!text) return;
-    a.waiversCustom = a.waiversCustom || [];
-    a.waiversCustom.push(text.trim());
+    if(!a.waiversSelected.includes(text)) a.waiversSelected.push(text);
     saveShift();
     openExam(a.id);
   });
@@ -1364,29 +1485,6 @@ function computeProblemList(a){
   return problems;
 }
 
-/* Waivers a prospective adopter needs disclosed — auto-suggested from
-   exam findings that don't rise to the 2-vet-confirm bar (see
-   heartMurmurTier), plus anything the vet adds manually. Dismissing one
-   here only hides it until the underlying finding changes again (it isn't
-   deleted from history), matching the assessmentDismissed pattern used for
-   the Assessment list above. */
-function computeAutoWaivers(a){
-  const items = [];
-  if(heartMurmurTier(a)==='waiver' && !a.waiversDismissed['heart']){
-    items.push({id:'heart', label:'Heart murmur'});
-  }
-  if(a.dental && a.dental.grade && a.dental.grade!=='0' && !a.waiversDismissed['dental']){
-    const label = ['1','2'].includes(a.dental.grade) ? 'Dental disease (low grade)' : 'Dental disease (high grade)';
-    items.push({id:'dental', label});
-  }
-  if(a.species==='cat' && a.fivResult==='POSITIVE' && !a.waiversDismissed['fiv']){
-    items.push({id:'fiv', label:'FIV'});
-  }
-  return items;
-}
-function allWaiverLabels(a){
-  return computeAutoWaivers(a).map(w=>w.label).concat(a.waiversCustom||[]);
-}
 
 function assembleNote(a){
   const fields = peFields(a.species);
@@ -1443,6 +1541,7 @@ function assembleNote(a){
   L.push('');
   L.push(`PATHWAY: ${a.pathway||'-'}`);
   const waiverLabels = allWaiverLabels(a);
+  L.push(`WAIVERS REQUIRED: ${a.waiversRequired==='NO'?'No':'Yes'}`);
   L.push(`WAIVERS: ${waiverLabels.length ? waiverLabels.join(', ') : '-'}    VET CHAT: ${a.vetChat||'-'}`);
   L.push('');
   L.push(`Treatments provided: ${a.treatments||'-'}`);

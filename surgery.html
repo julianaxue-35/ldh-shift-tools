@@ -288,9 +288,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <!-- EXAM MODAL -->
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
-  <div class="wrap" style="padding-top:16px">
-    <div class="row-actions" style="margin-bottom:10px">
+  <div class="wrap" style="padding-top:0">
+    <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line)">
       <button class="btn secondary" id="closeExamBtn">&larr; Back to list</button>
+      <span id="examProgress" style="font-size:12.5px;color:var(--ink-soft);font-weight:600;white-space:nowrap"></span>
     </div>
     <div class="card">
       <h2 id="examTitle">Exam</h2>
@@ -419,6 +420,9 @@ function normalizeAnimal(a){
     hcNextStep:'Physical exam at surgery',
     hcProcedures:'Determine at surgery',
     hcVhc:'',
+    hcNsf:{eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true},
+    hcNotes:{}, hcDental:{grade:'0', desc:''},
+    waiversRequired:'', waiversSelected:[],
     premedType:'standard', premedOther:'', dogPremedMl:'', dogPremedRoute:'IM',
     surgType:'spey', surgStart:'', surgEnd:'', surgNotes:'',
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
@@ -441,6 +445,88 @@ function normalizeAnimal(a){
   if(!a.id) a.id = uid();
   return a;
 }
+/* Full body-system checklist for the "Health check under GA" exam — same
+   NSF/notes pattern as Processing's peFields, minus Heart (already covered
+   by the Cardiac auscultation section above) since this block only runs for
+   animals whose full PE was deferred to time of surgery. */
+const HC_PE_FIELDS = [
+  {key:'eyes', label:'Eyes'},
+  {key:'nose', label:'Nose'},
+  {key:'ears', label:'Ears'},
+  {key:'teeth', label:'Teeth', special:'teeth'},
+  {key:'skin', label:'Skin'},
+  {key:'lungs', label:'Lungs'},
+  {key:'abdomen', label:'Abdomen'},
+  {key:'ortho', label:'Ortho'},
+  {key:'neuro', label:'Neurological'}
+];
+/* Full waiver library grouped by category — mirrors the options available in
+   ShelterMate's own Waivers field. Categories relevant to a flagged PE finding
+   (below, or the Cardiac auscultation section above) are opened automatically;
+   nothing is force-ticked except the one deterministic case in
+   ensureAutoWaivers, since which specific waiver applies is a clinical call. */
+const WAIVER_CATEGORIES = [
+  {key:'cardiac', label:'Cardiac', items:['Innocent Heart Murmur','Heart Disease']},
+  {key:'dental', label:'Dental', items:[
+    'Dental Care Recommended (Dental Work Done)',
+    'Dental Care Recommended (No Surgery)',
+    'Dental Care Recommended (future Surgery Required)',
+    'Dental G1 - Nonsurgical',
+    'Dental G1-2 Minor - Procedure Performed',
+    'Dental G2 - Nonsurgical',
+    'Dental G3-4 - Surgery Performed',
+    'Jaw Conformation (Dental Care Recommended)',
+    'Worn Teeth'
+  ]},
+  {key:'gi', label:'Gastrointestinal / Abdominal', items:[
+    'Giardia - On Treatment','Flutd','Gastrointestinal Infection Waiver','Parvo','Panleukopaenia Exposure','Bladder Issue (recovered)'
+  ]},
+  {key:'skin', label:'Skin / Integument', items:['Skin Conditions','Recovered Ringworm','Ringworm: In Contact']},
+  {key:'eyesEars', label:'Eyes / Ears', items:['Entropion','Ears','Deaf']},
+  {key:'ortho', label:'Musculoskeletal', items:[
+    'Conformation-Musculoskeletal','Luxating Patella(s) - No Surgical Intervention','Luxating Patella(s) - Surgical Intervention','Large Breed Waiver'
+  ]},
+  {key:'feline', label:'Feline infectious / vaccination', items:[
+    'Feline Immunodeficiency Virus','Feline Vaccine Shortage – No Vaccination','Feline Vaccine Shortage – Partial Vaccination'
+  ]},
+  {key:'behaviour', label:'Behavioural', items:[
+    'Behavioural Challenges','Fear Of Dogs','Fear Of Storms/fireworks','Fear Of Unfamiliar People',
+    'Fear Of Vet Handling','Fear Of Vet Handling (cat)','Lead Reactivity','Resource Guarding',
+    'Risk Of Anxiety','Risk Of Predatory Aggression'
+  ]},
+  {key:'general', label:'General / Other', items:[
+    'Age Disclaimer','E-Collar (post Op)','Further Surgical Treatment Required','Grooming',
+    'Happy Tail','Obesity','Palliative','Pre-Existing Condition','Shelter Stress Medication','Other'
+  ]}
+];
+/* Cardiac auscultation above only records a bare grade '1'-'6' (not the
+   'x/6' string Processing uses) — cat grade 1-2 is an innocent murmur
+   (waiver-level), 3+ or a dog murmur is left for manual pick since it may
+   need a 2-vet confirm rather than a waiver. */
+function caMurmurTier(a){
+  if(!a.caMurmur) return null;
+  if(a.species==='cat'){
+    if(['1','2'].includes(a.caMurmurGrade)) return 'waiver';
+    return 'review';
+  }
+  return 'review';
+}
+function ensureAutoWaivers(a){
+  if(!Array.isArray(a.waiversSelected)) a.waiversSelected = [];
+  const add = label => { if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); };
+  if(caMurmurTier(a)==='waiver') add('Innocent Heart Murmur');
+}
+function waiverOpenCategories(a){
+  const open = new Set();
+  if(a.hcNsf.abdomen===false) open.add('gi');
+  if(a.hcNsf.skin===false) open.add('skin');
+  if(a.hcNsf.eyes===false || a.hcNsf.ears===false) open.add('eyesEars');
+  if(a.hcNsf.ortho===false) open.add('ortho');
+  if(a.hcDental && a.hcDental.grade && a.hcDental.grade!=='0') open.add('dental');
+  if(a.caMurmur) open.add('cardiac');
+  return open;
+}
+
 function loadShift(){
   try{ const arr = JSON.parse(localStorage.getItem(LS_SHIFT)) || []; return arr.map(normalizeAnimal); }catch(e){ return []; }
 }
@@ -1152,6 +1238,11 @@ function openExam(id){
   state.openId = id;
   showTab('exam');
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType)}`;
+  {
+    const total = state.animals.length;
+    const remaining = state.animals.filter(x=>!x.registered).length;
+    document.getElementById('examProgress').textContent = `${remaining} to go · ${total} total`;
+  }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
   refreshNote(a);
@@ -1241,11 +1332,33 @@ function examFormHtml(a){
     </div>
   </div>`;
   if(a.hcPerformed){
-    h += `<div class="pe-field"><div class="lbl">CAT PHYSICAL EXAM at SX</div>
+    h += `<div class="pe-field"><div class="lbl">${a.species==='dog'?'DOG':'CAT'} PHYSICAL EXAM at SX</div>
       <label style="font-size:12px">Behaviour observed</label><br>
       <textarea class="free-input" id="fld_hcBehaviour">${esc(a.hcBehaviour||'')}</textarea>
+    </div>`;
+    HC_PE_FIELDS.forEach(f=>{
+      if(f.special==='teeth'){
+        h += `<div class="pe-field">
+          <div class="lbl">Teeth</div>
+          <div class="opts">`;
+        ['0','1','2','3','4'].forEach(g=>{
+          h += `<button type="button" class="opt-btn ${a.hcDental.grade===g?'selected':''}" data-hcdentalgrade="${g}">${g}</button>`;
+        });
+        h += `</div>
+          <textarea class="free-input" id="hcDentalDesc" placeholder="Description (optional)...">${esc(a.hcDental.desc)}</textarea>
+        </div>`;
+        return;
+      }
+      const isNsf = a.hcNsf[f.key] !== false;
+      h += `<div class="pe-field">
+        <div class="lbl">${f.label}</div>
+        <button type="button" class="opt-btn ${isNsf?'selected':''}" data-hcnsfkey="${f.key}">NSF</button>
+        <textarea class="free-input" data-hcnoteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.hcNotes[f.key]||'')}</textarea>
+      </div>`;
+    });
+    h += `<div class="pe-field">
       <div style="margin-top:8px"><label style="font-size:12px">Desexing status if known</label><br><input class="plain" id="fld_hcDesexKnown" value="${esc(a.hcDesexKnown||'')}" style="width:100%"></div>
-      <div style="margin-top:8px"><label style="font-size:12px">Waivers</label><br><input class="plain" id="fld_hcWaivers" value="${esc(a.hcWaivers||'')}" style="width:100%"></div>
+      <div style="margin-top:8px"><label style="font-size:12px">Waivers (reference — full waiver list is in Pathway/Discharge below)</label><br><input class="plain" id="fld_hcWaivers" value="${esc(a.hcWaivers||'')}" style="width:100%"></div>
       <div style="margin-top:8px"><label style="font-size:12px">Treatments</label><br><input class="plain" id="fld_hcTreatments" value="${esc(a.hcTreatments||'')}" style="width:100%"></div>
       <div style="margin-top:8px"><label style="font-size:12px">Next step in pathway</label><br><input class="plain" id="fld_hcNextStep" value="${esc(a.hcNextStep||'')}" style="width:100%"></div>
       <div style="margin-top:8px"><label style="font-size:12px">Procedures required</label><br><input class="plain" id="fld_hcProcedures" value="${esc(a.hcProcedures||'')}" style="width:100%"></div>
@@ -1486,12 +1599,51 @@ function examFormHtml(a){
     ${a.rehomingPathway==='not-suitable' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason</label><br><input class="plain" id="fld_notSuitableReason" value="${esc(a.notSuitableReason||'')}" style="width:100%"></div>` : ''}
   </div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Paperwork by (usually the surgery nurse on the day)</label><br><input class="plain" id="fld_paperworkBy" value="${esc(a.paperworkBy||'')}" placeholder="Surgery nurse initials" style="width:100%"></div>`;
-  h += `<div class="pe-field"><div class="lbl">Does this animal need a vet chat at adoptions?</div>
+  {
+    ensureAutoWaivers(a);
+    const openCats = waiverOpenCategories(a);
+    const selected = a.waiversSelected;
+    h += `<div class="pe-field"><div class="lbl">Waivers required?</div>
+      <div class="opts">
+        <button type="button" class="opt-btn ${a.waiversRequired!=='NO'?'selected':''}" data-waiversreq="YES">Yes</button>
+        <button type="button" class="opt-btn ${a.waiversRequired==='NO'?'selected':''}" data-waiversreq="NO">No</button>
+      </div>
+    </div>`;
+    if(a.waiversRequired!=='NO'){
+      h += `<div class="pe-field"><div class="lbl">Waivers</div>`;
+      if(selected.length){
+        h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">`;
+        selected.forEach((label,i)=>{
+          h += `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper-2);border-radius:20px;padding:4px 6px 4px 12px;font-size:12px">${esc(label)}<button type="button" data-waiverremove="${i}" style="border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:14px;line-height:1;padding:0 4px">&times;</button></span>`;
+        });
+        h += `</div>`;
+      } else {
+        h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">None selected yet.</div>`;
+      }
+      h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
+      WAIVER_CATEGORIES.forEach(cat=>{
+        h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
+          <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
+          <div style="padding:4px 0 6px 4px">`;
+        cat.items.forEach(item=>{
+          h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
+            <input type="checkbox" data-waiveritem="${esc(item)}" ${selected.includes(item)?'checked':''}> ${esc(item)}
+          </label>`;
+        });
+        h += `</div></details>`;
+      });
+      h += `<div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" class="plain" id="waiverCustomInput" placeholder="Other waiver not listed..." style="flex:1">
+        <button type="button" class="btn small secondary" id="addWaiverBtn">Add</button>
+      </div>
+      </div>`;
+    }
+  }
+  h += `<div class="pe-field"><div class="lbl">Vet chat needed?</div>
     <div class="opts">
       <button type="button" class="opt-btn ${a.vetChatNeeded==='YES'?'selected':''}" data-vetchat="YES">Yes</button>
-      <button type="button" class="opt-btn ${a.vetChatNeeded==='NO'?'selected abn':''}" data-vetchat="NO">No</button>
+      <button type="button" class="opt-btn ${a.vetChatNeeded==='NO'?'selected':''}" data-vetchat="NO">No</button>
     </div>
-    ${a.vetChatNeeded==='NO' ? `<div style="margin-top:8px"><label style="font-size:12px">Vet to write a list of indemnities</label><br><textarea class="free-input" id="fld_indemnitiesList">${esc(a.indemnitiesList||'')}</textarea></div>` : ''}
   </div>`;
   h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>
     <select class="plain" id="fld_pathway" style="width:100%">
@@ -1534,6 +1686,29 @@ function bindExamForm(a){
   bindChange('fld_hcWaivers','hcWaivers');
   bindChange('fld_hcTreatments','hcTreatments'); bindChange('fld_hcNextStep','hcNextStep'); bindChange('fld_hcProcedures','hcProcedures');
   bindChange('fld_hcVhc','hcVhc');
+  body.querySelectorAll('[data-hcnsfkey]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.dataset.hcnsfkey;
+      a.hcNsf[key] = !(a.hcNsf[key] !== false);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-hcnoteskey]').forEach(ta=>{
+    ta.addEventListener('change', ()=>{
+      a.hcNotes[ta.dataset.hcnoteskey] = ta.value;
+      saveShift(); refreshNote(a);
+    });
+  });
+  body.querySelectorAll('[data-hcdentalgrade]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.hcDental.grade = btn.dataset.hcdentalgrade;
+      saveShift(); openExam(a.id);
+    });
+  });
+  const hcDentalDescEl = document.getElementById('hcDentalDesc');
+  if(hcDentalDescEl) hcDentalDescEl.addEventListener('change', ()=>{
+    a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
+  });
   bindChange('fld_microchipNum','microchipNum'); bindChange('fld_vaccType','vaccType');
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes');
@@ -1541,7 +1716,35 @@ function bindExamForm(a){
   bindChange('fld_tempPost','tempPost'); bindChange('fld_mmPost','mmPost'); bindChange('fld_crtPost','crtPost');
   bindChange('fld_recoveryNotes','recoveryNotes');
   bindChange('fld_notSuitableReason','notSuitableReason'); bindChange('fld_paperworkBy','paperworkBy');
-  bindChange('fld_indemnitiesList','indemnitiesList');
+  body.querySelectorAll('[data-waiversreq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.waiversRequired = btn.dataset.waiversreq;
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-waiveritem]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      const label = cb.dataset.waiveritem;
+      if(cb.checked){ if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); }
+      else { a.waiversSelected = a.waiversSelected.filter(x=>x!==label); }
+      saveShift(); refreshNote(a);
+    });
+  });
+  body.querySelectorAll('[data-waiverremove]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.waiversSelected.splice(Number(btn.dataset.waiverremove), 1);
+      saveShift(); openExam(a.id);
+    });
+  });
+  const addWaiverBtn = document.getElementById('addWaiverBtn');
+  if(addWaiverBtn) addWaiverBtn.addEventListener('click', ()=>{
+    const input = document.getElementById('waiverCustomInput');
+    const text = (input.value||'').trim();
+    if(!text) return;
+    if(!a.waiversSelected.includes(text)) a.waiversSelected.push(text);
+    saveShift();
+    openExam(a.id);
+  });
   const pathwayEl = document.getElementById('fld_pathway');
   if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });
   bindChange('fld_cryptoLocLeft','cryptoLocLeft'); bindChange('fld_cryptoLocRight','cryptoLocRight');
@@ -1730,9 +1933,17 @@ function assembleNote(a){
   L.push(`Health check required under GA: ${a.hcPerformed ? 'Yes' : 'No'}`);
   if(a.hcPerformed){
     L.push('');
-    L.push('CAT PHYSICAL EXAM at SX');
+    L.push(`${a.species==='dog'?'DOG':'CAT'} PHYSICAL EXAM at SX`);
     L.push('');
     L.push(`Behaviour observed: ${a.hcBehaviour&&a.hcBehaviour.trim() ? a.hcBehaviour.trim() : '-'}`);
+    HC_PE_FIELDS.forEach(f=>{
+      if(f.special==='teeth'){
+        L.push(`Teeth: Grade ${a.hcDental.grade}${a.hcDental.desc&&a.hcDental.desc.trim() ? ' — '+a.hcDental.desc.trim() : ''}`);
+        return;
+      }
+      const isNsf = a.hcNsf[f.key] !== false;
+      L.push(`${f.label}: ${isNsf ? 'NSF' : (a.hcNotes[f.key]&&a.hcNotes[f.key].trim() ? a.hcNotes[f.key].trim() : 'Abnormal — no further detail recorded')}`);
+    });
     L.push('');
     L.push(`Gender: ${a.sex||'-'}`);
     L.push(`Desexing Status if known: ${a.hcDesexKnown||'-'}`);
@@ -1825,8 +2036,9 @@ function assembleNote(a){
   else L.push('-');
   L.push('');
   L.push(`Paperwork by: ${a.paperworkBy||'-'}`);
-  L.push(`Does this animal need a vet chat at adoptions? ${a.vetChatNeeded||'-'}`);
-  if(a.vetChatNeeded==='NO') L.push(`Indemnities: ${a.indemnitiesList&&a.indemnitiesList.trim() ? a.indemnitiesList.trim() : '-'}`);
+  L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
+  L.push(`Waivers: ${a.waiversSelected.length ? a.waiversSelected.join(', ') : '-'}`);
+  L.push(`Vet chat needed? ${a.vetChatNeeded||'-'}`);
   if(a.pathway) L.push(`Pathway (admin status): ${a.pathway}`);
   if(a.planItems && a.planItems.length){
     L.push('');

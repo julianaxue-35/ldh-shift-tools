@@ -249,9 +249,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <!-- EXAM MODAL -->
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
-  <div class="wrap" style="padding-top:16px">
-    <div class="row-actions" style="margin-bottom:10px">
+  <div class="wrap" style="padding-top:0">
+    <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line)">
       <button class="btn secondary" id="closeExamBtn">&larr; Back to list</button>
+      <span id="examProgress" style="font-size:12.5px;color:var(--ink-soft);font-weight:600;white-space:nowrap"></span>
     </div>
     <div class="card">
       <h2 id="examTitle">Exam</h2>
@@ -1037,6 +1038,11 @@ function openExam(id){
   state.openId = id;
   showTab('exam');
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${a.location||'no location'}`;
+  {
+    const total = state.animals.length;
+    const remaining = state.animals.filter(x=>!x.registered).length;
+    document.getElementById('examProgress').textContent = `${remaining} to go · ${total} total`;
+  }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
   refreshNote(a);
