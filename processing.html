@@ -931,7 +931,11 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
 function examFormHtml(a){
   const fields = peFields(a.species);
   let h = '';
-  h += `<div><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
+  h += `<div class="two-col">
+    <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%${!a.animalId?';border-color:var(--amber)':''}" placeholder="e.g. 1174501"></div>
+    <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. Cat Room 1 / 01"></div>
+  </div>
+  <div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
   <div class="two-col" style="margin-top:8px">
     <div><label style="font-size:12px">Sex</label><br>
       <select class="plain" id="fld_sex" style="width:100%">
@@ -1195,6 +1199,15 @@ function bindExamForm(a){
     el.addEventListener('change', ()=>{ a[k]=el.value; refreshNote(a); saveShift(); });
     el.addEventListener('input', ()=>{ a[k]=el.value; });
   });
+  const animalIdEl = document.getElementById('fld_animalid');
+  if(animalIdEl) animalIdEl.addEventListener('change', ()=>{
+    a.animalId = animalIdEl.value.trim(); saveShift(); openExam(a.id);
+  });
+  const locationEl = document.getElementById('fld_location');
+  if(locationEl) locationEl.addEventListener('change', ()=>{
+    a.location = locationEl.value.trim(); refreshNote(a); saveShift();
+  });
+
   const chipEl = document.getElementById('fld_microchip');
   if(chipEl) chipEl.addEventListener('change', ()=>{
     a.microchip = chipEl.value; refreshNote(a); saveShift(); openExam(a.id);
