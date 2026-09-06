@@ -658,6 +658,20 @@ function matchSexCode(v){
   return '';
 }
 
+/* Some exports section by bare species word ("Cat"/"Dog"), others section by
+   location ("Cranbourne Cat Room 1", "Cranbourne Pound 2") — the latter never
+   matches SPECIES_SECTION_WORDS so currentSpecies stayed null forever and
+   every row got silently dropped. Guess species per-row from its own
+   location text first (most reliable, always present), and only fall back
+   to the section header's species when the location text is ambiguous
+   (e.g. "Isolation", "Vet Clinic"). */
+function speciesFromLocation(loc){
+  const l = (loc||'').toLowerCase();
+  if(/\b(cat|feline|kitten)\b/.test(l)) return 'cat';
+  if(/\b(pound|dog|puppy|canine)\b/.test(l)) return 'dog';
+  return '';
+}
+
 function parseInCareInventory(aoa){
   const rows = [];
   let colMap = null;
@@ -668,9 +682,10 @@ function parseInCareInventory(aoa){
     const first = normHeader(row[0]);
     const restEmpty = row.slice(1).every(c=> c===null || c==='' );
 
-    // section header: single word like "Cat" / "Kitten" / "Dog" / "Puppy"
-    if(SPECIES_SECTION_WORDS[first] && restEmpty){
-      currentSpecies = SPECIES_SECTION_WORDS[first];
+    // section header: single word like "Cat" / "Kitten" / "Dog" / "Puppy",
+    // or a location-based header like "Cranbourne Cat Room 1"
+    if(restEmpty && (SPECIES_SECTION_WORDS[first] || speciesFromLocation(first))){
+      currentSpecies = SPECIES_SECTION_WORDS[first] || speciesFromLocation(first);
       colMap = null; // header row for this section comes next
       return;
     }
@@ -684,17 +699,18 @@ function parseInCareInventory(aoa){
       return;
     }
     // subtotal row (just a number in col 0, rest empty) or grand total row
-    if(!colMap || currentSpecies===null) return;
+    if(!colMap) return;
     if(/^\d+$/.test(first) && restEmpty) return;
     if(first.startsWith('grand total')) return;
     if(row[colMap['animalid']]==null || row[colMap['animalid']]==='') return;
 
     const ageYears = parseAgeToYears(row[colMap['age']]);
+    const location = String(row[colMap['shelter loc. / kennel']] ?? '');
     rows.push({
       animalId: String(row[colMap['animalid']] ?? ''),
-      location: String(row[colMap['shelter loc. / kennel']] ?? ''),
+      location,
       dueDate: fmtExcelDate(row[colMap['due date out']]),
-      species: currentSpecies,
+      species: speciesFromLocation(location) || currentSpecies || '',
       ageYears,
       sex: matchSexCode(row[colMap['sex']])
     });
