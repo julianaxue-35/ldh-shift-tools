@@ -413,7 +413,7 @@ function parseNoteSections(text){
     {key:'reasonHistory', re:/Reason(\s*\/\s*History)?\s*:/i},
     {key:'examination', re:/Examination\s*:/i},
     {key:'assessment', re:/Assessment\s*:/i},
-    {key:'treatment', re:/Treatment(\s*\/\s*Fees)?\s*:/i},
+    {key:'treatment', re:/(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/i},
     {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/i}
   ];
   const found = [];
