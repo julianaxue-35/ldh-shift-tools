@@ -429,7 +429,7 @@ function normalizeAnimal(a){
     scLayer:false, isoNotes:'',
     buprenorphineRoute:'SC', tempPost:'', mmPost:'Pink', crtPost:'<2s', recoveryNotes:'',
     meloxOral:false, meloxTiming:'AM',
-    microchipNum:'', vaccType:'', ivcGauge:'22G', alfaxPreMl:'', alfaxIntraMl:'',
+    microchipNum:'', ivcGauge:'22G', alfaxPreMl:'', alfaxIntraMl:'',
     rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
     pathway:'',
     noteEdited:null, registered:false
@@ -580,12 +580,52 @@ function resolvedMeloxTiming(a){
   }
   return a.meloxTiming;
 }
+/* Start date is tomorrow (send-home meds start the day after surgery), then
+   the recheck lands `days` after that — matches her worked example: surgery
+   6/9, oral starts 7/9, 4-day course -> recheck 11/9 (7/9 + 4 days). */
+function meloxRecheckDateISO(a){
+  const days = meloxOralDurationDays(a.species, a.surgType);
+  const d = new Date();
+  d.setDate(d.getDate() + 1 + days);
+  return d.toISOString().slice(0,10);
+}
+/* Keeps one auto-managed row in the Medication/recheck list in sync with the
+   oral meloxicam toggle, so the recheck date doesn't need typing in by hand.
+   Only touches a row it created itself (autoMelox flag) — editing the
+   med name or recheck date by hand (see data-medname/data-recheckdate
+   handlers) clears that flag so a manual override sticks instead of being
+   overwritten on the next render. */
+function syncMeloxPlanItem(a){
+  if(!Array.isArray(a.planItems)) a.planItems = [];
+  const idx = a.planItems.findIndex(pi=>pi.autoMelox);
+  let changed = false;
+  const val = a.meloxOral ? meloxOralDoseVal(a.weight, a.species) : null;
+  const timing = a.meloxOral ? resolvedMeloxTiming(a) : '';
+  if(a.meloxOral && val!=null && timing){
+    const days = meloxOralDurationDays(a.species, a.surgType);
+    const medName = `Meloxicam oral suspension — ${val}mL ${timing} once daily for ${days} days`;
+    const recheckDate = meloxRecheckDateISO(a);
+    if(idx===-1){
+      a.planItems.push({id:uid(), medName, recheckDate, autoMelox:true});
+      changed = true;
+    } else if(a.planItems[idx].medName!==medName || a.planItems[idx].recheckDate!==recheckDate){
+      a.planItems[idx].medName = medName;
+      a.planItems[idx].recheckDate = recheckDate;
+      changed = true;
+    }
+  } else if(idx!==-1){
+    a.planItems.splice(idx,1);
+    changed = true;
+  }
+  if(changed) saveShift();
+}
 function dogPremedRange(w){
   w = parseFloat(w);
   if(!w || w<=0 || isNaN(w)) return null;
   return { lo:+(w*0.075).toFixed(2), hi:+(w*0.1).toFixed(2) };
 }
 function tickSub(a, key){
+  if(key==='vacc') return 'Tricat F3';
   const d = calcDoses(a.weight);
   if(!d) return '';
   const meloxSC = meloxSCDose(a.weight, a.species, a.meloxOral);
@@ -913,17 +953,19 @@ function tickHtml(a, def){
   </div>`;
 }
 function vitalsRowHtml(v){
+  const spo2Mode = v.spo2Mode || (v.spo2 && v.spo2!=='>98%' ? 'other' : 'default');
   return `<tr data-vitalid="${v.id}">
     <td data-label="Time"><input type="text" class="plain" data-vfield="time" data-vid="${v.id}" value="${esc(v.time)}" style="width:60px"></td>
     <td data-label="HR"><input type="number" class="plain" data-vfield="hr" data-vid="${v.id}" value="${esc(v.hr)}" style="width:50px"></td>
     <td data-label="RR"><input type="number" class="plain" data-vfield="rr" data-vid="${v.id}" value="${esc(v.rr)}" style="width:44px"></td>
-    <td data-label="SpO2"><input type="text" class="plain" data-vfield="spo2" data-vid="${v.id}" value="${esc(v.spo2)}" style="width:60px"></td>
+    <td data-label="SpO2">
+      <select class="plain" data-vfield="spo2mode" data-vid="${v.id}" style="width:100%">
+        <option value="default" ${spo2Mode==='default'?'selected':''}>&gt;98%</option>
+        <option value="other" ${spo2Mode==='other'?'selected':''}>Other</option>
+      </select>
+      ${spo2Mode==='other' ? `<input type="text" class="plain" data-vfield="spo2" data-vid="${v.id}" value="${esc(v.spo2==='>98%'?'':v.spo2)}" placeholder="e.g. 94%" style="width:100%;margin-top:4px">` : ''}
+    </td>
     <td data-label="BP"><input type="text" class="plain" data-vfield="bp" data-vid="${v.id}" value="${esc(v.bp)}" placeholder="sys/dia MAP" style="width:100px"></td>
-    <td data-label="Depth"><select class="plain" data-vfield="depth" data-vid="${v.id}" style="width:100px">
-      <option value="light" ${v.depth==='light'?'selected':''}>Light</option>
-      <option value="surgical" ${v.depth==='surgical'?'selected':''}>Surgical</option>
-      <option value="deep" ${v.depth==='deep'?'selected':''}>Deep</option>
-    </select></td>
     <td data-label=""><button type="button" class="btn small rust" data-delvital="${v.id}" aria-label="Remove reading" title="Remove reading">×</button></td>
   </tr>`;
 }
@@ -1261,6 +1303,7 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
 });
 
 function examFormHtml(a){
+  syncMeloxPlanItem(a);
   let h = '';
   h += `<div class="two-col">
     <div><label style="font-size:12px">Patient ID / Tag</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
@@ -1438,9 +1481,6 @@ function examFormHtml(a){
       </div>
     </div>`;
   }
-  if(a.ticks['vacc'] && a.ticks['vacc'].done){
-    h += `<div class="pe-field"><label style="font-size:12px">Vaccination type</label><br><input class="plain" id="fld_vaccType" value="${esc(a.vaccType||'')}" placeholder="e.g. F3" style="width:100%"></div>`;
-  }
   if(a.ticks['ivc'] && a.ticks['ivc'].done){
     h += `<div class="pe-field"><label style="font-size:12px">IV catheter gauge</label><br>
       <select class="plain" id="fld_ivcGauge" style="width:100%">
@@ -1524,7 +1564,7 @@ function examFormHtml(a){
       <div class="lbl" style="margin:0">Vital signs — every 5 min</div>
       <button type="button" class="btn small secondary" id="addVitalsBtn">+ Add reading</button>
     </div>
-    <div style="overflow-x:auto"><table class="vitals"><thead><tr><th>Time</th><th>HR</th><th>RR</th><th>SpO2</th><th>BP</th><th>Depth</th><th></th></tr></thead>
+    <div style="overflow-x:auto"><table class="vitals"><thead><tr><th>Time</th><th>HR</th><th>RR</th><th>SpO2</th><th>BP</th><th></th></tr></thead>
       <tbody>${a.vitals.map(v=>vitalsRowHtml(v)).join('')}</tbody></table></div>
     ${!a.vitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
   </div>`;
@@ -1559,7 +1599,7 @@ function examFormHtml(a){
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Oral meloxicam send-home (optional)</div>
-    <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam prescribed for home</button></div>`;
+    <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button></div>`;
   if(a.meloxOral){
     const meloxOralVal = meloxOralDoseVal(a.weight, a.species);
     const days = meloxOralDurationDays(a.species, a.surgType);
@@ -1709,7 +1749,7 @@ function bindExamForm(a){
   if(hcDentalDescEl) hcDentalDescEl.addEventListener('change', ()=>{
     a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
   });
-  bindChange('fld_microchipNum','microchipNum'); bindChange('fld_vaccType','vaccType');
+  bindChange('fld_microchipNum','microchipNum');
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
@@ -1802,14 +1842,14 @@ function bindExamForm(a){
   body.querySelectorAll('[data-medname]').forEach(inp=>{
     inp.addEventListener('change', ()=>{
       const item = a.planItems.find(p=>p.id===inp.dataset.medname);
-      if(item) item.medName = inp.value;
+      if(item){ item.medName = inp.value; item.autoMelox = false; }
       saveShift(); refreshNote(a);
     });
   });
   body.querySelectorAll('[data-recheckdate]').forEach(inp=>{
     inp.addEventListener('change', ()=>{
       const item = a.planItems.find(p=>p.id===inp.dataset.recheckdate);
-      if(item) item.recheckDate = inp.value;
+      if(item){ item.recheckDate = inp.value; item.autoMelox = false; }
       saveShift(); refreshNote(a);
     });
   });
@@ -1887,7 +1927,7 @@ function bindExamForm(a){
 
   const addVitalsBtn = document.getElementById('addVitalsBtn');
   if(addVitalsBtn) addVitalsBtn.addEventListener('click', ()=>{
-    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'', bp:'', depth:'surgical'});
+    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', bp:''});
     saveShift(); openExam(a.id);
   });
   body.querySelectorAll('[data-delvital]').forEach(btn=>{
@@ -1899,7 +1939,20 @@ function bindExamForm(a){
   body.querySelectorAll('[data-vfield]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const v = a.vitals.find(x=>x.id===el.dataset.vid);
-      if(v) v[el.dataset.vfield] = el.value;
+      if(!v) return;
+      if(el.dataset.vfield === 'spo2mode'){
+        v.spo2Mode = el.value;
+        v.spo2 = el.value==='default' ? '>98%' : '';
+        saveShift(); openExam(a.id);
+        return;
+      }
+      /* Guards a real ordering hazard: switching the SpO2 mode dropdown away
+         from "Other" removes this text input from the DOM, but its native
+         blur-triggered change can still fire afterwards (the element is
+         detached, not gone) and would otherwise silently overwrite the
+         freshly-reset ">98%" with the stale typed value. */
+      if(el.dataset.vfield === 'spo2' && v.spo2Mode !== 'other') return;
+      v[el.dataset.vfield] = el.value;
       saveShift(); refreshNote(a);
     });
   });
@@ -1980,7 +2033,6 @@ function assembleNote(a){
   });
   if(!anyPreop) L.push('-');
   if(a.microchipNum) L.push(`  Microchip: ${a.microchipNum}`);
-  if(a.vaccType) L.push(`  Vaccination: ${a.vaccType}`);
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);
   if(a.alfaxPreMl) L.push(`  Alfaxalone pre-op given: ${a.alfaxPreMl}mL`);
   L.push('');
@@ -2000,7 +2052,7 @@ function assembleNote(a){
   if(a.isoNotes && a.isoNotes.trim()) L.push(`  Isoflurane notes: ${a.isoNotes.trim()}`);
   if(a.vitals.length){
     L.push('  Vitals:');
-    a.vitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} RR:${v.rr||'-'} SpO2:${v.spo2||'-'} BP:${v.bp||'-'} Depth:${v.depth}`));
+    a.vitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} RR:${v.rr||'-'} SpO2:${v.spo2||'-'} BP:${v.bp||'-'}`));
   }
   L.push('');
   L.push('Post-op:');
