@@ -398,7 +398,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Awaiting foster','Awaiting rescue'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
