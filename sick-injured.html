@@ -85,7 +85,8 @@ select.plain, input.plain{border:1px solid var(--line);border-radius:6px;padding
 .warn{font-size:12px;color:var(--rust);background:var(--rust-soft);padding:8px 10px;border-radius:6px;margin-bottom:10px}
 
 .strike{text-decoration:line-through;opacity:.6}
-.ref-box{background:var(--paper-2);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--ink-soft);white-space:pre-wrap;max-height:220px;overflow-y:auto}
+.ref-box{background:var(--paper-2);border-radius:8px;padding:12px 14px;font-size:13.5px;line-height:1.55;color:var(--ink);white-space:pre-wrap}
+.ref-box b{color:var(--teal-dark)}
 .plan-item{display:flex;gap:8px;align-items:center;background:var(--teal-soft);border-radius:8px;padding:10px 12px;margin-bottom:8px;flex-wrap:wrap}
 .plan-date{font-size:12px;color:var(--teal-dark);font-weight:600;white-space:nowrap}
 
@@ -358,6 +359,16 @@ function shelterDateStr(){
   return `${d.getDate()}/${d.getMonth()+1}/${String(d.getFullYear()).slice(-2)}`;
 }
 function esc(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/* Previous consult notes are often one long unbroken paragraph — the
+   vet's own section labels (Reason/History, Exam, Assessment, Treatment,
+   Plan...) frequently run straight on from the previous sentence with no
+   line break at all, which is unreadable on a phone. Force a line break
+   and bold before any of those labels wherever they appear, even
+   mid-sentence, without attempting to actually re-parse the note. */
+const REFERENCE_HEADER_RE = /(Date|Reason\s*\/\s*History|Reason|History|Examination|Exam|Assessment|Treatment(?:\s*\/\s*Fees)?|Medications?(?:\s*\/\s*Fees)?|Pathway(?:\s*\/\s*Plan)?(?:\s*\/\s*Waivers)?|Plan|Vet\s*\/\s*Nurse)\s*:/gi;
+function formatReferenceNote(text){
+  return esc(text).replace(REFERENCE_HEADER_RE, m => `<br><br><b>${m}</b>`).replace(/^(<br>)+/, '');
+}
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
@@ -586,8 +597,8 @@ function addOrMergeFromRecheck(r){
   if(!existing.location && r.location) existing.location = r.location;
   if(!existing.weight && r.weight) existing.weight = r.weight;
   const sections = parseNoteSections(r.noteText || '');
-  if(sections.reasonHistory){
-    const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${sections.reasonHistory}`;
+  if(r.noteText && r.noteText.trim()){
+    const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`;
     existing.otherReminders = (existing.otherReminders||[]).concat([label]);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
@@ -850,13 +861,16 @@ function makeAnimal(r){
     weight: r.weight || '',
     sex: r.sex || '',
     lastConsultDate: sections.date || '',
-    /* The previous vet's full history/exam narrative is reference material
-       for THIS visit, not the current History field — dumping the whole
-       thing into an active "Reason / History" box meant it read as if it
-       were today's note. Keep it reviewable here (labelled with the
-       consult date) and leave history below blank for a short current
-       summary instead. */
-    otherReminders: (sections.reasonHistory ? [`Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${sections.reasonHistory}`] : []).concat(r.otherReminders || []),
+    /* The previous vet's full note is reference material for THIS visit,
+       not the current History field — dumping it into an active "Reason /
+       History" box meant it read as if it were today's note. Keep the
+       COMPLETE original note reviewable here (not just whatever this
+       parser managed to pull into reasonHistory — a note with two consults
+       stapled into one cell, or unusual headers, won't split perfectly,
+       so the full original stays available to cross-check against
+       whatever landed in Assessment/Treatment/Plan below), and leave
+       history blank for a short current summary instead. */
+    otherReminders: (r.noteText && r.noteText.trim() ? [`Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`] : []).concat(r.otherReminders || []),
     ppeRequired: '',
     history: '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
@@ -1232,11 +1246,15 @@ function examFormHtml(a){
   if(a.lastConsultDate){
     h += `<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Last consult: ${esc(a.lastConsultDate)}</div>`;
   }
-  if(a.otherReminders && a.otherReminders.length){
-    h += `<details class="pe-field" style="margin-top:10px">
-      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--teal-dark)">Previous notes (tap to review) — ${a.otherReminders.length}</summary>
-      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 6px">Carried over from earlier consult notes — reference only, not part of today's medical record. Write today's history below in your own words.</p>
-      <div class="ref-box">${a.otherReminders.map(t=>esc(t)).join('\n\n---\n\n')}</div></details>`;
+  {
+    const hasReminders = a.otherReminders && a.otherReminders.length;
+    h += `<details class="pe-field" style="margin-top:10px" ${hasReminders?'open':''}>
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--teal-dark)">Previous notes (tap to review)${hasReminders?' — '+a.otherReminders.length:''}</summary>
+      <p style="font-size:11px;color:var(--ink-soft);margin:8px 0 6px">Carried over from earlier consult notes — reference only, not part of today's medical record. Write today's history below in your own words.</p>`;
+    h += hasReminders
+      ? `<div class="ref-box">${a.otherReminders.map(t=>formatReferenceNote(t)).join('<hr style="border:none;border-top:1px solid var(--line);margin:10px 0">')}</div>`
+      : `<div class="ref-box" style="font-style:italic">No vet reminder available.</div>`;
+    h += `</details>`;
   }
 
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
@@ -1604,6 +1622,30 @@ function showClearReminder(){
   const note = document.getElementById('shareExportNote');
   if(note) note.textContent = 'Once you\'ve confirmed this file was sent/received, use "Clear list" on the Shift List tab to remove this shift\'s data from this device.';
 }
+/* Tries the native share sheet with all files together, then falls back to
+   sharing them one at a time (some phone browsers allow a single shared file
+   but refuse a multi-file share), and only downloads + shows manual-attach
+   instructions if the device supports no form of file sharing at all. */
+async function runShareFlow(files, title, text){
+  async function tryShare(fileSet){
+    if(!(navigator.canShare && navigator.canShare({files:fileSet}))) return false;
+    try{
+      await navigator.share({files:fileSet, title, text});
+      return true;
+    }catch(err){
+      if(err.name==='AbortError') return true;
+      return false;
+    }
+  }
+  if(await tryShare(files)){ showClearReminder(); return; }
+  if(files.length>1){
+    let anyShared = false;
+    for(const f of files){ if(await tryShare([f])) anyShared = true; }
+    if(anyShared){ showClearReminder(); return; }
+  }
+  files.forEach(downloadFile);
+  alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
+}
 document.getElementById('exportWordBtn').addEventListener('click', ()=>{
   const file = buildWordFile();
   if(!file){ alert('No animals have been registered to Word & Excel yet — click "Register to Word & Excel" on an animal\'s exam first.'); return; }
@@ -1729,8 +1771,8 @@ function buildExcelFile(){
   XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,12,35,35,35,16,22,45]), 'Completed');
   XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,12,35,35,35,16]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
-  const blob = new Blob([wbout], {type:'application/octet-stream'});
-  return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/octet-stream'});
+  const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   const file = buildExcelFile();
@@ -1741,16 +1783,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   const files = [buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({files, title:`Sick & Injured Notes — ${todayStr()}`, text:`Sick & Injured shift export — ${todayStr()}`});
-      showClearReminder();
-    }catch(err){
-      if(err.name!=='AbortError') alert('Could not open the share sheet (' + err.message + '). Use the Export Word/Excel buttons above and attach both files manually instead.');
-    }
-  } else {
-    alert('Sharing isn\'t supported in this browser — this needs the page opened over a secure https:// link, not a local file. Use the Export Word (.doc) and Export Excel (.xlsx) buttons above, then attach both files manually in your email app.');
-  }
+  await runShareFlow(files, `Sick & Injured Notes — ${todayStr()}`, `Sick & Injured shift export — ${todayStr()}`);
 });
 </script>
 <!-- ip-notice-footer -->

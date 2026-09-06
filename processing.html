@@ -547,6 +547,24 @@ function fmtExcelDate(v){
   }
   return v==null ? '' : String(v);
 }
+/* ShelterMate's Age column is usually a category ("Adult"/"Young Adult"/
+   "Juvenile") with no number in it — stays blank, for on-exam estimation,
+   same as before. But some rows carry a real duration like "5 Years 9
+   Months 4 Weeks" (wrapped across lines by Excel) — convert that to a
+   decimal-years figure instead of leaving it blank too. */
+function parseAgeToYears(raw){
+  if(raw==null || raw==='') return '';
+  const s = String(raw).replace(/\s+/g,' ');
+  const yMatch = s.match(/(\d+(?:\.\d+)?)\s*Year/i);
+  const mMatch = s.match(/(\d+(?:\.\d+)?)\s*Month/i);
+  const wMatch = s.match(/(\d+(?:\.\d+)?)\s*Week/i);
+  if(!yMatch && !mMatch && !wMatch) return '';
+  let years = 0;
+  if(yMatch) years += parseFloat(yMatch[1]);
+  if(mMatch) years += parseFloat(mMatch[1]) / 12;
+  if(wMatch) years += parseFloat(wMatch[1]) / 52;
+  return String(Math.round(years * 100) / 100);
+}
 function matchSexCode(v){
   const t = (v==null ? '' : String(v)).trim().toLowerCase();
   if(/^f(emale)?$/.test(t)) return 'F';
@@ -586,12 +604,7 @@ function parseInCareInventory(aoa){
     if(first.startsWith('grand total')) return;
     if(row[colMap['animalid']]==null || row[colMap['animalid']]==='') return;
 
-    const ageRaw = row[colMap['age']];
-    let ageYears = '';
-    if(ageRaw!=null && ageRaw!==''){
-      const n = parseFloat(ageRaw);
-      if(!isNaN(n)) ageYears = String(n);
-    }
+    const ageYears = parseAgeToYears(row[colMap['age']]);
     rows.push({
       animalId: String(row[colMap['animalid']] ?? ''),
       location: String(row[colMap['shelter loc. / kennel']] ?? ''),
@@ -1491,6 +1504,30 @@ function showClearReminder(){
   const note = document.getElementById('shareExportNote');
   if(note) note.textContent = 'Once you\'ve confirmed this file was sent/received, use "Clear list" on the Shift List tab to remove this shift\'s data from this device.';
 }
+/* Tries the native share sheet with all files together, then falls back to
+   sharing them one at a time (some phone browsers allow a single shared file
+   but refuse a multi-file share), and only downloads + shows manual-attach
+   instructions if the device supports no form of file sharing at all. */
+async function runShareFlow(files, title, text){
+  async function tryShare(fileSet){
+    if(!(navigator.canShare && navigator.canShare({files:fileSet}))) return false;
+    try{
+      await navigator.share({files:fileSet, title, text});
+      return true;
+    }catch(err){
+      if(err.name==='AbortError') return true;
+      return false;
+    }
+  }
+  if(await tryShare(files)){ showClearReminder(); return; }
+  if(files.length>1){
+    let anyShared = false;
+    for(const f of files){ if(await tryShare([f])) anyShared = true; }
+    if(anyShared){ showClearReminder(); return; }
+  }
+  files.forEach(downloadFile);
+  alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
+}
 document.getElementById('exportWordBtn').addEventListener('click', ()=>{
   const file = buildWordFile();
   if(!file){ alert('No animals have been registered to Word & Excel yet — click "Register to Word & Excel" on an animal\'s exam first.'); return; }
@@ -1530,16 +1567,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   const files = [buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet \u2014 add animals to the shift list first.'); return; }
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({files, title:`Processing Notes \u2014 ${todayStr()}`, text:`Processing shift export \u2014 ${todayStr()}`});
-      showClearReminder();
-    }catch(err){
-      if(err.name!=='AbortError') alert('Could not open the share sheet (' + err.message + '). Use the Export Word/Excel buttons above and attach both files manually instead.');
-    }
-  } else {
-    alert('Sharing isn\'t supported in this browser \u2014 this needs the page opened over a secure https:// link, not a local file. Use the Export Word (.doc) and Export Excel (.csv) buttons above, then attach both files manually in your email app.');
-  }
+  await runShareFlow(files, `Processing Notes \u2014 ${todayStr()}`, `Processing shift export \u2014 ${todayStr()}`);
 });
 
 </script>

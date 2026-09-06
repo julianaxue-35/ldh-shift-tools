@@ -1300,6 +1300,12 @@ function examFormHtml(a){
   </div>`;
 
   h += `<div class="sechdr">Pre-op &amp; Set-up</div>`;
+  if(a.fleaDueDate && !a.fleaGiven){
+    h += `<div class="warn">Flea treatment due ${esc(a.fleaDueDate)} — give preop.</div>`;
+  }
+  if(a.vaccDue && (!a.ticks['vacc'] || !a.ticks['vacc'].done)){
+    h += `<div class="warn">Vaccination due ${esc(a.vaccDue)} — give preop.</div>`;
+  }
   h += `<div class="pe-field"><div class="lbl">Flea treatment</div>
     <div class="opts"><button type="button" class="opt-btn ${a.fleaGiven?'selected':''}" data-fleaworm="flea">Given</button></div>
   </div>`;
@@ -1411,6 +1417,9 @@ function examFormHtml(a){
   </div>`;
 
   h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
+  if(a.wormDueDate && !a.wormGiven){
+    h += `<div class="warn">Worming due ${esc(a.wormDueDate)} — usually given postop.</div>`;
+  }
   h += `<div class="pe-field"><div class="lbl">Post-op procedures</div>`;
   POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
   h += `</div>`;
@@ -1897,6 +1906,30 @@ function showClearReminder(){
   const note = document.getElementById('shareExportNote');
   if(note) note.textContent = 'Once you\'ve confirmed this file was sent/received, use "Clear list" on the Shift List tab to remove this shift\'s data from this device.';
 }
+/* Tries the native share sheet with all files together, then falls back to
+   sharing them one at a time (some phone browsers allow a single shared file
+   but refuse a multi-file share), and only downloads + shows manual-attach
+   instructions if the device supports no form of file sharing at all. */
+async function runShareFlow(files, title, text){
+  async function tryShare(fileSet){
+    if(!(navigator.canShare && navigator.canShare({files:fileSet}))) return false;
+    try{
+      await navigator.share({files:fileSet, title, text});
+      return true;
+    }catch(err){
+      if(err.name==='AbortError') return true;
+      return false;
+    }
+  }
+  if(await tryShare(files)){ showClearReminder(); return; }
+  if(files.length>1){
+    let anyShared = false;
+    for(const f of files){ if(await tryShare([f])) anyShared = true; }
+    if(anyShared){ showClearReminder(); return; }
+  }
+  files.forEach(downloadFile);
+  alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
+}
 document.getElementById('exportWordBtn').addEventListener('click', ()=>{
   const file = buildWordFile();
   if(!file){ alert('No animals have been registered to Word & Excel yet — click "Register to Word & Excel" on an animal\'s exam first.'); return; }
@@ -1965,8 +1998,8 @@ function buildExcelFile(){
   XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,12,14,16,35,30,45]), 'Completed');
   XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,22,10,14,10]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
-  const blob = new Blob([wbout], {type:'application/octet-stream'});
-  return new File([blob], `Surgery_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/octet-stream'});
+  const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  return new File([blob], `Surgery_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   const file = buildExcelFile();
@@ -1977,16 +2010,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   const files = [buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
-  if(navigator.canShare && navigator.canShare({files})){
-    try{
-      await navigator.share({files, title:`Surgery Notes — ${todayStr()}`, text:`Surgery shift export — ${todayStr()}`});
-      showClearReminder();
-    }catch(err){
-      if(err.name!=='AbortError') alert('Could not open the share sheet (' + err.message + '). Use the Export Word/Excel buttons above and attach both files manually instead.');
-    }
-  } else {
-    alert('Sharing isn\'t supported in this browser — this needs the page opened over a secure https:// link, not a local file. Use the Export Word (.doc) and Export Excel (.xlsx) buttons above, then attach both files manually in your email app.');
-  }
+  await runShareFlow(files, `Surgery Notes — ${todayStr()}`, `Surgery shift export — ${todayStr()}`);
 });
 
 /* ---------- microchip camera scan (offline OCR via vendored Tesseract.js) ----------
