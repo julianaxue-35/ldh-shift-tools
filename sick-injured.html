@@ -359,13 +359,6 @@ function shelterDateStr(){
 }
 function esc(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
-function matchSexCode(v){
-  const t = (v==null ? '' : String(v)).trim().toLowerCase();
-  if(/^f(emale)?$/.test(t)) return 'F';
-  if(/^m(ale)?$/.test(t)) return 'M';
-  if(/^u(nknown)?$/.test(t)) return 'U';
-  return '';
-}
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -592,7 +585,6 @@ function addOrMergeFromRecheck(r){
   if(!existing){ state.animals.push(makeAnimal(r)); return; }
   if(!existing.location && r.location) existing.location = r.location;
   if(!existing.weight && r.weight) existing.weight = r.weight;
-  if(!existing.sex && r.sex) existing.sex = r.sex;
   const sections = parseNoteSections(r.noteText || '');
   if(sections.reasonHistory){
     const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${sections.reasonHistory}`;
@@ -627,7 +619,7 @@ function addOrMergeFromFlag(r){
   const label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
   const existing = findExistingAnimal(r.animalId);
   if(!existing){
-    const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', sex:r.sex, noteText:'', otherReminders:[]});
+    const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
     a.history = label;
     a.flagged = true;
     if(r.problem){
@@ -638,7 +630,6 @@ function addOrMergeFromFlag(r){
     return;
   }
   if(!existing.location && r.location) existing.location = r.location;
-  if(!existing.sex && r.sex) existing.sex = r.sex;
   if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
     existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
   }
@@ -669,7 +660,6 @@ function parseVetReminderReport(aoa){
   }
   if(headerRowIdx===-1 || colMap['animal id']==null) return [];
   const idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'];
-  const sexIdx = colMap['sex'];
   const byId = {};
   for(let i=headerRowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
@@ -677,10 +667,9 @@ function parseVetReminderReport(aoa){
     if(idVal==null || idVal==='') continue;
     const idStr = String(idVal);
     const noteText = (noteIdx!=null && row[noteIdx]!=null) ? String(row[noteIdx]) : '';
-    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', sex:'', notes:[]};
+    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', notes:[]};
     if(!byId[idStr].location && locIdx!=null && row[locIdx]) byId[idStr].location = normaliseRoomToken(row[locIdx]);
     if(!byId[idStr].weight && wIdx!=null && row[wIdx]) byId[idStr].weight = String(row[wIdx]);
-    if(!byId[idStr].sex && sexIdx!=null && row[sexIdx]!=null) byId[idStr].sex = matchSexCode(row[sexIdx]);
     if(noteText && !byId[idStr].notes.includes(noteText)) byId[idStr].notes.push(noteText);
   }
   const results = [];
@@ -689,7 +678,7 @@ function parseVetReminderReport(aoa){
     if(primaryIdx===-1) primaryIdx = 0;
     const primary = rec.notes[primaryIdx] || '';
     const others = rec.notes.filter((t,i)=>i!==primaryIdx);
-    results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, sex:rec.sex, noteText:primary, otherReminders:others});
+    results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, noteText:primary, otherReminders:others});
   });
   return results;
 }
@@ -700,15 +689,14 @@ function renderParsedTable(rows){
     wrap.innerHTML = '<p class="warn">No animals detected — check this is a Vet Reminder Report export, or add the animal manually.</p>';
     return;
   }
-  let html = '<div class="warn">Check ID / Location / Weight / Sex before adding — parsed automatically from the report.</div>';
+  let html = '<div class="warn">Check ID / Location / Weight before adding — parsed automatically from the report.</div>';
   html += `<div class="row-actions"><button class="btn" id="confirmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th><th>Sex</th></tr>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Weight"><input data-i="${i}" data-f="weight" value="${esc(r.weight)}"></td>
-      <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
   html += '</table><div class="row-actions"><button class="btn" id="confirmAddBtn">Add these to the shift</button></div>';
@@ -728,7 +716,7 @@ function renderParsedTable(rows){
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
-  const r = {animalId:'', location:'', weight:'', sex:'', noteText:'', otherReminders:[]};
+  const r = {animalId:'', location:'', weight:'', noteText:'', otherReminders:[]};
   state.animals.push(makeAnimal(r));
   saveShift();
   renderShiftList();
@@ -759,9 +747,9 @@ function findHeaderRowFuzzy(aoa, patterns, requiredCount){
   return null;
 }
 function parseAaFlagLog(aoa){
-  const found = findHeaderRowFuzzy(aoa, [/location/, /(sm|shelter|animal).*(number|id)|tag/, /presenting|problem/, /^sex$|\bsex\b/], 3);
+  const found = findHeaderRowFuzzy(aoa, [/location/, /(sm|shelter|animal).*(number|id)|tag/, /presenting|problem/], 3);
   if(!found) return [];
-  const [locIdx, idIdx, probIdx, sexIdx] = found.idxs;
+  const [locIdx, idIdx, probIdx] = found.idxs;
   /* Some exports (e.g. the Cranbourne AA Vet Flag Log) split location into
      separate "Dog Location" / "Cat Location" columns rather than one generic
      "Location" column — the generic /location/ pattern above only ever finds
@@ -784,8 +772,7 @@ function parseAaFlagLog(aoa){
     results.push({
       animalId: String(idVal).trim(),
       location: normaliseRoomToken(locVal),
-      problem: row[probIdx]!=null ? String(row[probIdx]).trim() : '',
-      sex: sexIdx!==-1 && row[sexIdx]!=null ? matchSexCode(row[sexIdx]) : ''
+      problem: row[probIdx]!=null ? String(row[probIdx]).trim() : ''
     });
   }
   return results;
@@ -817,13 +804,12 @@ function renderParsedFlagTable(rows){
   }
   let html = '<div class="warn">Check ID / Location / Problem before adding — matching IDs already in your list will be merged, not duplicated.</div>';
   html += `<div class="row-actions"><button class="btn" id="confirmFlagAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th><th>Sex</th></tr>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Presenting Problem"><input data-i="${i}" data-f="problem" value="${esc(r.problem)}"></td>
-      <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
   html += '</table><div class="row-actions"><button class="btn" id="confirmFlagAddBtn">Add these to the shift</button></div>';
@@ -1229,8 +1215,9 @@ function examFormHtml(a){
   h += `<div class="two-col">
     <div><label style="font-size:12px">Animal ID</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%"></div>
-  </div>
-  <div class="two-col" style="margin-top:8px">
+  </div>`;
+  if(a.template==='28day'){
+    h += `<div class="two-col" style="margin-top:8px">
     <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
     <div><label style="font-size:12px">Sex</label><br>
       <select class="plain" id="fld_sex" style="width:100%">
@@ -1238,6 +1225,9 @@ function examFormHtml(a){
       </select>
     </div>
   </div>`;
+  } else {
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>`;
+  }
 
   if(a.lastConsultDate){
     h += `<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Last consult: ${esc(a.lastConsultDate)}</div>`;
@@ -1707,12 +1697,12 @@ function buildExcelFile(){
   const completed = sortedAnimals().filter(a=>a.registered);
   const notCompleted = sortedAnimals().filter(a=>!a.registered);
 
-  const completedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date','New Med Chart?','S8 Sign-Out?']];
-  pushGroupedRows(completedAoa, completed, 11, a=>{
+  const completedAoa = [['Animal ID','Location','Weight','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date','New Med Chart?','S8 Sign-Out?']];
+  pushGroupedRows(completedAoa, completed, 10, a=>{
     const nearest = nearestRecheckDate(a);
     const s8 = findS8Drugs(a);
     return [
-      a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
+      a.animalId, a.location, a.weight||'-', a.ppeRequired||'-', problemSummary(a),
       a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
       planSummary(a),
       nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-',
@@ -1724,11 +1714,11 @@ function buildExcelFile(){
      on with an animal — they don't have ShelterMate access — so the plan
      (treatment/revisit) needs to show here even before a vet has finished
      registering the note, not just on the Completed sheet. */
-  const notCompletedAoa = [['Animal ID','Location','Weight','Sex','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date']];
-  pushGroupedRows(notCompletedAoa, notCompleted, 9, a=>{
+  const notCompletedAoa = [['Animal ID','Location','Weight','PPE Required','Problem / Type','Treatment','Plan','Next Recheck Date']];
+  pushGroupedRows(notCompletedAoa, notCompleted, 8, a=>{
     const nearest = nearestRecheckDate(a);
     return [
-      a.animalId, a.location, a.weight||'-', a.sex||'-', a.ppeRequired||'-', problemSummary(a),
+      a.animalId, a.location, a.weight||'-', a.ppeRequired||'-', problemSummary(a),
       a.treatment && a.treatment.trim() ? a.treatment.trim() : '-',
       planSummary(a),
       nearest ? nearest.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'}) : '-'
@@ -1736,8 +1726,8 @@ function buildExcelFile(){
   });
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,6,12,35,35,35,16,22,45]), 'Completed');
-  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,6,12,35,35,35,16]), 'Not Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,10,12,35,35,35,16,22,45]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,20,10,12,35,35,35,16]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
   const blob = new Blob([wbout], {type:'application/octet-stream'});
   return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/octet-stream'});
