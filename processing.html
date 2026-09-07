@@ -196,7 +196,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
-      <button class="btn rust small" id="clearListBtn">Clear list</button>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn small" id="registerAllBtn">Register all</button>
+        <button class="btn rust small" id="clearListBtn">Clear list</button>
+      </div>
     </div>
     <input class="plain" id="shiftSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="animalList"></div>
@@ -882,6 +885,14 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
   const b = e.target.closest('button[data-tab]'); if(!b) return;
   if(b.dataset.tab==='exam'){ goToExamTab(); return; }
   showTab(b.dataset.tab);
+});
+document.getElementById('registerAllBtn').addEventListener('click', ()=>{
+  const pending = state.animals.filter(a=>!a.registered);
+  if(!pending.length){ alert('Nothing to register — the Shift List is empty.'); return; }
+  if(confirm(`Register all ${pending.length} animal(s) currently in the Shift List to Word & Excel? Only do this once you've finished with everyone shown — each one still routes to Completed or Incomplete based on its own "Examined this shift?" answer.`)){
+    pending.forEach(a=>{ a.registered = true; });
+    saveShift(); renderShiftList();
+  }
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
