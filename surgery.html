@@ -109,6 +109,13 @@ table.vitals th{background:var(--paper-2);padding:7px 6px;text-align:left;font-s
 table.vitals td{padding:4px 4px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
 table.vitals input,table.vitals select{padding:5px 6px;font-size:12px;min-width:0;border:1px solid var(--line);border-radius:5px}
 .sechdr{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--teal-dark);margin:16px 0 8px;border-top:2px solid var(--line);padding-top:12px}
+.exam-section{border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
+.exam-section > summary{cursor:pointer;list-style:none;font-size:14.5px;font-weight:700;color:#fff;background:var(--teal);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.exam-section > summary::-webkit-details-marker{display:none}
+.exam-section > summary::after{content:'▸';font-size:13px;transition:transform .15s}
+.exam-section[open] > summary::after{transform:rotate(90deg)}
+.exam-section-body{padding:14px 16px}
+.exam-section .sechdr:first-child{margin-top:0;border-top:none;padding-top:0}
 #emg-fab{position:fixed;right:16px;bottom:16px;z-index:150;background:var(--rust);color:#fff;border:none;border-radius:50px;padding:14px 22px;font-size:15px;font-weight:800;letter-spacing:.5px;box-shadow:0 4px 16px rgba(139,42,30,.5);cursor:pointer;display:none;align-items:center;gap:8px;animation:emgpulse 2s infinite}
 @keyframes emgpulse{0%,100%{box-shadow:0 4px 16px rgba(139,42,30,.45)}50%{box-shadow:0 4px 28px rgba(139,42,30,.9)}}
 #emg-overlay{position:fixed;inset:0;z-index:500;background:rgba(20,10,8,.55);display:none;overflow-y:auto}
@@ -470,12 +477,14 @@ function normalizeAnimal(a){
     scLayer:false, isoNotes:'',
     buprenorphineRoute:'SC', tempPost:'', mmPost:'Pink', crtPost:'<2s', recoveryNotes:'',
     meloxOral:false, meloxTiming:'AM',
-    microchipNum:'', ivcGauge:'22G', alfaxPreMl:'', alfaxIntraMl:'',
+    microchipNum:'', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
     rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
     pathway:'',
     noteEdited:null, registered:false
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
+  if(!a.examSectionsOpen || typeof a.examSectionsOpen!=='object') a.examSectionsOpen = {};
+  ['peri','intra','post','paper'].forEach(k=>{ if(a.examSectionsOpen[k]==null) a.examSectionsOpen[k]=true; });
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
   if(!Array.isArray(a.vitals)) a.vitals = [];
   if(!Array.isArray(a.planItems)) a.planItems = [];
@@ -1433,6 +1442,7 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
 function examFormHtml(a){
   syncMeloxPlanItem(a);
   let h = '';
+  h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Perioperative — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
     <div><label style="font-size:12px">Patient ID / Tag</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
     <div><label style="font-size:12px">Weight (kg)</label><br><input class="plain" id="fld_weight" type="number" step="0.1" value="${esc(a.weight||'')}" style="width:100%"></div>
@@ -1616,10 +1626,15 @@ function examFormHtml(a){
         <option value="24G" ${a.ivcGauge==='24G'?'selected':''}>24G (yellow)</option>
       </select></div>`;
   }
+  if(a.ticks['intubation'] && a.ticks['intubation'].done){
+    h += `<div class="pe-field"><label style="font-size:12px">ET tube size</label><br><input class="plain" id="fld_etTubeSize" placeholder="e.g. 4.0mm cuffed" value="${esc(a.etTubeSize||'')}" style="width:100%"></div>`;
+  }
   if(a.ticks['alfax-pre'] && a.ticks['alfax-pre'].done){
     h += `<div class="pe-field"><label style="font-size:12px">Alfaxalone pre-op given (mL)</label><br><input class="plain" id="fld_alfaxPreMl" type="number" step="0.01" value="${esc(a.alfaxPreMl||'')}" style="width:100%"></div>`;
   }
+  h += `</div></details>`;
 
+  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Intraoperative — monitoring, surgery notes</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Surgery</div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Procedure</label><br>
     <select class="plain" id="fld_surgType" style="width:100%">
@@ -1696,7 +1711,9 @@ function examFormHtml(a){
       <tbody>${a.vitals.map(v=>vitalsRowHtml(v)).join('')}</tbody></table></div>
     ${!a.vitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
   </div>`;
+  h += `</div></details>`;
 
+  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Postoperative — meloxicam, atipam, recovery</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
   if(a.wormDueDate && !a.wormGiven){
     h += `<div class="warn">Worming due ${esc(a.wormDueDate)} — usually given postop.</div>`;
@@ -1757,7 +1774,9 @@ function examFormHtml(a){
 
   h += `<div class="pe-field"><div class="lbl">Recovery notes</div>
     <textarea class="free-input" id="fld_recoveryNotes">${esc(a.recoveryNotes||'')}</textarea></div>`;
+  h += `</div></details>`;
 
+  h += `<details class="exam-section" id="sec-paper" ${a.examSectionsOpen.paper?'open':''}><summary>Paperwork — pathway, rechecks</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Pathway / Discharge</div>`;
   h += `<div class="pe-field"><div class="lbl">Pathway (choose one)</div>
     <div class="opts">
@@ -1830,6 +1849,7 @@ function examFormHtml(a){
     </div>`;
   });
   h += `</div><button type="button" class="btn small secondary" id="addPlanBtn">+ Add medication / recheck</button></div>`;
+  h += `</div></details>`;
 
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
   return h;
@@ -1837,6 +1857,17 @@ function examFormHtml(a){
 
 function bindExamForm(a){
   const body = document.getElementById('examBody');
+
+  /* Persist each collapsible section's open/closed state onto the animal so
+     it survives the full re-render every field change triggers (openExam
+     rebuilds examBody.innerHTML from scratch — native <details> has no
+     memory of its own across that). No saveShift-triggered re-render here,
+     since the browser already updated the visible state on its own. */
+  [['sec-peri','peri'],['sec-intra','intra'],['sec-post','post'],['sec-paper','paper']].forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('toggle', ()=>{ a.examSectionsOpen[key] = el.open; saveShift(); });
+  });
 
   function bindChange(id, key){
     const el = document.getElementById(id);
@@ -1878,7 +1909,7 @@ function bindExamForm(a){
     a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
   });
   bindChange('fld_microchipNum','microchipNum');
-  bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
+  bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
   bindChange('fld_tempPost','tempPost'); bindChange('fld_mmPost','mmPost'); bindChange('fld_crtPost','crtPost');
@@ -2162,6 +2193,7 @@ function assembleNote(a){
   if(!anyPreop) L.push('-');
   if(a.microchipNum) L.push(`  Microchip: ${a.microchipNum}`);
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);
+  if(a.ticks['intubation'] && a.ticks['intubation'].done) L.push(`  ET tube size: ${a.etTubeSize||'-'}`);
   if(a.alfaxPreMl) L.push(`  Alfaxalone pre-op given: ${a.alfaxPreMl}mL`);
   L.push('');
   L.push('Surgery:');
