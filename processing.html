@@ -1092,10 +1092,14 @@ function examFormHtml(a){
       h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Desexed — testes assessment not applicable.</div>`;
     }
   } else if(a.sex==='F'){
-    h += `<div class="opts">
-      <button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button>
-      <button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button>
-    </div>`;
+    if(a.desex==='DESEXED'){
+      h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Desexed — clean and dry vulva.</div>`;
+    } else {
+      h += `<div class="opts">
+        <button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button>
+        <button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button>
+      </div>`;
+    }
   } else {
     h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
   }
@@ -1306,13 +1310,16 @@ function bindExamForm(a){
   });
   const desexEl = document.getElementById('fld_desex');
   if(desexEl) desexEl.addEventListener('change', ()=>{
-    a.desex = desexEl.value; saveShift(); openExam(a.id);
+    a.desex = desexEl.value;
+    if(a.desex==='DESEXED') a.pregnant = ''; // desexed females can't be pregnant
+    saveShift(); openExam(a.id);
   });
   const ttEl = document.getElementById('fld_tt');
   if(ttEl) ttEl.addEventListener('change', ()=>{
     a.tt = ttEl.value;
     if(ttEl.value==='YES') a.desex = 'DESEXED';
     else if(ttEl.value==='NO') a.desex = 'ENTIRE';
+    if(a.desex==='DESEXED') a.pregnant = '';
     saveShift(); openExam(a.id);
   });
   const bcsEl = document.getElementById('fld_bcs');
@@ -1593,7 +1600,7 @@ function computeProblemList(a){
     const ddx = (a.assessmentOverrides['cryptorchid'] != null) ? a.assessmentOverrides['cryptorchid'] : ddxBlurb('cryptorchid', a.species);
     problems.push({id:'cryptorchid', title:`Cryptorchid — ${label}`, ddx, custom:false});
   }
-  if(a.sex==='F' && a.pregnant==='YES' && !a.assessmentDismissed['pregnant']){
+  if(a.sex==='F' && a.desex!=='DESEXED' && a.pregnant==='YES' && !a.assessmentDismissed['pregnant']){
     const ddx = (a.assessmentOverrides['pregnant'] != null) ? a.assessmentOverrides['pregnant'] : ddxBlurb('pregnant', a.species);
     problems.push({id:'pregnant', title:'Pregnant', ddx, custom:false});
   }
@@ -1650,7 +1657,7 @@ function assembleNote(a){
   }
   L.push(`VHC: ${a.vhc||'-'}/6`);
   if(a.sex==='M') L.push(`Testes: ${a.desex==='DESEXED' ? 'Desexed' : (a.testes||'-')}`);
-  else if(a.sex==='F') L.push(`Pregnant: ${a.pregnant||'-'}`);
+  else if(a.sex==='F') L.push(`Urogenital: ${a.desex==='DESEXED' ? 'Clean and dry vulva' : `Pregnant: ${a.pregnant||'-'}`}`);
   L.push('');
   const problems = computeProblemList(a);
   L.push('ASSESSMENT:');
