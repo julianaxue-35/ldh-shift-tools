@@ -306,6 +306,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <h2>Note draft
         <button class="btn small secondary" id="editToggleBtn" style="float:right">Edit</button>
         <button class="btn small secondary" id="refreshNoteBtn" style="float:right;margin-right:6px">Refresh</button>
+        <button class="btn small secondary" id="copyNoteBtn" style="float:right;margin-right:6px">📋 Copy</button>
       </h2>
       <div class="note-box hidden" id="noteDisplay"></div>
       <textarea class="note-edit hidden" id="noteEditArea"></textarea>
@@ -2153,6 +2154,28 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
     disp.textContent = edit.value;
     disp.classList.remove('hidden'); edit.classList.add('hidden'); btn.textContent = 'Edit';
     saveShift();
+  }
+});
+document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
+  const disp = document.getElementById('noteDisplay');
+  const edit = document.getElementById('noteEditArea');
+  const text = edit.classList.contains('hidden') ? disp.textContent : edit.value;
+  const btn = document.getElementById('copyNoteBtn');
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    setTimeout(()=>{ btn.textContent = orig; }, 1500);
+  }catch(err){
+    alert('Could not copy automatically — select the note text above and copy it manually.');
   }
 });
 document.getElementById('refreshNoteBtn').addEventListener('click', ()=>{
