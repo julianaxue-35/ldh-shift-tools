@@ -1845,12 +1845,18 @@ function buildExcelFile(){
   if(!state.animals.length) return null;
   const rows = [['Patient ID','Location','Microchip','PLAN','Pathway','Next step in pathway','Procedures required']];
   sortedAnimals().forEach(a=>{
-    const plan = [
-      a.pathway ? `Pathway: ${a.pathway}` : '',
-      a.treatments ? `Treatments: ${a.treatments}` : '',
-      a.nextStep ? `Next step: ${a.nextStep}` : '',
-      a.procedures ? `Procedures: ${a.procedures}` : ''
-    ].filter(Boolean).join(' | ');
+    const plan = a.notExamined
+      ? [
+          'NOT ABLE TO BE EXAMINED THIS SHIFT',
+          a.assessmentNotes && a.assessmentNotes.trim() ? `Assessment: ${a.assessmentNotes.trim()}` : '',
+          a.notExaminedPlan && a.notExaminedPlan.trim() ? `Plan: ${a.notExaminedPlan.trim()}` : ''
+        ].filter(Boolean).join(' | ')
+      : [
+          a.pathway ? `Pathway: ${a.pathway}` : '',
+          a.treatments ? `Treatments: ${a.treatments}` : '',
+          a.nextStep ? `Next step: ${a.nextStep}` : '',
+          a.procedures ? `Procedures: ${a.procedures}` : ''
+        ].filter(Boolean).join(' | ');
     const procText = a.procedures==='Other' ? (a.proceduresOther||'') : (a.procedures||'');
     rows.push([a.animalId, a.location, a.microchip||'', plan, a.pathway||'', a.nextStep||'', procText]);
   });
