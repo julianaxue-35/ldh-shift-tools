@@ -341,6 +341,33 @@ const DOG_HANDLING_OPTIONS = [
 const UNSAFE_HANDLING = {cat:'Not able to be safely handled', dog:'Showing defensive/offensive aggression, cannot be checked safely'};
 function isUnsafeHandling(a){ return !!a.handling && a.handling === UNSAFE_HANDLING[a.species]; }
 
+/* "Awaiting spay/neuter" family — she wants the pathway to flag outstanding
+   microchip/FIV work up front rather than her remembering to chase it once
+   the animal's already sitting in the SN queue. Chip counts as missing if
+   blank OR marked 'N/A' (no chip found — same actual gap). FIV only applies
+   to cats, and only counts as a gap if it's required but no result is in yet. */
+const SN_PATHWAY_BASE = 'Awaiting spay/neuter';
+const SN_PATHWAY_VARIANTS = [
+  SN_PATHWAY_BASE,
+  'Awaiting spay/neuter and microchip',
+  'Awaiting spay/neuter and FIV test',
+  'Awaiting spay/neuter, FIV test and microchip'
+];
+function snChipMissing(a){ return !a.microchip || a.microchip.trim()==='' || a.microchip==='N/A'; }
+function snFivGap(a){ return a.species==='cat' && a.fivTest==='YES' && !a.fivResult; }
+function resolveSnPathway(a){
+  const chipGap = snChipMissing(a), fivGap = snFivGap(a);
+  if(chipGap && fivGap) return 'Awaiting spay/neuter, FIV test and microchip';
+  if(fivGap) return 'Awaiting spay/neuter and FIV test';
+  if(chipGap) return 'Awaiting spay/neuter and microchip';
+  return SN_PATHWAY_BASE;
+}
+/* Re-derive nextStep only if it's already somewhere in the SN family — never
+   touch it if she picked an unrelated pathway (e.g. Awaiting triage). */
+function refreshSnPathway(a){
+  if(SN_PATHWAY_VARIANTS.includes(a.nextStep)) a.nextStep = resolveSnPathway(a);
+}
+
 /* Full waiver library grouped by category — mirrors the options available in
    ShelterMate's own Waivers field. Categories relevant to a flagged PE finding
    are opened automatically (see waiverOpenCategories); nothing is force-ticked
@@ -587,6 +614,7 @@ document.getElementById('captureChipBtn').addEventListener('click', async ()=>{
     if(a){
       if(digits){
         a.microchip = digits;
+        refreshSnPathway(a);
         saveShift();
         openExam(a.id);
         alert('Read: ' + digits + ' — double-check it against the scanner before saving.');
@@ -804,6 +832,7 @@ function makeAnimal(r){
     assessmentDismissed: {}, // key -> true if that auto problem was deleted
     assessmentNotes: '',      // additional free-text assessment notes
     notExamined: false, notExaminedPlan: '',
+    currentMed: '', currentMedDetail: '', medPlan: '',
     customProblems: [],       // [{id, title, ddx}]
     pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
@@ -1051,6 +1080,14 @@ function examFormHtml(a){
   h += `<div style="margin-top:8px"><textarea class="plain" id="fld_behaviour" placeholder="Free text — additional behaviour notes..." style="width:100%;min-height:50px">${esc(a.behaviour)}</textarea></div>
   </div>`;
 
+  h += `<div class="pe-field"><div class="lbl">Current medication</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.currentMed==='NA'?'selected':''}" data-curmed="NA">N/A</button>
+      <button type="button" class="opt-btn ${a.currentMed==='YES'?'selected abn':''}" data-curmed="YES">Already on medication</button>
+    </div>
+    ${a.currentMed==='YES' ? `<textarea class="free-input" id="fld_curmeddetail" placeholder="e.g. Gabapentin 100mg PO BID, Trazodone 50mg PO SID">${esc(a.currentMedDetail||'')}</textarea>` : ''}
+  </div>`;
+
   fields.forEach(f=>{
     if(f.special==='teeth'){
       h += `<div class="pe-field">
@@ -1165,6 +1202,11 @@ function examFormHtml(a){
       <textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:40px">${esc(a.assessmentNotes||'')}</textarea></div>
   </div>`;
 
+  h += `<div class="pe-field"><div class="lbl">Plan</div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan — continue as-is, adjust dose, or start something new.</p>
+    <textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px" placeholder="e.g. Continue gabapentin 100mg PO BID">${esc(a.medPlan||'')}</textarea>
+  </div>`;
+
   h += `<div class="pe-field"><div class="lbl">Pathway</div>
     <select class="plain" id="fld_pathway" style="width:100%">
       <option value="">-</option>
@@ -1232,6 +1274,9 @@ function examFormHtml(a){
       <option ${a.nextStep==='Awaiting triage'?'selected':''}>Awaiting triage</option>
       <option ${a.nextStep==='Awaiting behavioural assessment'?'selected':''}>Awaiting behavioural assessment</option>
       <option ${a.nextStep==='Awaiting spay/neuter'?'selected':''}>Awaiting spay/neuter</option>
+      <option ${a.nextStep==='Awaiting spay/neuter and microchip'?'selected':''}>Awaiting spay/neuter and microchip</option>
+      <option ${a.nextStep==='Awaiting spay/neuter and FIV test'?'selected':''}>Awaiting spay/neuter and FIV test</option>
+      <option ${a.nextStep==='Awaiting spay/neuter, FIV test and microchip'?'selected':''}>Awaiting spay/neuter, FIV test and microchip</option>
       <option ${a.nextStep==='Awaiting surgery - not spay/neuter'?'selected':''}>Awaiting surgery - not spay/neuter</option>
       <option ${a.nextStep==='Contact IP and awaiting IP collection'?'selected':''}>Contact IP and awaiting IP collection</option>
       <option ${a.nextStep==='Awaiting foster'?'selected':''}>Awaiting foster</option>
@@ -1276,7 +1321,7 @@ function bindExamForm(a){
   const map = {
     behaviour:'fld_behaviour',vhc:'fld_vhc',
     pathway:'fld_pathway',
-    treatments:'fld_treatments',nextStep:'fld_nextstep',chillRequired:'fld_chill',
+    treatments:'fld_treatments',chillRequired:'fld_chill',
     bloodworkType:'fld_bwtype'};
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
@@ -1305,7 +1350,7 @@ function bindExamForm(a){
 
   const chipEl = document.getElementById('fld_microchip');
   if(chipEl) chipEl.addEventListener('change', ()=>{
-    a.microchip = chipEl.value; refreshNote(a); saveShift(); openExam(a.id);
+    a.microchip = chipEl.value; refreshSnPathway(a); refreshNote(a); saveShift(); openExam(a.id);
   });
   const fasEl = document.getElementById('fld_fasscore');
   if(fasEl) fasEl.addEventListener('change', ()=>{
@@ -1372,7 +1417,7 @@ function bindExamForm(a){
   const chipNaBtn = document.getElementById('chipNaBtn');
   if(chipNaBtn) chipNaBtn.addEventListener('click', ()=>{
     a.microchip = a.microchip==='N/A' ? '' : 'N/A';
-    saveShift(); openExam(a.id);
+    refreshSnPathway(a); saveShift(); openExam(a.id);
   });
 
   const heartNormalBtn = body.querySelector('[data-heartnormal]');
@@ -1418,11 +1463,11 @@ function bindExamForm(a){
   if(fivEl) fivEl.addEventListener('change', ()=>{
     a.fivTest = fivEl.value;
     if(a.fivTest==='NO') a.fivResult = ''; // not required — ignore any stale result
-    saveShift(); openExam(a.id);
+    refreshSnPathway(a); saveShift(); openExam(a.id);
   });
   const fivResEl = document.getElementById('fld_fivresult');
   if(fivResEl) fivResEl.addEventListener('change', ()=>{
-    a.fivResult = fivResEl.value; saveShift(); openExam(a.id);
+    a.fivResult = fivResEl.value; refreshSnPathway(a); saveShift(); openExam(a.id);
   });
   const vetChatEl = document.getElementById('fld_vetchat');
   if(vetChatEl) vetChatEl.addEventListener('change', ()=>{
@@ -1440,6 +1485,13 @@ function bindExamForm(a){
     }
     saveShift();
     openExam(a.id);
+  });
+
+  const nextStepEl = document.getElementById('fld_nextstep');
+  if(nextStepEl) nextStepEl.addEventListener('change', ()=>{
+    a.nextStep = nextStepEl.value;
+    refreshSnPathway(a); // auto-upgrade to the right SN variant for current chip/FIV gaps
+    refreshNote(a); saveShift(); openExam(a.id);
   });
 
   const procEl = document.getElementById('fld_procedures');
@@ -1571,6 +1623,26 @@ function bindExamForm(a){
     a.assessmentNotes = assessNotesEl.value; refreshNote(a); saveShift();
   });
 
+  body.querySelectorAll('[data-curmed]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.currentMed = btn.dataset.curmed;
+      saveShift(); openExam(a.id);
+    });
+  });
+  const curMedDetailEl = document.getElementById('fld_curmeddetail');
+  if(curMedDetailEl) curMedDetailEl.addEventListener('change', ()=>{
+    a.currentMedDetail = curMedDetailEl.value;
+    // Copy into Plan as a starting draft, so she edits rather than retypes —
+    // but only while Plan is still blank so it never clobbers her own edits.
+    if(!a.medPlan || !a.medPlan.trim()) a.medPlan = a.currentMedDetail;
+    refreshNote(a); saveShift(); openExam(a.id);
+  });
+  const medPlanEl = document.getElementById('fld_medplan');
+  if(medPlanEl){
+    medPlanEl.addEventListener('change', ()=>{ a.medPlan = medPlanEl.value; refreshNote(a); saveShift(); });
+    medPlanEl.addEventListener('input', ()=>{ a.medPlan = medPlanEl.value; });
+  }
+
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
@@ -1682,6 +1754,7 @@ function assembleNote(a){
   if(a.species==='cat' && a.fasScore) L.push(`FAS score: ${FAS_OPTIONS.find(o=>o.v===a.fasScore)?.label || a.fasScore}`);
   L.push(`Handling: ${a.handling||'-'}`);
   L.push(`Behaviour: ${a.behaviour||'-'}`);
+  L.push(`Current medication: ${a.currentMed==='YES' ? (a.currentMedDetail && a.currentMedDetail.trim() ? a.currentMedDetail.trim() : 'Already on medication') : (a.currentMed==='NA' ? 'N/A' : '-')}`);
   L.push('');
   L.push('Physical Exam:');
   fields.forEach(f=>{
@@ -1727,6 +1800,7 @@ function assembleNote(a){
     problems.forEach((p,i)=> L.push(`  ${i+1}. ${p.title} \u2014 ${p.ddx}`));
   }
   if(a.assessmentNotes && a.assessmentNotes.trim()) L.push(`Additional notes: ${a.assessmentNotes.trim()}`);
+  L.push(`Plan: ${a.medPlan && a.medPlan.trim() ? a.medPlan.trim() : '-'}`);
   L.push('');
   L.push(`PATHWAY: ${a.pathway||'-'}`);
   const waiverLabels = allWaiverLabels(a);
@@ -1865,6 +1939,7 @@ function buildExcelFile(){
       : [
           a.pathway ? `Pathway: ${a.pathway}` : '',
           a.treatments ? `Treatments: ${a.treatments}` : '',
+          a.medPlan && a.medPlan.trim() ? `Plan: ${a.medPlan.trim()}` : '',
           a.nextStep ? `Next step: ${a.nextStep}` : '',
           a.procedures ? `Procedures: ${a.procedures}` : ''
         ].filter(Boolean).join(' | ');
