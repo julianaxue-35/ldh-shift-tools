@@ -174,6 +174,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="tabbar" id="mainTabbar">
     <button type="button" class="on" data-tab="shift">Shift List</button>
     <button type="button" data-tab="completed">Completed</button>
+    <button type="button" data-tab="incomplete">Incomplete</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
   </div>
@@ -209,6 +210,15 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
     <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="completedTabList"></div>
+  </div>
+</div>
+
+<div class="wrap tab-panel hidden" id="tabIncomplete">
+  <div class="card" id="incompleteCard">
+    <h2>Not able to be examined (<span id="incompleteTabCount">0</span>)</h2>
+    <p id="incompleteTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No incomplete exams yet.</p>
+    <input class="plain" id="incompleteSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
+    <div id="incompleteTabList"></div>
   </div>
 </div>
 
@@ -858,6 +868,7 @@ function showTab(name){
   document.querySelectorAll('#mainTabbar button[data-tab]').forEach(b=> b.classList.toggle('on', b.dataset.tab===name));
   document.getElementById('tabShift').classList.toggle('hidden', name!=='shift');
   document.getElementById('tabCompleted').classList.toggle('hidden', name!=='completed');
+  document.getElementById('tabIncomplete').classList.toggle('hidden', name!=='incomplete');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
 }
@@ -887,6 +898,7 @@ function matchesIdSearch(a, q){
 function renderShiftList(){
   const list = document.getElementById('animalList');
   const completedList = document.getElementById('completedTabList');
+  const incompleteList = document.getElementById('incompleteTabList');
   const hasAnimals = state.animals.length>0;
   document.getElementById('exportCard').classList.toggle('hidden', !hasAnimals);
   document.getElementById('exportEmptyMsg').classList.toggle('hidden', hasAnimals);
@@ -902,10 +914,13 @@ function renderShiftList(){
   document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.registered) ? 'inline-block' : 'none';
 
   const pending = sorted.filter(a=>!a.registered);
-  const completed = sorted.filter(a=>a.registered);
+  const completed = sorted.filter(a=>a.registered && !a.notExamined);
+  const incomplete = sorted.filter(a=>a.registered && a.notExamined);
   document.getElementById('shiftCount').textContent = pending.length;
   document.getElementById('completedTabCount').textContent = completed.length;
   document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
+  document.getElementById('incompleteTabCount').textContent = incomplete.length;
+  document.getElementById('incompleteTabEmpty').classList.toggle('hidden', incomplete.length>0);
 
   const completedQ = (document.getElementById('completedSearchBox').value||'').trim().toLowerCase();
   const completedMatches = completed.filter(a=>matchesIdSearch(a, completedQ));
@@ -913,16 +928,23 @@ function renderShiftList(){
     ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
     : groupedListHtml(completedMatches);
 
+  const incompleteQ = (document.getElementById('incompleteSearchBox').value||'').trim().toLowerCase();
+  const incompleteMatches = incomplete.filter(a=>matchesIdSearch(a, incompleteQ));
+  incompleteList.innerHTML = incomplete.length && !incompleteMatches.length
+    ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
+    : groupedListHtml(incompleteMatches);
+
   const shiftQ = (document.getElementById('shiftSearchBox').value||'').trim().toLowerCase();
   const pendingMatches = pending.filter(a=>matchesIdSearch(a, shiftQ));
   list.innerHTML = pendingMatches.length ? groupedListHtml(pendingMatches)
     : (pending.length ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
-      : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed tab.</p>'
+      : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed/Incomplete tabs.</p>'
                     : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>'));
   bindListButtons();
 }
 document.getElementById('shiftSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
+document.getElementById('incompleteSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('examSearchBox').addEventListener('input', renderShiftList);
 renderShiftList();
 
@@ -968,7 +990,8 @@ function examFormHtml(a){
   </div>`;
   if(a.notExamined){
     h += `<div style="margin-top:10px"><label style="font-size:12px">Assessment</label><br><textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:60px" placeholder="e.g. start on gabapentin">${esc(a.assessmentNotes||'')}</textarea></div>
-    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea></div>`;
+    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea></div>
+    <div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Marked Incomplete ✓ — click to undo':'Register as Incomplete'}</button></div>`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
