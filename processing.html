@@ -386,7 +386,10 @@ const SN_PATHWAY_VARIANTS = [
   'Awaiting spay/neuter and FIV test',
   'Awaiting spay/neuter, FIV test and microchip'
 ];
-function snChipMissing(a){ return !a.microchip || a.microchip.trim()==='' || a.microchip==='N/A'; }
+function snChipMissing(a){
+  const c = (a.microchip||'').trim();
+  return c==='N/A' || !/^9560000\d{8}$/.test(c); // blank, the bare prefill prefix, or an incomplete/invalid number all count as missing
+}
 function snFivGap(a){ return a.species==='cat' && a.fivTest==='YES' && !a.fivResult; }
 function resolveSnPathway(a){
   const chipGap = snChipMissing(a), fivGap = snFivGap(a);
@@ -881,6 +884,7 @@ function makeAnimal(r){
     behaviour: '', handling: '', fasScore: '',
     dental: {grade:'0', desc:''},
     heart: {murmur:false, grade:'', gallop:false, free:'', notExamined:false},
+    microchip: '9560000', // AU chip numbers are 15 digits starting 9560000 — prefill so she only types the remaining 8
     bcs:'', vhc:'',
     uvLamp:'', fivTest:'', fivResult:'',
     testes:'', pregnant:'',
@@ -1538,7 +1542,7 @@ function bindExamForm(a){
   if(scanBtn) scanBtn.addEventListener('click', openScanModal);
   const chipNaBtn = document.getElementById('chipNaBtn');
   if(chipNaBtn) chipNaBtn.addEventListener('click', ()=>{
-    a.microchip = a.microchip==='N/A' ? '' : 'N/A';
+    a.microchip = a.microchip==='N/A' ? '9560000' : 'N/A';
     refreshSnPathway(a); saveShift(); openExam(a.id);
   });
 
