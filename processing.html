@@ -1023,6 +1023,7 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%${!a.animalId?';border-color:var(--amber)':''}" placeholder="e.g. 1174501"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. Cat Room 1 / 01"></div>
   </div>
+  <div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>
   <div class="pe-field" style="margin-top:8px"><div class="lbl">Examined this shift?</div>
     <div class="opts">
       <button type="button" class="opt-btn ${!a.notExamined?'selected':''}" data-notexamined="NO">Yes</button>
@@ -1336,6 +1337,27 @@ function bindExamForm(a){
   const locationEl = document.getElementById('fld_location');
   if(locationEl) locationEl.addEventListener('change', ()=>{
     a.location = locationEl.value.trim(); refreshNote(a); saveShift();
+  });
+  const dupBtn = document.getElementById('duplicateBtn');
+  if(dupBtn) dupBtn.addEventListener('click', ()=>{
+    const raw = prompt('How many littermates to copy this whole entry to? You\'ll just need to fill in each one\'s Animal ID afterwards.', '1');
+    if(raw===null) return;
+    const n = parseInt(raw, 10);
+    if(isNaN(n) || n<1 || n>20){ alert('Enter a number between 1 and 20.'); return; }
+    const clones = [];
+    for(let i=0;i<n;i++){
+      const clone = JSON.parse(JSON.stringify(a));
+      clone.id = uid();
+      clone.animalId = ''; // she fills this in per copy — never duplicate IDs
+      clone.microchip = ''; // each animal's chip is unique, never copy this
+      clone.registered = false;
+      clone.noteEdited = null;
+      clones.push(clone);
+    }
+    const idx = state.animals.findIndex(x=>x.id===a.id);
+    state.animals.splice(idx+1, 0, ...clones);
+    saveShift(); renderShiftList();
+    alert(`Added ${n} cop${n===1?'y':'ies'} to the Shift List — open each one and fill in its Animal ID (and microchip, if chipped).`);
   });
   body.querySelectorAll('[data-notexamined]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
