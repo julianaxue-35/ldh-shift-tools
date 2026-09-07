@@ -251,7 +251,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">Today's list (<span id="shiftCount">0</span>)</h2>
-      <button class="btn rust small" id="clearListBtn">Clear list</button>
+      <div class="row-actions" style="margin-top:0">
+        <button class="btn small secondary" id="clearRegisteredBtn">Clear exported</button>
+        <button class="btn rust small" id="clearListBtn">Clear list</button>
+      </div>
     </div>
     <input class="plain" id="shiftSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="animalList"></div>
@@ -1351,6 +1354,15 @@ function renderBackupList(){
 document.getElementById('shiftSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('examSearchBox').addEventListener('input', renderShiftList);
+document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
+  const registeredCount = state.animals.filter(a=>a.registered).length;
+  if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
+  if(confirm(`Remove all ${registeredCount} registered animal(s) from the list? Only do this once you've actually exported/emailed them — animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
+    maybeBackupShift(true);
+    state.animals = state.animals.filter(a=>!a.registered);
+    saveShift(); renderShiftList();
+  }
+});
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){

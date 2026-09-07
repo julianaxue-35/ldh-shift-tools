@@ -198,6 +198,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
       <div class="row-actions" style="margin-top:0">
         <button class="btn small" id="registerAllBtn">Register all</button>
+        <button class="btn small secondary" id="clearRegisteredBtn">Clear exported</button>
         <button class="btn rust small" id="clearListBtn">Clear list</button>
       </div>
     </div>
@@ -976,6 +977,15 @@ document.getElementById('registerAllBtn').addEventListener('click', ()=>{
   if(!pending.length){ alert('Nothing to register — the Shift List is empty.'); return; }
   if(confirm(`Register all ${pending.length} animal(s) currently in the Shift List to Word & Excel? Only do this once you've finished with everyone shown — each one still routes to Completed or Incomplete based on its own "Examined this shift?" answer.`)){
     pending.forEach(a=>{ a.registered = true; });
+    saveShift(); renderShiftList();
+  }
+});
+document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
+  const registeredCount = state.animals.filter(a=>a.registered).length;
+  if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
+  if(confirm(`Remove all ${registeredCount} registered (Completed + Incomplete) animal(s) from the list? Only do this once you've actually exported/emailed them \u2014 animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
+    maybeBackupShift(true);
+    state.animals = state.animals.filter(a=>!a.registered);
     saveShift(); renderShiftList();
   }
 });
