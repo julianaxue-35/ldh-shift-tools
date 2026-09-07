@@ -211,6 +211,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
       <button class="btn rust small" id="clearListBtn">Clear list</button>
     </div>
+    <input class="plain" id="shiftSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="animalList"></div>
   </div>
 
@@ -220,6 +221,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="card" id="completedCard">
     <h2>Registered to Word &amp; Excel (<span id="completedTabCount">0</span>)</h2>
     <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
+    <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="completedTabList"></div>
   </div>
 </div>
@@ -228,6 +230,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="card" id="examPickerCard">
     <h2>Choose an animal</h2>
     <p id="examPickerEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals in today's list yet — add one from Shift List first.</p>
+    <input class="plain" id="examSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="examPickerList"></div>
   </div>
 </div>
@@ -981,6 +984,10 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
     if(note) note.textContent = '';
   }
 });
+function matchesIdSearch(a, q){
+  if(!q) return true;
+  return (a.animalId||'').toLowerCase().includes(q);
+}
 function renderShiftList(){
   const list = document.getElementById('animalList');
   const completedList = document.getElementById('completedTabList');
@@ -989,7 +996,12 @@ function renderShiftList(){
   document.getElementById('exportEmptyMsg').classList.toggle('hidden', hasAnimals);
   document.getElementById('examPickerEmpty').classList.toggle('hidden', hasAnimals);
   const sorted = sortedAnimals();
-  document.getElementById('examPickerList').innerHTML = hasAnimals ? groupedListHtml(sorted) : '';
+
+  const examQ = (document.getElementById('examSearchBox').value||'').trim().toLowerCase();
+  const examMatches = sorted.filter(a=>matchesIdSearch(a, examQ));
+  document.getElementById('examPickerList').innerHTML = hasAnimals
+    ? (examMatches.length ? groupedListHtml(examMatches) : '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>')
+    : '';
   const openAnimal = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
   document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.registered) ? 'inline-block' : 'none';
 
@@ -998,12 +1010,24 @@ function renderShiftList(){
   document.getElementById('shiftCount').textContent = pending.length;
   document.getElementById('completedTabCount').textContent = completed.length;
   document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
-  completedList.innerHTML = groupedListHtml(completed);
-  list.innerHTML = pending.length ? groupedListHtml(pending)
-    : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — check the Completed tab.</p>'
-                  : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>');
+
+  const completedQ = (document.getElementById('completedSearchBox').value||'').trim().toLowerCase();
+  const completedMatches = completed.filter(a=>matchesIdSearch(a, completedQ));
+  completedList.innerHTML = completed.length && !completedMatches.length
+    ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
+    : groupedListHtml(completedMatches);
+
+  const shiftQ = (document.getElementById('shiftSearchBox').value||'').trim().toLowerCase();
+  const pendingMatches = pending.filter(a=>matchesIdSearch(a, shiftQ));
+  list.innerHTML = pendingMatches.length ? groupedListHtml(pendingMatches)
+    : (pending.length ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
+      : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — check the Completed tab.</p>'
+                    : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>'));
   bindListButtons();
 }
+document.getElementById('shiftSearchBox').addEventListener('input', renderShiftList);
+document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
+document.getElementById('examSearchBox').addEventListener('input', renderShiftList);
 renderShiftList();
 
 /* If this tool is open in more than one browser tab (easy to do by accident —
