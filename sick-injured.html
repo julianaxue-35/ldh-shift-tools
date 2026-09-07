@@ -248,6 +248,12 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p id="shareExportNote" style="font-size:11px;color:var(--ink-soft);margin-top:8px;line-height:1.5"></p>
   </div>
   <p id="exportEmptyMsg" style="font-size:12.5px;color:var(--ink-soft)">No animals in today's list yet — add one from Shift List first.</p>
+
+  <div class="card" id="backupCard">
+    <h2>Automatic backups</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Kept automatically in this browser roughly every 3 minutes, plus right before Clear list — restorable below if the list ever looks wrong or goes missing. This can't survive this device's browser storage being wiped entirely, so still export a copy above regularly for that.</p>
+    <div id="backupList"></div>
+  </div>
 </div>
 
 <!-- EXAM MODAL -->
@@ -304,6 +310,32 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_sickinjured_shift_v1';
+const LS_BACKUP = LS_SHIFT + '_backups';
+const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
+const BACKUP_MIN_INTERVAL_MS = 3 * 60 * 1000; // don't snapshot more than once per 3min
+const BACKUP_MAX_COUNT = 6;
+
+/* Best-effort rotating backup, throttled so it doesn't write a near-duplicate
+   snapshot on every keystroke. Wrapped in try/catch — a backup failure must
+   never break the actual save. force=true bypasses the throttle (used right
+   before a destructive action like Clear list, so that's always undoable). */
+function maybeBackupShift(force){
+  try{
+    const now = Date.now();
+    if(!force){
+      const lastAt = parseInt(localStorage.getItem(LS_BACKUP_META) || '0', 10);
+      if(now - lastAt < BACKUP_MIN_INTERVAL_MS) return;
+    }
+    const backups = JSON.parse(localStorage.getItem(LS_BACKUP) || '[]');
+    backups.push({ts: now, data: state.animals});
+    while(backups.length > BACKUP_MAX_COUNT) backups.shift();
+    localStorage.setItem(LS_BACKUP, JSON.stringify(backups));
+    localStorage.setItem(LS_BACKUP_META, String(now));
+  }catch(e){ /* backups are best-effort */ }
+}
+function listBackups(){
+  try{ return JSON.parse(localStorage.getItem(LS_BACKUP) || '[]'); }catch(e){ return []; }
+}
 
 /* Backfills animal records saved by an earlier version of this tool onto the
    current shape. Without this, opening an animal saved before a field was
@@ -341,12 +373,33 @@ function normalizeAnimal(a){
   return a;
 }
 function loadShift(){
+  const raw = localStorage.getItem(LS_SHIFT);
+  if(raw==null) return []; // genuinely first use, or she cleared the list — not a failure
   try{
-    const arr = JSON.parse(localStorage.getItem(LS_SHIFT)) || [];
-    return arr.map(normalizeAnimal);
-  }catch(e){ return []; }
+    const parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed)) throw new Error('saved shift data was not a list');
+    return parsed.map(normalizeAnimal);
+  }catch(e){
+    // Saved data is corrupted (not just empty) — recover from the newest
+    // auto-backup instead of silently discarding everything, and say so
+    // loudly rather than quietly showing an empty list.
+    const backups = listBackups();
+    if(backups.length){
+      const latest = backups[backups.length-1];
+      try{
+        const recovered = (latest.data||[]).map(normalizeAnimal);
+        alert(`Your saved list looked corrupted, so it's been restored from an automatic backup taken ${new Date(latest.ts).toLocaleString()}. Please double-check everything below, and export a copy once you're happy with it.`);
+        return recovered;
+      }catch(e2){ /* fall through to the empty-list alert below */ }
+    }
+    alert('Your saved list looked corrupted and no automatic backup could be recovered — starting with an empty list. Sorry about this. Exporting more often protects against this kind of loss.');
+    return [];
+  }
 }
-function saveShift(){ localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals)); }
+function saveShift(){
+  localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+  maybeBackupShift(false);
+}
 
 const state = {
   animals: loadShift(),
@@ -978,7 +1031,8 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
-  if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone — export first if you need a record.`)){
+  if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
+    maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
     state.animals = [];
     saveShift(); renderShiftList();
     const note = document.getElementById('shareExportNote');
@@ -1025,6 +1079,38 @@ function renderShiftList(){
       : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — check the Completed tab.</p>'
                     : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>'));
   bindListButtons();
+  renderBackupList();
+}
+function renderBackupList(){
+  const wrap = document.getElementById('backupList');
+  if(!wrap) return;
+  const backups = listBackups();
+  if(!backups.length){
+    wrap.innerHTML = '<p style="font-size:12.5px;color:var(--ink-soft)">No backups yet — one is taken automatically as you work.</p>';
+    return;
+  }
+  wrap.innerHTML = backups.slice().reverse().map((b,i)=>{
+    const realIdx = backups.length-1-i;
+    const when = new Date(b.ts).toLocaleString();
+    const count = (b.data||[]).length;
+    return `<div class="row-actions" style="justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+      <span style="font-size:12.5px">${esc(when)} — ${count} animal(s)</span>
+      <button class="btn small secondary" data-restorebackup="${realIdx}">Restore</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-restorebackup]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const idx = Number(btn.dataset.restorebackup);
+      const b = listBackups()[idx];
+      if(!b) return;
+      if(confirm(`Replace the current list (${state.animals.length} animal(s)) with this backup from ${new Date(b.ts).toLocaleString()} (${(b.data||[]).length} animal(s))? Your current list is backed up first, so this itself can be undone.`)){
+        maybeBackupShift(true); // snapshot current state first, so restoring is itself undoable
+        state.animals = (b.data||[]).map(normalizeAnimal);
+        saveShift(); renderShiftList();
+        alert('Restored.');
+      }
+    });
+  });
 }
 document.getElementById('shiftSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
