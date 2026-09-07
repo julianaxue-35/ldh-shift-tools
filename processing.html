@@ -788,10 +788,11 @@ function makeAnimal(r){
     sex: r.sex||'',
     name: '',
     nsf: {eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true}, // NSF = normal, default on
+    notExaminedFields: {}, // key -> true if that check couldn't be safely performed
     notes: {},          // key -> free-text notes (used when NSF is off)
     behaviour: '', handling: '', fasScore: '',
     dental: {grade:'0', desc:''},
-    heart: {murmur:false, grade:'', gallop:false, free:''},
+    heart: {murmur:false, grade:'', gallop:false, free:'', notExamined:false},
     bcs:'', vhc:'',
     uvLamp:'', fivTest:'', fivResult:'',
     testes:'', pregnant:'',
@@ -1047,19 +1048,21 @@ function examFormHtml(a){
       ['0','1','2','3','4'].forEach(g=>{
         h += `<button type="button" class="opt-btn ${a.dental.grade===g?'selected':''}" data-dentalgrade="${g}">${g}</button>`;
       });
-      h += `</div>
+      h += `<button type="button" class="opt-btn ${a.dental.grade==='NE'?'selected abn':''}" data-dentalgrade="NE">Not able to examine</button>
+        </div>
         <textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea>
       </div>`;
       return;
     }
     if(f.special==='heart'){
-      const normal = !a.heart.murmur && !a.heart.gallop;
+      const normal = !a.heart.murmur && !a.heart.gallop && !a.heart.notExamined;
       h += `<div class="pe-field">
         <div class="lbl">Heart</div>
         <div class="opts">
           <button type="button" class="opt-btn ${normal?'selected':''}" data-heartnormal="1">Normal heart sounds</button>
           <button type="button" class="opt-btn ${a.heart.murmur?'selected abn':''}" data-heartmurmur="1">Heart murmur</button>
           <button type="button" class="opt-btn ${a.heart.gallop?'selected abn':''}" data-heartgallop="1">Gallop rhythm</button>
+          <button type="button" class="opt-btn ${a.heart.notExamined?'selected abn':''}" data-heartne="1">Not able to examine</button>
         </div>`;
       if(a.heart.murmur){
         h += `<div class="opts" style="margin-top:6px">`;
@@ -1072,10 +1075,14 @@ function examFormHtml(a){
       </div>`;
       return;
     }
-    const isNsf = a.nsf[f.key] !== false;
+    const fieldNE = !!(a.notExaminedFields && a.notExaminedFields[f.key]);
+    const isNsf = a.nsf[f.key] !== false && !fieldNE;
     h += `<div class="pe-field">
       <div class="lbl">${f.label}</div>
-      <button type="button" class="opt-btn ${isNsf?'selected':''}" data-nsfkey="${f.key}">NSF</button>
+      <div class="opts">
+        <button type="button" class="opt-btn ${isNsf?'selected':''}" data-nsfkey="${f.key}">NSF</button>
+        <button type="button" class="opt-btn ${fieldNE?'selected abn':''}" data-nekey="${f.key}">Not able to examine</button>
+      </div>
       <textarea class="free-input" data-noteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.notes[f.key]||'')}</textarea>
     </div>`;
   });
@@ -1296,7 +1303,17 @@ function bindExamForm(a){
   const handlingEl = document.getElementById('fld_handling');
   if(handlingEl) handlingEl.addEventListener('change', ()=>{
     a.handling = handlingEl.value;
-    if(isUnsafeHandling(a) && !a.nextStep) a.nextStep = 'Awaiting behavioural assessment';
+    if(isUnsafeHandling(a)){
+      if(!a.nextStep) a.nextStep = 'Awaiting behavioural assessment';
+      // Not safely handleable — default every check to "not able to examine"
+      // rather than leaving them at NSF (which would misleadingly imply
+      // they were actually checked and found normal). Any check the vet
+      // did manage to safely perform can still be flipped back manually.
+      if(!a.notExaminedFields) a.notExaminedFields = {};
+      Object.keys(a.nsf).forEach(k=>{ a.notExaminedFields[k] = true; a.nsf[k] = false; });
+      a.dental.grade = 'NE';
+      a.heart.notExamined = true; a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = '';
+    }
     refreshNote(a); saveShift(); openExam(a.id);
   });
 
@@ -1349,18 +1366,26 @@ function bindExamForm(a){
 
   const heartNormalBtn = body.querySelector('[data-heartnormal]');
   if(heartNormalBtn) heartNormalBtn.addEventListener('click', ()=>{
-    a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = '';
+    a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = ''; a.heart.notExamined = false;
     saveShift(); openExam(a.id);
   });
   const heartMurmurBtn = body.querySelector('[data-heartmurmur]');
   if(heartMurmurBtn) heartMurmurBtn.addEventListener('click', ()=>{
     a.heart.murmur = !a.heart.murmur;
     if(!a.heart.murmur) a.heart.grade = '';
+    a.heart.notExamined = false;
     saveShift(); openExam(a.id);
   });
   const heartGallopBtn = body.querySelector('[data-heartgallop]');
   if(heartGallopBtn) heartGallopBtn.addEventListener('click', ()=>{
     a.heart.gallop = !a.heart.gallop;
+    a.heart.notExamined = false;
+    saveShift(); openExam(a.id);
+  });
+  const heartNeBtn = body.querySelector('[data-heartne]');
+  if(heartNeBtn) heartNeBtn.addEventListener('click', ()=>{
+    a.heart.notExamined = !a.heart.notExamined;
+    if(a.heart.notExamined){ a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = ''; }
     saveShift(); openExam(a.id);
   });
   body.querySelectorAll('[data-heartgrade]').forEach(btn=>{
@@ -1433,6 +1458,19 @@ function bindExamForm(a){
     btn.addEventListener('click', ()=>{
       const key = btn.dataset.nsfkey;
       a.nsf[key] = !(a.nsf[key] !== false); // toggle
+      if(!a.notExaminedFields) a.notExaminedFields = {};
+      a.notExaminedFields[key] = false;
+      saveShift();
+      openExam(a.id);
+    });
+  });
+  // Not able to examine toggle per field
+  body.querySelectorAll('[data-nekey]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.dataset.nekey;
+      if(!a.notExaminedFields) a.notExaminedFields = {};
+      a.notExaminedFields[key] = !a.notExaminedFields[key];
+      if(a.notExaminedFields[key]) a.nsf[key] = false;
       saveShift();
       openExam(a.id);
     });
@@ -1536,7 +1574,7 @@ function computeProblemList(a){
   const problems = [];
   fields.forEach(f=>{
     if(f.special==='teeth'){
-      if(a.dental.grade && a.dental.grade!=='0' && !a.assessmentDismissed['teeth']){
+      if(a.dental.grade && a.dental.grade!=='0' && a.dental.grade!=='NE' && !a.assessmentDismissed['teeth']){
         const title = `Dental grade ${a.dental.grade}/4${a.dental.desc ? ' \u2014 '+a.dental.desc : ''}`;
         const ddx = (a.assessmentOverrides['teeth'] != null) ? a.assessmentOverrides['teeth'] : ddxBlurb('teeth', a.species);
         problems.push({id:'teeth', title, ddx, custom:false});
@@ -1561,9 +1599,10 @@ function computeProblemList(a){
       }
       return;
     }
+    const fieldNE = !!(a.notExaminedFields && a.notExaminedFields[f.key]);
     const isNsf = a.nsf[f.key] !== false;
     const note = (a.notes[f.key]||'').trim();
-    if(!isNsf && note && !a.assessmentDismissed[f.key]){
+    if(!fieldNE && !isNsf && note && !a.assessmentDismissed[f.key]){
       const title = `${f.label}: ${note}`;
       const ddx = (a.assessmentOverrides[f.key] != null) ? a.assessmentOverrides[f.key] : ddxBlurb(f.key, a.species);
       problems.push({id:f.key, title, ddx, custom:false});
@@ -1636,19 +1675,28 @@ function assembleNote(a){
   L.push('Physical Exam:');
   fields.forEach(f=>{
     if(f.special==='teeth'){
-      L.push(`Teeth: Dental Grade ${a.dental.grade||'0'}/4  ${a.dental.desc||''}`);
+      if(a.dental.grade==='NE'){
+        L.push(`Teeth: Not able to examine${a.dental.desc ? ' — '+a.dental.desc : ''}`);
+      } else {
+        L.push(`Teeth: Dental Grade ${a.dental.grade||'0'}/4  ${a.dental.desc||''}`);
+      }
       return;
     }
     if(f.special==='heart'){
-      const parts = [];
-      if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` grade ${a.heart.grade}`:''));
-      if(a.heart.gallop) parts.push('Gallop rhythm');
-      L.push(`Heart: ${parts.length ? parts.join(', ') : 'Normal heart sounds'}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
+      if(a.heart.notExamined){
+        L.push(`Heart: Not able to examine${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
+      } else {
+        const parts = [];
+        if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` grade ${a.heart.grade}`:''));
+        if(a.heart.gallop) parts.push('Gallop rhythm');
+        L.push(`Heart: ${parts.length ? parts.join(', ') : 'Normal heart sounds'}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
+      }
       return;
     }
+    const fieldNE = !!(a.notExaminedFields && a.notExaminedFields[f.key]);
     const isNsf = a.nsf[f.key] !== false;
     const note = (a.notes[f.key]||'').trim();
-    L.push(`${f.label}: ${isNsf ? 'NSF' : (note || '(not recorded)')}`);
+    L.push(`${f.label}: ${fieldNE ? 'Not able to examine'+(note?' — '+note:'') : (isNsf ? 'NSF' : (note || '(not recorded)'))}`);
   });
   L.push(`BCS: ${a.bcs||'-'}/5`);
   if(a.species==='cat'){
