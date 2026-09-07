@@ -268,7 +268,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <div id="examBody"></div>
     </div>
     <div class="card">
-      <h2>Note draft <button class="btn small secondary" id="editToggleBtn" style="float:right">Edit</button><button class="btn small secondary" id="copyNoteBtn" style="float:right;margin-right:6px">📋 Copy</button></h2>
+      <h2>Note draft <button class="btn small secondary" id="editToggleBtn" style="float:right">Edit</button><button class="btn small secondary" id="refreshNoteBtn" style="float:right;margin-right:6px">Refresh</button><button class="btn small secondary" id="copyNoteBtn" style="float:right;margin-right:6px">📋 Copy</button></h2>
       <div class="note-box hidden" id="noteDisplay"></div>
       <textarea class="note-edit hidden" id="noteEditArea"></textarea>
     </div>
@@ -1964,6 +1964,17 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
     disp.classList.remove('hidden'); edit.classList.add('hidden'); btn.textContent = 'Edit';
     saveShift();
   }
+});
+
+document.getElementById('refreshNoteBtn').addEventListener('click', ()=>{
+  const a = state.animals.find(x=>x.id===state.openId);
+  if(!a) return;
+  a.noteEdited = null;
+  document.getElementById('noteDisplay').classList.remove('hidden');
+  document.getElementById('noteEditArea').classList.add('hidden');
+  document.getElementById('editToggleBtn').textContent = 'Edit';
+  refreshNote(a);
+  saveShift();
 });
 
 /* ShelterMate's paste target turns every plain-text line break into a full,
