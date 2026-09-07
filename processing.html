@@ -1664,10 +1664,14 @@ function bindExamForm(a){
       openExam(a.id);
     });
   });
-  // Notes per field
+  // Notes per field — a note means it's not NSF, so typing one clears NSF
+  // automatically (clearing the note back out reverts to NSF), rather than
+  // requiring her to separately untick NSF for the Assessment list to pick it up.
   body.querySelectorAll('[data-noteskey]').forEach(ta=>{
     ta.addEventListener('change', ()=>{
-      a.notes[ta.dataset.noteskey] = ta.value;
+      const key = ta.dataset.noteskey;
+      a.notes[key] = ta.value;
+      a.nsf[key] = !ta.value.trim();
       saveShift();
       openExam(a.id); // re-render so Assessment reflects the note
     });
@@ -1809,9 +1813,8 @@ function computeProblemList(a){
       return;
     }
     const fieldNE = !!(a.notExaminedFields && a.notExaminedFields[f.key]);
-    const isNsf = a.nsf[f.key] !== false;
     const note = (a.notes[f.key]||'').trim();
-    if(!fieldNE && !isNsf && note && !a.assessmentDismissed[f.key]){
+    if(!fieldNE && note && !a.assessmentDismissed[f.key]){
       const title = `${f.label}: ${note}`;
       const ddx = (a.assessmentOverrides[f.key] != null) ? a.assessmentOverrides[f.key] : ddxBlurb(f.key, a.species);
       problems.push({id:f.key, title, ddx, custom:false});
