@@ -1401,7 +1401,7 @@ function examFormHtml(a){
   h += `<div class="two-col">
     <div><label style="font-size:12px">Bloodwork required${a.bloodworkAuto?' (auto: age \u226510)':''}</label><br>
       <select class="plain" id="fld_bw" style="width:100%"><option value="">-</option><option ${a.bloodwork==='YES'?'selected':''}>YES</option><option ${a.bloodwork==='NO'?'selected':''}>NO</option></select></div>
-    <div><label style="font-size:12px">Type</label><br><input class="plain" id="fld_bwtype" style="width:100%" value="${esc(a.bloodworkType)}"></div>
+    ${a.bloodwork==='YES' ? `<div><label style="font-size:12px">Type</label><br><input class="plain" id="fld_bwtype" style="width:100%" value="${esc(a.bloodworkType)}"></div>` : ''}
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Vet / nurse</div>
@@ -1495,7 +1495,9 @@ function bindExamForm(a){
 
   const bwEl = document.getElementById('fld_bw');
   if(bwEl) bwEl.addEventListener('change', ()=>{
-    a.bloodwork = bwEl.value; a.bloodworkAuto = false; refreshNote(a); saveShift();
+    a.bloodwork = bwEl.value; a.bloodworkAuto = false;
+    if(a.bloodwork!=='YES') a.bloodworkType = ''; // Type only matters once bloodwork is actually required
+    refreshNote(a); saveShift(); openExam(a.id);
   });
 
   const sexEl = document.getElementById('fld_sex');
@@ -1601,7 +1603,7 @@ function bindExamForm(a){
     if(!isNaN(num) && num >= 10){
       a.bloodwork = 'YES'; a.bloodworkAuto = true;
     } else if(a.bloodworkAuto){
-      a.bloodwork = 'NO'; a.bloodworkAuto = false;
+      a.bloodwork = 'NO'; a.bloodworkAuto = false; a.bloodworkType = '';
     }
     saveShift();
     openExam(a.id);
@@ -1931,7 +1933,7 @@ function assembleNote(a){
   const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
   L.push(`Procedures required: ${procText}`);
   if(a.species==='dog') L.push(`Chill Required: ${a.chillRequired||'-'}`);
-  L.push(`Blood work required: ${a.bloodwork||'-'}${a.bloodworkAuto?' (auto-flagged: age \u226510)':''}   Type: ${a.bloodworkType||'-'}`);
+  L.push(`Blood work required: ${a.bloodwork||'-'}${a.bloodworkAuto?' (auto-flagged: age \u226510)':''}${a.bloodwork==='YES' ? '   Type: '+(a.bloodworkType||'-') : ''}`);
   L.push(`Due date: ${a.dueDate||'-'}`);
   return L.join('\n');
 }
