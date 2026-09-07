@@ -1167,8 +1167,7 @@ function examFormHtml(a){
   if(isUnsafeHandling(a)){
     h += `<div class="warn" style="margin-top:8px">Not safely handleable — do a visual exam only (rest, if needed, under sedation/surgery). Flagged for behavioural assessment below.</div>`;
   }
-  h += `<div style="margin-top:8px"><textarea class="plain" id="fld_behaviour" placeholder="Free text — additional behaviour notes..." style="width:100%;min-height:50px">${esc(a.behaviour)}</textarea></div>
-  </div>`;
+  h += `</div>`;
 
   h += `<div class="pe-field"><div class="lbl">Current medication</div>
     <div class="opts">
@@ -1409,7 +1408,7 @@ function examFormHtml(a){
 function bindExamForm(a){
   const body = document.getElementById('examBody');
   const map = {
-    behaviour:'fld_behaviour',vhc:'fld_vhc',
+    vhc:'fld_vhc',
     pathway:'fld_pathway',
     treatments:'fld_treatments',chillRequired:'fld_chill',
     bloodworkType:'fld_bwtype'};
@@ -1864,7 +1863,6 @@ function assembleNote(a){
   L.push('');
   if(a.species==='cat' && a.fasScore) L.push(`FAS score: ${FAS_OPTIONS.find(o=>o.v===a.fasScore)?.label || a.fasScore}`);
   L.push(`Handling: ${a.handling||'-'}`);
-  L.push(`Behaviour: ${a.behaviour||'-'}`);
   L.push(`Current medication: ${a.currentMed==='YES' ? (a.currentMedDetail && a.currentMedDetail.trim() ? a.currentMedDetail.trim() : 'Already on medication') : (a.currentMed==='NA' ? 'N/A' : '-')}`);
   L.push('');
   L.push('Physical Exam:');
