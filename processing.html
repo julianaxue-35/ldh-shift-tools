@@ -513,10 +513,8 @@ function ddxBlurb(key, species, grade){
     neuro: 'DDx: vestibular disease vs toxin exposure vs trauma vs infectious/inflammatory CNS disease; recommend neurological exam.',
     cryptorchid: 'DDx: unilateral or bilateral cryptorchidism; recommend abdominal/inguinal palpation +/- ultrasound to locate retained testicle(s) — surgical removal recommended given increased risk of neoplasia/torsion in retained testicles.',
     pregnant: 'Note: pregnant — confirm gestation stage if possible; flag for priority pregnant spey scheduling and appropriate peri-operative/anaesthetic planning.',
-    bcslow: cat
-      ? 'Note: underweight — assess appetite; consider hyperthyroidism (especially if >8yr), diabetes mellitus, chronic kidney disease, GI lymphoma, IBD, dental disease, parasitism; recommend blood work.'
-      : 'Note: underweight — assess appetite, concurrent illness, GI disease, dental disease, parasitism; recommend dietary assessment and blood work.',
-    bcshigh: 'Note: overweight — recommend dietary management and weight loss plan.'
+    bcslow: 'DDx: malnutrition vs parasitic infection vs other (metabolic/GI disease); recommend faecal exam and blood work.',
+    bcshigh: 'DDx: overfeeding/overeating vs hypothyroidism (hypoT) vs other metabolic disease; recommend dietary management and blood work if indicated.'
   };
   return blurbs[key] || 'DDx: review findings and add differentials.';
 }
@@ -779,6 +777,8 @@ document.getElementById('manualAddBtn').addEventListener('click', ()=>{
 });
 
 function makeAnimal(r){
+  const ageNum = parseFloat(r.ageYears);
+  const autoBloodwork = !isNaN(ageNum) && ageNum >= 10;
   return {
     id: uid(),
     animalId: r.animalId||'',
@@ -801,10 +801,10 @@ function makeAnimal(r){
     assessmentNotes: '',      // additional free-text assessment notes
     notExamined: false, notExaminedPlan: '',
     customProblems: [],       // [{id, title, ddx}]
-    pathway:'', waiversRequired:'', waiversSelected:[], vetChat:'',
+    pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
     nextStep:'', procedures:'', proceduresOther:'', chillRequired:'',
-    bloodwork:'', bloodworkType:'', bloodworkAuto:false,
+    bloodwork: autoBloodwork?'YES':'NO', bloodworkType:'', bloodworkAuto: autoBloodwork,
     vetNurse:'',
     noteEdited: null,   // if set, user has manually edited the note
     registered:false
@@ -1392,7 +1392,7 @@ function bindExamForm(a){
     if(!isNaN(num) && num >= 10){
       a.bloodwork = 'YES'; a.bloodworkAuto = true;
     } else if(a.bloodworkAuto){
-      a.bloodwork = ''; a.bloodworkAuto = false;
+      a.bloodwork = 'NO'; a.bloodworkAuto = false;
     }
     saveShift();
     openExam(a.id);
