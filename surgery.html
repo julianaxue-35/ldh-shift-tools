@@ -2258,12 +2258,23 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
     saveShift();
   }
 });
+/* ShelterMate's paste target turns every plain-text line break into a full,
+   visibly-spaced paragraph. Rich-text paste targets generally prefer
+   text/html over text/plain when both are on the clipboard, so writing an
+   HTML version that uses <br> (a soft line break, no paragraph margin)
+   instead of one <p>/<div> per line should paste tight — without changing
+   the Word doc or on-screen note at all (both still use the plain text). */
+function noteTextToHtml(text){
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\n/g,'<br>');
+}
 document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
   const disp = document.getElementById('noteDisplay');
   const edit = document.getElementById('noteEditArea');
   const text = edit.classList.contains('hidden') ? disp.textContent : edit.value;
   const btn = document.getElementById('copyNoteBtn');
-  try{
+  async function plainCopyFallback(){
     if(navigator.clipboard && navigator.clipboard.writeText){
       await navigator.clipboard.writeText(text);
     } else {
@@ -2272,6 +2283,19 @@ document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
       document.body.appendChild(ta); ta.focus(); ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
+    }
+  }
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      const html = noteTextToHtml(text);
+      const item = new ClipboardItem({
+        'text/plain': new Blob([text], {type:'text/plain'}),
+        'text/html': new Blob([html], {type:'text/html'})
+      });
+      try{ await navigator.clipboard.write([item]); }
+      catch(errHtml){ await plainCopyFallback(); }
+    } else {
+      await plainCopyFallback();
     }
     const orig = btn.textContent;
     btn.textContent = '✓ Copied';

@@ -240,7 +240,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <h2>Export shift</h2>
     <div class="row-actions">
       <button class="btn" id="exportWordBtn">Export Word (.doc) — all animals</button>
-      <button class="btn secondary" id="exportCsvBtn">Export Excel (.csv)</button>
+      <button class="btn secondary" id="exportCsvBtn">Export Excel (.xlsx)</button>
     </div>
     <div class="row-actions">
       <button class="btn secondary" id="shareExportBtn">📤 Share / Email…</button>
@@ -1959,12 +1959,27 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
   }
 });
 
+/* ShelterMate's paste target turns every plain-text line break into a full,
+   visibly-spaced paragraph — confirmed from her screenshot, where even lines
+   with no blank line between them in our text (e.g. "BCS: 3/5" then straight
+   into "UV Lamp: NEGATIVE") still showed large gaps once pasted. Rich-text
+   paste targets like that generally prefer text/html over text/plain when
+   both are on the clipboard, so writing an HTML version that uses <br> (a
+   soft line break, no paragraph margin) instead of one <p>/<div> per line
+   should paste tight — matching what she gets by typing directly into
+   ShelterMate with Shift+Enter, without changing the Word doc or on-screen
+   note at all (both still use the plain text, untouched). */
+function noteTextToHtml(text){
+  return text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\n/g,'<br>');
+}
 document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
   const disp = document.getElementById('noteDisplay');
   const edit = document.getElementById('noteEditArea');
   const text = edit.classList.contains('hidden') ? disp.textContent : edit.value;
   const btn = document.getElementById('copyNoteBtn');
-  try{
+  async function plainCopyFallback(){
     if(navigator.clipboard && navigator.clipboard.writeText){
       await navigator.clipboard.writeText(text);
     } else {
@@ -1973,6 +1988,19 @@ document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
       document.body.appendChild(ta); ta.focus(); ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
+    }
+  }
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      const html = noteTextToHtml(text);
+      const item = new ClipboardItem({
+        'text/plain': new Blob([text], {type:'text/plain'}),
+        'text/html': new Blob([html], {type:'text/html'})
+      });
+      try{ await navigator.clipboard.write([item]); }
+      catch(errHtml){ await plainCopyFallback(); }
+    } else {
+      await plainCopyFallback();
     }
     const orig = btn.textContent;
     btn.textContent = '✓ Copied';
@@ -2041,35 +2069,61 @@ document.getElementById('exportWordBtn').addEventListener('click', ()=>{
   showClearReminder();
 });
 
-/* ---------- export: CSV (opens directly in Excel) ---------- */
-function csvEscape(v){
-  v = (v==null?'':String(v));
-  if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
-  return v;
+/* ---------- export: real .xlsx (Completed / Incomplete / Not Registered tabs) ---------- */
+/* Inserts a "ROOM NAME" row (just one cell filled, rest blank) before each
+   room's group of animals, in the same room order sortedAnimals() already
+   produces \u2014 so the export reads grouped by location the same way the
+   on-screen lists do, not just a Location column repeated on every row. */
+function pushGroupedRows(aoa, animals, numCols, rowBuilder){
+  let lastRoom = null;
+  animals.forEach(a=>{
+    const room = parseLocation(a.location).room;
+    if(room !== lastRoom){
+      const roomRow = new Array(numCols).fill('');
+      roomRow[0] = room.toUpperCase();
+      aoa.push(roomRow);
+      lastRoom = room;
+    }
+    aoa.push(rowBuilder(a));
+  });
+}
+function styledSheet(aoa, colWidths){
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = colWidths.map(w=>({wch:w}));
+  ws['!rows'] = [{hpt:20}];
+  return ws;
 }
 function buildExcelFile(){
   if(!state.animals.length) return null;
-  const rows = [['Patient ID','Location','Microchip','PLAN','Pathway','Next step in pathway','Procedures required']];
-  sortedAnimals().forEach(a=>{
-    const plan = a.notExamined
-      ? [
-          'NOT ABLE TO BE EXAMINED THIS SHIFT',
-          a.assessmentNotes && a.assessmentNotes.trim() ? `Assessment: ${a.assessmentNotes.trim()}` : '',
-          a.notExaminedPlan && a.notExaminedPlan.trim() ? `Plan: ${a.notExaminedPlan.trim()}` : ''
-        ].filter(Boolean).join(' | ')
-      : [
-          a.pathway ? `Pathway: ${a.pathway}` : '',
-          a.treatments ? `Treatments: ${a.treatments}` : '',
-          a.medPlan && a.medPlan.trim() ? `Plan: ${a.medPlan.trim()}` : '',
-          a.nextStep ? `Next step: ${a.nextStep}` : '',
-          a.procedures ? `Procedures: ${a.procedures}` : ''
-        ].filter(Boolean).join(' | ');
-    const procText = a.procedures==='Other' ? (a.proceduresOther||'') : (a.procedures||'');
-    rows.push([a.animalId, a.location, a.microchip||'', plan, a.pathway||'', a.nextStep||'', procText]);
+  const sorted = sortedAnimals();
+  const completed = sorted.filter(a=>a.registered && !a.notExamined);
+  const incomplete = sorted.filter(a=>a.registered && a.notExamined);
+  const pending = sorted.filter(a=>!a.registered);
+
+  const completedAoa = [['Patient ID','Location','Microchip','Pathway','Treatments','Plan','Next step in pathway','Procedures required']];
+  pushGroupedRows(completedAoa, completed, 8, a=>{
+    const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
+    return [a.animalId, a.location, a.microchip||'-', a.pathway||'-', a.treatments||'-',
+      (a.medPlan && a.medPlan.trim()) || '-', a.nextStep||'-', procText];
   });
-  const csv = rows.map(r=> r.map(csvEscape).join(',')).join('\r\n');
-  const blob = new Blob(['\ufeff', csv], {type:'text/csv;charset=utf-8'});
-  return new File([blob], `Processing_Shift_${todayStr().replace(/\s/g,'_')}.csv`, {type:'text/csv'});
+
+  const incompleteAoa = [['Patient ID','Location','Assessment','Plan']];
+  pushGroupedRows(incompleteAoa, incomplete, 4, a=>[
+    a.animalId, a.location,
+    (a.assessmentNotes && a.assessmentNotes.trim()) || '-',
+    (a.notExaminedPlan && a.notExaminedPlan.trim()) || '-'
+  ]);
+
+  const pendingAoa = [['Patient ID','Location','Microchip']];
+  pushGroupedRows(pendingAoa, pending, 3, a=>[a.animalId, a.location, a.microchip||'-']);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,16,30,30,35,25,25]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,45,45]), 'Incomplete');
+  XLSX.utils.book_append_sheet(wb, styledSheet(pendingAoa, [12,20,16]), 'Not Registered');
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  return new File([blob], `Processing_Shift_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   const file = buildExcelFile();
