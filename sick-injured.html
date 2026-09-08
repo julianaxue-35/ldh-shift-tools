@@ -428,7 +428,7 @@ function esc(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&
    mid-sentence, without attempting to actually re-parse the note. */
 const REFERENCE_HEADER_RE = /(Date|Reason\s*\/\s*History|Reason|History|Examination|Exam|Assessment|Treatment(?:\s*\/\s*Fees)?|Medications?(?:\s*\/\s*Fees)?|Pathway(?:\s*\/\s*Plan)?(?:\s*\/\s*Waivers)?|Plan|Vet\s*\/\s*Nurse)\s*:/gi;
 function formatReferenceNote(text){
-  return esc(text).replace(REFERENCE_HEADER_RE, m => `<br><br><b>${m}</b>`).replace(/^(<br>)+/, '');
+  return esc(reflowFreeText(text)).replace(REFERENCE_HEADER_RE, m => `<br><br><b>${m}</b>`).replace(/^(<br>)+/, '');
 }
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
 /* Vet-authored consult notes are often typed Excel-cell style — one short
@@ -707,7 +707,7 @@ function addOrMergeFromRecheck(r){
     existing.history = reflowFreeText(sections.reasonHistory);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
-  const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
+  const importedTreatment = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   if(importedTreatment && !existing.currentMed) existing.currentMed = importedTreatment;
   if(importedTreatment && !existing.treatment) existing.treatment = importedTreatment;
   else if(medLines.length){
@@ -723,7 +723,7 @@ function addOrMergeFromRecheck(r){
   (r.otherReminders||[]).forEach(t=> addUniqueReminder(existing, t));
   const matchedPathway = matchPathway(sections.pathway);
   if(matchedPathway) existing.pathway = matchedPathway;
-  const importedPlan = stripTrailingInitials(sections.pathway);
+  const importedPlan = reflowFreeText(stripTrailingInitials(sections.pathway));
   if(importedPlan && !existing.plan) existing.plan = importedPlan;
 }
 
@@ -990,7 +990,7 @@ document.getElementById('manualFlagAddBtn').addEventListener('click', ()=>{
 function makeAnimal(r){
   const sections = parseNoteSections(r.noteText || '');
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
-  const treatmentText = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
+  const treatmentText = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   return {
     id: uid(),
     animalId: r.animalId || '',
@@ -1021,7 +1021,7 @@ function makeAnimal(r){
     currentMed: treatmentText,
     treatment: treatmentText,
     pathway: matchPathway(sections.pathway),
-    plan: stripTrailingInitials(sections.pathway),
+    plan: reflowFreeText(stripTrailingInitials(sections.pathway)),
     planItems: [],
     noteEdited: null,
     registered: false,
@@ -1610,6 +1610,7 @@ function bindExamForm(a){
   bindPasteReflow('fld_treatment', 'treatment');
   bindPasteReflow('fld_plan', 'plan');
   bindPasteReflow('fld_examFree', 'free', a.exam);
+  bindPasteReflow('fld_currentMed', 'currentMed');
   bindLiveText('fld_currentMed', 'currentMed');
   bindLiveText('fld_treatment', 'treatment');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
