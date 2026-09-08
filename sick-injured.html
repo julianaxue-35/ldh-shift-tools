@@ -373,6 +373,20 @@ function normalizeAnimal(a){
   if(a.flagged == null) a.flagged = false;
   if(a.registered == null) a.registered = !!a.done;
   if(!Array.isArray(a.otherReminders)) a.otherReminders = [];
+  /* Root cause of "I fixed it but she still sees the old broken formatting":
+     the reflow fix only ever ran at the moment text was newly imported or
+     pasted — it never touched text already sitting in a record saved
+     before that code existed (e.g. her long-lived 1173889 test animal,
+     referenced above). Since normalizeAnimal runs on every load, reflow
+     every free-text field and every reference note here too — this is the
+     one place guaranteed to run against old data, not just new. Idempotent,
+     so already-clean text is untouched. */
+  a.history = reflowFreeText(a.history);
+  a.treatment = reflowFreeText(a.treatment);
+  a.plan = reflowFreeText(a.plan);
+  a.currentMed = reflowFreeText(a.currentMed);
+  a.exam.free = reflowFreeText(a.exam.free);
+  a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
   return a;
 }
 function loadShift(){
