@@ -498,7 +498,7 @@ function parseNoteSections(text){
      cut off at the right boundary. */
   const headerDefs = [
     {key:'reasonHistory', re:/Reason(\s*\/\s*History)?\s*:/i},
-    {key:'examination', re:/Examination\s*:/i},
+    {key:'examination', re:/Exam(ination)?\s*:/i},
     {key:'assessment', re:/Assessment\s*:/i},
     {key:'treatment', re:/(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/i},
     {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/i}
@@ -688,6 +688,14 @@ function addOrMergeFromRecheck(r){
   if(r.noteText && r.noteText.trim()){
     const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`;
     addUniqueReminder(existing, label);
+  }
+  /* An animal already in the shift (e.g. added from the AA Flag Log first)
+     merging with its Vet Reminder Report row previously never touched
+     History at all — only makeAnimal's fresh-creation path auto-filled it.
+     Fill it here too, same cleanup, but only while it's still blank so an
+     existing AA-flag history or her own typing is never overwritten. */
+  if(!existing.history && sections.reasonHistory){
+    existing.history = joinIntoProse(sections.reasonHistory);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
@@ -1459,11 +1467,11 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Assessment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Carried forward from the last note. Conditions that can resolve are flagged — mark Ongoing or Resolved.</p>
     <div id="assessList">`;
-  a.assessment.forEach((p,i)=>{
+  a.assessment.forEach(p=>{
     const undecided = p.matched && p.resolved===null;
     h += `<div class="ddx-problem" data-probid="${esc(p.id)}" style="${undecided?'border:2px solid var(--amber);':''}">
       <div class="ddx-problem-head">
-        <b>${i+1}. <span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
+        <b><span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
         <span class="ddx-problem-actions">
           <button type="button" class="btn small secondary" data-editassess="${esc(p.id)}">Edit</button>
           <button type="button" class="btn small rust" data-delassess="${esc(p.id)}">Remove</button>
@@ -1539,6 +1547,23 @@ function bindExamForm(a){
     el.addEventListener('change', ()=>{ target[key] = el.value; refreshNote(a); saveShift(); });
   }
   bindLiveText('fld_history', 'history');
+  /* She's flagged this twice: pasted-in history text (from ShelterMate, from
+     the Previous notes reference box, from anywhere) keeps landing as choppy
+     one-line-per-fragment paragraphs. The auto-fill-on-import cleanup alone
+     doesn't cover every way text ends up in this field, so catch it at the
+     point it actually lands: any paste into Reason/History gets the whole
+     field reflowed into prose right after the paste completes. Idempotent —
+     already-clean text passed through again is unchanged. */
+  const historyEl = document.getElementById('fld_history');
+  if(historyEl){
+    historyEl.addEventListener('paste', ()=>{
+      setTimeout(()=>{
+        historyEl.value = joinIntoProse(historyEl.value);
+        a.history = historyEl.value;
+        refreshNote(a); saveShift();
+      }, 0);
+    });
+  }
   bindLiveText('fld_currentMed', 'currentMed');
   bindLiveText('fld_treatment', 'treatment');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
@@ -1710,7 +1735,7 @@ function assembleNote(a){
     const p = a.assessment[0];
     assessLines.push(p.resolved===true ? `${p.text} — resolved this visit` : p.text);
   } else {
-    a.assessment.forEach((p,i)=> assessLines.push(`${i+1}). ${p.text}${p.resolved===true ? ' — resolved this visit' : ''}`));
+    a.assessment.forEach(p=> assessLines.push(`${p.text}${p.resolved===true ? ' — resolved this visit' : ''}`));
   }
   if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(a.assessmentNotes.trim());
   L.push(assessLines.join('\n'));

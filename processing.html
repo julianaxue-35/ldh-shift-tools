@@ -386,6 +386,60 @@ const SN_PATHWAY_VARIANTS = [
   'Awaiting spay/neuter and FIV test',
   'Awaiting spay/neuter, FIV test and microchip'
 ];
+/* Shared option list for "Next step in pathway" — an animal can carry more
+   than one status at once (e.g. awaiting spay/neuter AND a vet minor
+   procedure), so this same list is used both for the primary select and
+   for each additional status slot in a.nextStepsExtra. */
+const NEXT_STEP_OPTIONS = [
+  'Hold in vet care',
+  'Hold in vet care, requesting lead vet review',
+  'Hold for possible match',
+  'Awaiting triage',
+  'Awaiting behavioural assessment',
+  'Awaiting spay/neuter',
+  'Awaiting spay/neuter and microchip',
+  'Awaiting spay/neuter and FIV test',
+  'Awaiting spay/neuter, FIV test and microchip',
+  'Awaiting surgery - not spay/neuter',
+  'Vet major procedure',
+  'Vet minor procedure',
+  'Contact IP and awaiting IP collection',
+  'Awaiting foster',
+  'Awaiting rescue'
+];
+/* All statuses currently on an animal — primary slot first, then any
+   additional ones, blanks dropped. Used for the note text and Excel export. */
+function allNextSteps(a){
+  return [a.nextStep, ...(a.nextStepsExtra||[])].filter(Boolean);
+}
+
+/* "Treatments provided" defaults to a free-text base ("Physical exam and
+   wormer") — Flea/Vaccine are quick-tick add-ons rather than separate
+   fields, so they just add/remove themselves as a comma-separated item in
+   that same text, leaving the rest freely editable either way. */
+function treatmentHasItem(a, item){
+  return (a.treatments||'').split(',').map(s=>s.trim().toLowerCase()).includes(item.toLowerCase());
+}
+function toggleTreatmentItem(a, item){
+  const parts = (a.treatments||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const idx = parts.findIndex(p=>p.toLowerCase()===item.toLowerCase());
+  if(idx>=0) parts.splice(idx,1); else parts.push(item);
+  a.treatments = parts.join(', ');
+}
+/* Vaccine isn't a plain tick like Flea — the product depends on species:
+   cats always get Tricat F3; dogs always get DHP, plus KC whose route
+   (intranasal or injectable) she picks per animal. */
+function vaccineLabel(a){
+  if(a.species==='cat') return 'Vaccinated (Tricat F3)';
+  const kc = a.vaccineKcRoute==='INJ' ? 'KC injectable (booster required)' : 'KC IN (no booster required)';
+  return `Vaccinated (DHP + ${kc})`;
+}
+function syncVaccineTreatment(a){
+  let parts = (a.treatments||'').split(',').map(s=>s.trim()).filter(Boolean);
+  parts = parts.filter(p=>!/^vaccinated\b/i.test(p));
+  if(a.vaccineGiven) parts.push(vaccineLabel(a));
+  a.treatments = parts.join(', ');
+}
 function snChipMissing(a){
   const c = (a.microchip||'').trim();
   return c==='N/A' || !/^9560000\d{8}$/.test(c); // blank, the bare prefill prefix, or an incomplete/invalid number all count as missing
@@ -485,6 +539,10 @@ function normalizeAnimal(a){
     a.waiversSelected = migrated;
   }
   if(a.waiversRequired==null) a.waiversRequired = '';
+  if(!Array.isArray(a.nextStepsExtra)) a.nextStepsExtra = [];
+  if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
+  if(a.vaccineGiven == null) a.vaccineGiven = false;
+  if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
   return a;
 }
 
@@ -545,7 +603,7 @@ function isUnderOneYear(approxAge){
   const t = (approxAge||'').toLowerCase();
   if(!t.trim()) return false;
   if(/\bpupp/.test(t)) return true;
-  if(/\b(week|wk|month|mo)\b/.test(t)) return true;
+  if(/\b(weeks?|wks?|months?|mos?)\b/.test(t)) return true;
   const m = t.match(/[\d.]+/);
   if(m){ const n = parseFloat(m[0]); if(!isNaN(n) && n < 1) return true; }
   return false;
@@ -553,9 +611,10 @@ function isUnderOneYear(approxAge){
 /* Cats: grade >2/6 needs a vet to confirm before anything further (flag for
    lead vet review once confirmed) — 2 vets are only required below age <1yr
    (dogs) or grade >=3/6 (cats), handled separately in computeProblemList.
-   Shelter can't action an echocardiogram/ProBNP workup, so that
-   recommendation is deliberately left out here (kept for dogs, unchanged
-   per her instructions — only the cat text was flagged for removal). */
+   Shelter can't action an echocardiogram/ProBNP workup, so recommending one
+   is deliberately left out of the DDx text entirely (both species) — her
+   call, since a shelter manages these cases differently to a general
+   practice that can action that referral. */
 function heartMurmurTier(a){
   if(!a.heart || !a.heart.murmur) return null;
   if(a.species==='cat'){
@@ -568,17 +627,22 @@ function heartMurmurTier(a){
   }
   return null;
 }
-function ddxBlurb(key, species, grade){
+function ddxBlurb(key, species, grade, approxAge){
   const cat = species==='cat';
-  const catHeartDiff = 'hypertrophic cardiomyopathy (HCM — most common in cats) vs congenital defect vs hyperthyroidism-associated';
-  let catHeart;
-  if(['1/6','2/6'].includes(grade)){
-    catHeart = `Likely a physiological/anxiety-related murmur at this grade, though DDx still includes: ${catHeartDiff}.`;
-  } else if(['3/6','4/6','5/6','6/6'].includes(grade)){
-    catHeart = `DDx: ${catHeartDiff}. Grade >2/6 — vet to confirm the murmur/grade as the next step; if confirmed, flag for lead vet review.`;
-  } else {
-    catHeart = `DDx: ${catHeartDiff}. Select a grade above.`;
-  }
+  /* Her rule: a young patient (either species) with a murmur points to a
+     congenital cause first, over the degenerative/HCM differentials that
+     apply to older animals — and no echocardiogram/BP recommendation, since
+     a shelter can't action that referral and manages these cases
+     differently to a general practice. */
+  const young = isUnderOneYear(approxAge);
+  const heartText = young
+    ? 'DDx: congenital defect (PDA/PS/SAS/VSD — younger patients) vs physiological/anaemic flow murmur.'
+    : (cat
+      ? 'DDx: hypertrophic cardiomyopathy (HCM — most common in cats) vs hyperthyroidism-associated vs physiological/anxiety-related murmur.'
+      : 'DDx: degenerative valvular disease (MMVD — most common in dogs) vs physiological/anaemic flow murmur.');
+  const gallopText = cat
+    ? 'DDx: gallop rhythm — hypertrophic cardiomyopathy (HCM) vs severe systemic disease vs tachycardia-associated S4; often indicates more advanced cardiac disease than a murmur alone.'
+    : 'DDx: gallop rhythm — dilated cardiomyopathy vs advanced degenerative valve disease vs volume overload vs severe anaemia; often indicates more advanced cardiac disease than a murmur alone.';
   const blurbs = {
     eyes: cat
       ? 'DDx: FHV-1 vs feline calicivirus vs Chlamydophila felis vs conjunctivitis vs corneal disease; recommend ophthalmic exam.'
@@ -589,12 +653,8 @@ function ddxBlurb(key, species, grade){
     ears: 'DDx: otitis externa (bacterial/yeast/Otodectes) vs foreign body vs polyp; recommend otoscopic exam.',
     teeth: 'DDx: periodontal disease secondary to plaque/calculus vs tooth fracture vs endodontic disease; recommend dental assessment +/- scale and polish.',
     skin: 'DDx: allergic dermatitis vs ectoparasites (fleas/mites) vs dermatophytosis vs pyoderma; recommend skin scrape/cytology if indicated.',
-    heart: cat
-      ? catHeart
-      : 'DDx: degenerative valvular disease (MMVD — most common in dogs) vs congenital defect (PDA/PS/SAS/VSD — younger patients) vs physiological/anaemic flow murmur; recommend echocardiogram and BP.',
-    gallop: cat
-      ? 'DDx: gallop rhythm — hypertrophic cardiomyopathy (HCM) vs severe systemic disease vs tachycardia-associated S4; often indicates more advanced cardiac disease than a murmur alone; recommend echocardiogram and BP.'
-      : 'DDx: gallop rhythm — dilated cardiomyopathy vs advanced degenerative valve disease vs volume overload vs severe anaemia; often indicates more advanced cardiac disease than a murmur alone; recommend echocardiogram and BP.',
+    heart: heartText,
+    gallop: gallopText,
     lungs: cat
       ? 'DDx: feline asthma vs URI-associated bronchitis vs cardiac disease vs pleural effusion; recommend follow-up auscultation +/- radiographs.'
       : 'DDx: CIRDC complex (Bordetella/parainfluenza/CAV-2/canine influenza/Mycoplasma) vs cardiac disease vs pneumonia; recommend further respiratory workup.',
@@ -890,6 +950,7 @@ function makeAnimal(r){
     testes:'', pregnant:'',
     approxAge: r.ageYears||'',
     assessmentOverrides: {}, // key -> edited DDx text
+    titleOverrides: {},      // key -> edited presenting-condition title text
     assessmentDismissed: {}, // key -> true if that auto problem was deleted
     assessmentNotes: '',      // additional free-text assessment notes
     notExamined: false, notExaminedPlan: '',
@@ -897,7 +958,8 @@ function makeAnimal(r){
     customProblems: [],       // [{id, title, ddx}]
     pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
-    nextStep:'', procedures:'', proceduresOther:'', chillRequired:'',
+    vaccineGiven:false, vaccineKcRoute:'',
+    nextStep:'', nextStepsExtra:[], procedures:'', proceduresOther:'', chillRequired:'',
     bloodwork: autoBloodwork?'YES':'NO', bloodworkType:'', bloodworkAuto: autoBloodwork,
     vetNurse:'',
     noteEdited: null,   // if set, user has manually edited the note
@@ -1289,21 +1351,24 @@ function examFormHtml(a){
     problems.forEach((p,i)=>{
       h += `<div class="ddx-problem" data-probid="${esc(p.id)}" data-probcustom="${p.custom?'1':'0'}">
         <div class="ddx-problem-head">
-          <b>${i+1}. ${esc(p.title)}</b>
+          <b>${i+1}. <span id="probtitleview_${esc(p.id)}">${esc(p.title)}</span></b>
           <span class="ddx-problem-actions">
             <button type="button" class="btn small secondary" data-editprob="${esc(p.id)}">Edit</button>
             <button type="button" class="btn small rust" data-delprob="${esc(p.id)}">Remove</button>
           </span>
         </div>
+        <input type="text" class="plain hidden" id="probtitleedit_${esc(p.id)}" value="${esc(p.title)}" style="width:100%;margin:6px 0 0;font-weight:600">
         <div class="ddx-problem-body" id="probview_${esc(p.id)}">${esc(p.ddx)}</div>
         <textarea class="free-input hidden" id="probedit_${esc(p.id)}">${esc(p.ddx)}</textarea>
       </div>`;
     });
   }
-  h += `<button type="button" class="btn small secondary" id="addCustomProblemBtn" style="margin-top:6px">+ Add custom problem</button>
-    <div style="margin-top:8px"><label style="font-size:12px">Additional assessment notes</label><br>
-      <textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:40px">${esc(a.assessmentNotes||'')}</textarea></div>
-  </div>`;
+  h += `<button type="button" class="btn small secondary" id="addCustomProblemBtn" style="margin-top:6px">+ Add custom problem</button>`;
+  if(!(a.customProblems && a.customProblems.length)){
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Additional assessment notes</label><br>
+      <textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:40px">${esc(a.assessmentNotes||'')}</textarea></div>`;
+  }
+  h += `</div>`;
 
   h += `<div class="pe-field"><div class="lbl">Plan</div>
     <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan — continue as-is, adjust dose, or start something new.</p>
@@ -1366,25 +1431,38 @@ function examFormHtml(a){
       : `<select class="plain" id="fld_vetchat" style="width:100%"><option value="">-</option><option ${a.vetChat==='YES'?'selected':''}>YES</option><option ${a.vetChat==='NO'?'selected':''}>NO</option></select>`}
     </div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Treatments provided</div><input class="plain" id="fld_treatments" style="width:100%" value="${esc(a.treatments)}"></div>`;
+  h += `<div class="pe-field"><div class="lbl">Treatments provided</div>
+    <input class="plain" id="fld_treatments" style="width:100%" value="${esc(a.treatments)}">
+    <div class="opts" style="margin-top:6px">
+      <button type="button" class="opt-btn ${treatmentHasItem(a,'Flea treatment')?'selected':''}" data-treatmentitem="Flea treatment">+ Flea</button>
+      <button type="button" class="opt-btn ${a.vaccineGiven?'selected':''}" data-vaccinetoggle="1">+ Vaccine</button>
+    </div>`;
+  if(a.species==='dog' && a.vaccineGiven){
+    h += `<div class="opts" style="margin-top:6px">
+      <span style="font-size:11px;color:var(--ink-soft);margin-right:6px">KC route:</span>
+      <button type="button" class="opt-btn ${a.vaccineKcRoute==='IN'?'selected':''}" data-kcroute="IN">IN</button>
+      <button type="button" class="opt-btn ${a.vaccineKcRoute==='INJ'?'selected':''}" data-kcroute="INJ">Injectable</button>
+    </div>`;
+  }
+  h += `</div>`;
 
   h += `<div class="pe-field"><div class="lbl">Next step in pathway</div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">An animal can carry more than one status at once — add another if it does.</p>
     <select class="plain" id="fld_nextstep" style="width:100%">
       <option value="">-</option>
-      <option ${a.nextStep==='Hold in vet care'?'selected':''}>Hold in vet care</option>
-      <option ${a.nextStep==='Hold in vet care, requesting lead vet review'?'selected':''}>Hold in vet care, requesting lead vet review</option>
-      <option ${a.nextStep==='Hold for possible match'?'selected':''}>Hold for possible match</option>
-      <option ${a.nextStep==='Awaiting triage'?'selected':''}>Awaiting triage</option>
-      <option ${a.nextStep==='Awaiting behavioural assessment'?'selected':''}>Awaiting behavioural assessment</option>
-      <option ${a.nextStep==='Awaiting spay/neuter'?'selected':''}>Awaiting spay/neuter</option>
-      <option ${a.nextStep==='Awaiting spay/neuter and microchip'?'selected':''}>Awaiting spay/neuter and microchip</option>
-      <option ${a.nextStep==='Awaiting spay/neuter and FIV test'?'selected':''}>Awaiting spay/neuter and FIV test</option>
-      <option ${a.nextStep==='Awaiting spay/neuter, FIV test and microchip'?'selected':''}>Awaiting spay/neuter, FIV test and microchip</option>
-      <option ${a.nextStep==='Awaiting surgery - not spay/neuter'?'selected':''}>Awaiting surgery - not spay/neuter</option>
-      <option ${a.nextStep==='Contact IP and awaiting IP collection'?'selected':''}>Contact IP and awaiting IP collection</option>
-      <option ${a.nextStep==='Awaiting foster'?'selected':''}>Awaiting foster</option>
-      <option ${a.nextStep==='Awaiting rescue'?'selected':''}>Awaiting rescue</option>
-    </select></div>`;
+      ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}
+    </select>`;
+  (a.nextStepsExtra||[]).forEach((val,i)=>{
+    h += `<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <select class="plain" data-nextstepextra="${i}" style="width:100%">
+        <option value="">-</option>
+        ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${val===o?'selected':''}>${esc(o)}</option>`).join('')}
+      </select>
+      <button type="button" class="btn small rust" data-delnextstepextra="${i}">Remove</button>
+    </div>`;
+  });
+  h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="addNextStepBtn">+ Add another status</button></div>
+  </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Procedures required</div>
     <select class="plain" id="fld_procedures" style="width:100%">
@@ -1613,6 +1691,48 @@ function bindExamForm(a){
     openExam(a.id);
   });
 
+  body.querySelectorAll('[data-treatmentitem]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      toggleTreatmentItem(a, btn.dataset.treatmentitem);
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  });
+  const vaccineBtn = body.querySelector('[data-vaccinetoggle]');
+  if(vaccineBtn) vaccineBtn.addEventListener('click', ()=>{
+    a.vaccineGiven = !a.vaccineGiven;
+    if(a.vaccineGiven && a.species==='dog' && !a.vaccineKcRoute) a.vaccineKcRoute = 'IN';
+    syncVaccineTreatment(a);
+    refreshNote(a); saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-kcroute]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.vaccineKcRoute = btn.dataset.kcroute;
+      syncVaccineTreatment(a);
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  });
+
+  body.querySelectorAll('[data-nextstepextra]').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const i = Number(sel.dataset.nextstepextra);
+      a.nextStepsExtra[i] = sel.value;
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-delnextstepextra]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const i = Number(btn.dataset.delnextstepextra);
+      a.nextStepsExtra.splice(i, 1);
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  });
+  const addNextStepBtn = document.getElementById('addNextStepBtn');
+  if(addNextStepBtn) addNextStepBtn.addEventListener('click', ()=>{
+    a.nextStepsExtra = a.nextStepsExtra || [];
+    a.nextStepsExtra.push('');
+    saveShift(); openExam(a.id);
+  });
+
   const nextStepEl = document.getElementById('fld_nextstep');
   if(nextStepEl) nextStepEl.addEventListener('change', ()=>{
     a.nextStep = nextStepEl.value;
@@ -1681,18 +1801,26 @@ function bindExamForm(a){
   body.querySelectorAll('[data-editprob]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const id = btn.dataset.editprob;
+      const titleView = document.getElementById('probtitleview_'+id);
+      const titleEdit = document.getElementById('probtitleedit_'+id);
       const view = document.getElementById('probview_'+id);
       const edit = document.getElementById('probedit_'+id);
-      if(!view || !edit) return;
+      if(!view || !edit || !titleView || !titleEdit) return;
       if(edit.classList.contains('hidden')){
-        view.classList.add('hidden'); edit.classList.remove('hidden'); btn.textContent = 'Save';
+        titleView.classList.add('hidden'); titleEdit.classList.remove('hidden');
+        view.classList.add('hidden'); edit.classList.remove('hidden');
+        btn.textContent = 'Save';
       } else {
         const cp = (a.customProblems||[]).find(c=>c.id===id);
-        if(cp) cp.ddx = edit.value; else a.assessmentOverrides[id] = edit.value;
+        if(cp){ cp.title = titleEdit.value; cp.ddx = edit.value; }
+        else { a.titleOverrides[id] = titleEdit.value; a.assessmentOverrides[id] = edit.value; }
         saveShift();
         refreshNote(a);
+        titleView.textContent = titleEdit.value;
         view.textContent = edit.value;
-        view.classList.remove('hidden'); edit.classList.add('hidden'); btn.textContent = 'Edit';
+        titleView.classList.remove('hidden'); titleEdit.classList.add('hidden');
+        view.classList.remove('hidden'); edit.classList.add('hidden');
+        btn.textContent = 'Edit';
       }
     });
   });
@@ -1782,13 +1910,21 @@ function bindExamForm(a){
 }
 
 /* ---------- note assembly ---------- */
+/* The presenting-condition title (e.g. "Heart: Murmur (3/6)") is
+   auto-built from her findings, same as the DDx text — but she also
+   needs to edit the title itself, not just the DDx, so every built-in
+   title routes through titleOverrides the same way DDx text already
+   routes through assessmentOverrides. */
+function overrideTitle(a, key, autoTitle){
+  return (a.titleOverrides && a.titleOverrides[key] != null) ? a.titleOverrides[key] : autoTitle;
+}
 function computeProblemList(a){
   const fields = peFields(a.species);
   const problems = [];
   fields.forEach(f=>{
     if(f.special==='teeth'){
       if(a.dental.grade && a.dental.grade!=='0' && a.dental.grade!=='NE' && !a.assessmentDismissed['teeth']){
-        const title = `Dental grade ${a.dental.grade}/4${a.dental.desc ? ' \u2014 '+a.dental.desc : ''}`;
+        const title = overrideTitle(a, 'teeth', `Dental grade ${a.dental.grade}/4${a.dental.desc ? ' \u2014 '+a.dental.desc : ''}`);
         const ddx = (a.assessmentOverrides['teeth'] != null) ? a.assessmentOverrides['teeth'] : ddxBlurb('teeth', a.species);
         problems.push({id:'teeth', title, ddx, custom:false});
       }
@@ -1799,23 +1935,24 @@ function computeProblemList(a){
         const parts = [];
         if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` (${a.heart.grade})`:''));
         if(a.heart.gallop) parts.push('Gallop rhythm');
-        const title = `Heart: ${parts.join(', ')}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`;
+        const title = overrideTitle(a, 'heart', `Heart: ${parts.join(', ')}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
         const ddxKey = a.heart.gallop ? 'gallop' : 'heart';
-        const ddx = (a.assessmentOverrides['heart'] != null) ? a.assessmentOverrides['heart'] : ddxBlurb(ddxKey, a.species, a.heart.grade);
+        const ddx = (a.assessmentOverrides['heart'] != null) ? a.assessmentOverrides['heart'] : ddxBlurb(ddxKey, a.species, a.heart.grade, a.approxAge);
         problems.push({id:'heart', title, ddx, custom:false});
       }
       if(heartMurmurTier(a)==='twovet' && !a.assessmentDismissed['heart2vet']){
         const reason = a.species==='cat' ? `grade ${a.heart.grade}` : 'dog under 1 year old';
+        const title = overrideTitle(a, 'heart2vet', `Heart murmur (${reason}) — 2 vets required to confirm`);
         const ddx = (a.assessmentOverrides['heart2vet'] != null) ? a.assessmentOverrides['heart2vet']
           : 'Two veterinarians must independently auscultate and confirm the murmur/grade before this animal proceeds further in its pathway.';
-        problems.push({id:'heart2vet', title:`Heart murmur (${reason}) — 2 vets required to confirm`, ddx, custom:false});
+        problems.push({id:'heart2vet', title, ddx, custom:false});
       }
       return;
     }
     const fieldNE = !!(a.notExaminedFields && a.notExaminedFields[f.key]);
     const note = (a.notes[f.key]||'').trim();
     if(!fieldNE && note && !a.assessmentDismissed[f.key]){
-      const title = `${f.label}: ${note}`;
+      const title = overrideTitle(a, f.key, `${f.label}: ${note}`);
       const ddx = (a.assessmentOverrides[f.key] != null) ? a.assessmentOverrides[f.key] : ddxBlurb(f.key, a.species);
       problems.push({id:f.key, title, ddx, custom:false});
     }
@@ -1824,37 +1961,44 @@ function computeProblemList(a){
     problems.push({id:cp.id, title:cp.title, ddx:cp.ddx, custom:true});
   });
   if(a.uvLamp==='POSITIVE' && !a.assessmentDismissed['uvpositive']){
+    const title = overrideTitle(a, 'uvpositive', 'UV positive \u2014 ringworm');
     const ddx = (a.assessmentOverrides['uvpositive'] != null) ? a.assessmentOverrides['uvpositive']
       : 'DDx: dermatophytosis (ringworm); recommend fungal culture/PCR confirmation, isolation/contact precautions, and treatment as indicated.';
-    problems.push({id:'uvpositive', title:'UV positive \u2014 ringworm', ddx, custom:false});
+    problems.push({id:'uvpositive', title, ddx, custom:false});
   }
   if(a.fivTest!=='NO' && a.fivResult==='POSITIVE' && !a.assessmentDismissed['fivpositive']){
+    const title = overrideTitle(a, 'fivpositive', 'FIV positive');
     const ddx = (a.assessmentOverrides['fivpositive'] != null) ? a.assessmentOverrides['fivpositive']
       : 'Confirmed FIV positive (in-house snap test). Consider PCR/Western blot confirmation if young kitten (maternal antibody interference), assess for retrovirus-associated illness, and follow shelter retrovirus housing/placement protocol.';
-    problems.push({id:'fivpositive', title:'FIV positive', ddx, custom:false});
+    problems.push({id:'fivpositive', title, ddx, custom:false});
   }
   if(isUnsafeHandling(a) && !a.assessmentDismissed['unsafehandling']){
+    const title = overrideTitle(a, 'unsafehandling', `Handling: ${a.handling}`);
     const ddx = (a.assessmentOverrides['unsafehandling'] != null) ? a.assessmentOverrides['unsafehandling']
       : 'Not safely handleable for a full physical exam — visual exam only today, remainder (if needed) under sedation/surgery. Flagged for behavioural assessment / lead vet review.';
-    problems.push({id:'unsafehandling', title:`Handling: ${a.handling}`, ddx, custom:false});
+    problems.push({id:'unsafehandling', title, ddx, custom:false});
   }
   const bcsN = parseFloat(a.bcs);
   if(!isNaN(bcsN) && bcsN < 3 && !a.assessmentDismissed['bcslow']){
+    const title = overrideTitle(a, 'bcslow', `Underweight (BCS ${a.bcs}/5)`);
     const ddx = (a.assessmentOverrides['bcslow'] != null) ? a.assessmentOverrides['bcslow'] : ddxBlurb('bcslow', a.species);
-    problems.push({id:'bcslow', title:`Underweight (BCS ${a.bcs}/5)`, ddx, custom:false});
+    problems.push({id:'bcslow', title, ddx, custom:false});
   } else if(!isNaN(bcsN) && bcsN > 3 && !a.assessmentDismissed['bcshigh']){
+    const title = overrideTitle(a, 'bcshigh', `Overweight (BCS ${a.bcs}/5)`);
     const ddx = (a.assessmentOverrides['bcshigh'] != null) ? a.assessmentOverrides['bcshigh'] : ddxBlurb('bcshigh', a.species);
-    problems.push({id:'bcshigh', title:`Overweight (BCS ${a.bcs}/5)`, ddx, custom:false});
+    problems.push({id:'bcshigh', title, ddx, custom:false});
   }
   if(a.sex==='M' && a.desex==='ENTIRE' && a.testes && a.testes!=='Bilateral' && !a.assessmentDismissed['cryptorchid']){
     const testesLabels = {'R only':'R testicle descended','L only':'L testicle descended','None':'no testicles present'};
     const label = testesLabels[a.testes] || a.testes;
+    const title = overrideTitle(a, 'cryptorchid', `Cryptorchid — ${label}`);
     const ddx = (a.assessmentOverrides['cryptorchid'] != null) ? a.assessmentOverrides['cryptorchid'] : ddxBlurb('cryptorchid', a.species);
-    problems.push({id:'cryptorchid', title:`Cryptorchid — ${label}`, ddx, custom:false});
+    problems.push({id:'cryptorchid', title, ddx, custom:false});
   }
   if(a.sex==='F' && a.desex!=='DESEXED' && a.pregnant==='YES' && !a.assessmentDismissed['pregnant']){
+    const title = overrideTitle(a, 'pregnant', 'Pregnant');
     const ddx = (a.assessmentOverrides['pregnant'] != null) ? a.assessmentOverrides['pregnant'] : ddxBlurb('pregnant', a.species);
-    problems.push({id:'pregnant', title:'Pregnant', ddx, custom:false});
+    problems.push({id:'pregnant', title, ddx, custom:false});
   }
   return problems;
 }
@@ -1927,7 +2071,7 @@ function assembleNote(a){
   } else {
     problems.forEach((p,i)=> L.push(`  ${i+1}. ${p.title} \u2014 ${p.ddx}`));
   }
-  if(a.assessmentNotes && a.assessmentNotes.trim()) L.push(`Additional notes: ${a.assessmentNotes.trim()}`);
+  if(a.assessmentNotes && a.assessmentNotes.trim() && !(a.customProblems && a.customProblems.length)) L.push(`Additional notes: ${a.assessmentNotes.trim()}`);
   L.push(`Plan: ${a.medPlan && a.medPlan.trim() ? a.medPlan.trim() : '-'}`);
   L.push('');
   L.push(`PATHWAY: ${a.pathway||'-'}`);
@@ -1936,7 +2080,7 @@ function assembleNote(a){
   L.push(`WAIVERS: ${waiverLabels.length ? waiverLabels.join(', ') : '-'}    VET CHAT: ${a.vetChat||'-'}`);
   L.push('');
   L.push(`Treatments provided: ${a.treatments||'-'}`);
-  L.push(`Next step in pathway: ${a.nextStep||'-'}`);
+  L.push(`Next step in pathway: ${allNextSteps(a).length ? allNextSteps(a).join('; ') : '-'}`);
   const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
   L.push(`Procedures required: ${procText}`);
   if(a.species==='dog') L.push(`Chill Required: ${a.chillRequired||'-'}`);
@@ -2122,7 +2266,7 @@ function buildExcelFile(){
   pushGroupedRows(completedAoa, completed, 8, a=>{
     const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
     return [a.animalId, a.location, a.microchip||'-', a.pathway||'-', a.treatments||'-',
-      (a.medPlan && a.medPlan.trim()) || '-', a.nextStep||'-', procText];
+      (a.medPlan && a.medPlan.trim()) || '-', allNextSteps(a).length ? allNextSteps(a).join('; ') : '-', procText];
   });
 
   const incompleteAoa = [['Patient ID','Location','Assessment','Plan']];
