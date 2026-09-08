@@ -433,18 +433,27 @@ function formatReferenceNote(text){
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
 /* Vet-authored consult notes are often typed Excel-cell style — one short
    phrase per line, breaking mid-sentence — which reads as a stack of
-   choppy fragments when carried forward verbatim. Join the line
-   fragments into flowing prose instead: collapse internal whitespace and
-   join with single spaces rather than hard line breaks, so a sentence
-   that was split across lines reads as one continuous sentence again. */
-function joinIntoProse(text){
-  return (text||'')
-    .split(/\r?\n/)
-    .map(line=>line.trim())
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s{2,}/g,' ')
-    .trim();
+   choppy fragments when carried forward verbatim. Reflow the line
+   fragments into flowing text instead: a line starting with a bullet
+   marker ("- ") begins a new item and stays on its own line; anything
+   else is treated as a wrapped continuation of the previous line and
+   gets joined onto it with a space, rather than starting a new visual
+   paragraph mid-thought. A blank line is kept as a real paragraph break.
+   Flat text with no bullets at all collapses to one continuous line, same
+   as before. Applied everywhere carried-forward or pasted text lands —
+   History, Examination, Treatment, Plan — not just one field. */
+function reflowFreeText(text){
+  if(!text) return text;
+  const lines = String(text).split(/\r?\n/);
+  const out = [];
+  lines.forEach(raw=>{
+    const line = raw.trim();
+    if(!line){ out.push(''); return; }
+    const isNewItem = /^[-•*]\s/.test(line) || !out.length || !out[out.length-1];
+    if(isNewItem) out.push(line);
+    else out[out.length-1] = out[out.length-1] + ' ' + line;
+  });
+  return out.join('\n').replace(/[ \t]{2,}/g, ' ').trim();
 }
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
@@ -695,7 +704,7 @@ function addOrMergeFromRecheck(r){
      Fill it here too, same cleanup, but only while it's still blank so an
      existing AA-flag history or her own typing is never overwritten. */
   if(!existing.history && sections.reasonHistory){
-    existing.history = joinIntoProse(sections.reasonHistory);
+    existing.history = reflowFreeText(sections.reasonHistory);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
@@ -781,13 +790,17 @@ function parseVetReminderReport(aoa){
     if(!byId[idStr].weight && wIdx!=null && row[wIdx]) byId[idStr].weight = String(row[wIdx]);
     if(noteText && !byId[idStr].notes.includes(noteText)) byId[idStr].notes.push(noteText);
   }
+  /* An Animal ID can genuinely appear on more than one row with distinct
+     note text — two separate active reminders for the same animal, not an
+     export artifact (that case is already deduped above by exact-text
+     match). Her explicit ask: don't bundle those into one card with the
+     rest stashed as reference, it reads as confusing — give each its own
+     consult entry instead, so she works through them individually. */
   const results = [];
   Object.values(byId).forEach(rec=>{
-    let primaryIdx = rec.notes.findIndex(t=>/Reason\s*\/\s*History\s*:/i.test(t));
-    if(primaryIdx===-1) primaryIdx = 0;
-    const primary = rec.notes[primaryIdx] || '';
-    const others = rec.notes.filter((t,i)=>i!==primaryIdx);
-    results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, noteText:primary, otherReminders:others});
+    rec.notes.forEach(noteText=>{
+      results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, noteText, otherReminders:[]});
+    });
   });
   return results;
 }
@@ -801,9 +814,18 @@ function renderParsedTable(rows){
   let html = '<div class="warn">Check ID / Location / Weight before adding — parsed automatically from the report.</div>';
   html += `<div class="row-actions"><button class="btn" id="confirmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
   html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Weight</th></tr>';
+  const idCounts = {};
+  rows.forEach(r=>{ const k = String(r.animalId||'').trim().toLowerCase(); idCounts[k] = (idCounts[k]||0)+1; });
+  const idSeen = {};
   rows.forEach((r,i)=>{
+    const k = String(r.animalId||'').trim().toLowerCase();
+    let dupBadge = '';
+    if(k && idCounts[k] > 1){
+      idSeen[k] = (idSeen[k]||0) + 1;
+      dupBadge = ` <span style="color:var(--rust);font-size:11px">(consult ${idSeen[k]} of ${idCounts[k]})</span>`;
+    }
     html += `<tr>
-      <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
+      <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}">${dupBadge}</td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Weight"><input data-i="${i}" data-f="weight" value="${esc(r.weight)}"></td>
     </tr>`;
@@ -814,7 +836,24 @@ function renderParsedTable(rows){
     el.addEventListener('change', ()=>{ rows[el.dataset.i][el.dataset.f] = el.value; });
   });
   function confirmAdd(){
-    rows.forEach(r=> addOrMergeFromRecheck(r));
+    /* Same Animal ID can legitimately appear more than once in this same
+       batch (two distinct active reminders) — each becomes its own consult
+       card rather than the second one merging into the first, which is
+       what findExistingAnimal would otherwise do since the first is now
+       sitting in state.animals. A genuine cross-import merge (e.g. this ID
+       was already added earlier from the AA Flag Log) still merges as
+       normal — this guard only stops rows within THIS batch from merging
+       into each other. */
+    const seenThisBatch = new Set();
+    rows.forEach(r=>{
+      const key = String(r.animalId||'').trim().toLowerCase();
+      if(key && seenThisBatch.has(key)){
+        state.animals.push(makeAnimal(r));
+      } else {
+        if(key) seenThisBatch.add(key);
+        addOrMergeFromRecheck(r);
+      }
+    });
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -972,7 +1011,7 @@ function makeAnimal(r){
        whatever landed in Assessment/Treatment/Plan below). */
     otherReminders: (r.noteText && r.noteText.trim() ? [`Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`] : []).concat(r.otherReminders || []),
     ppeRequired: '',
-    history: sections.reasonHistory ? joinIntoProse(sections.reasonHistory) : '',
+    history: sections.reasonHistory ? reflowFreeText(sections.reasonHistory) : '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
     assessment: assessmentLines.map(t=>{
       const m = matchResolvable(t);
@@ -1549,21 +1588,28 @@ function bindExamForm(a){
   bindLiveText('fld_history', 'history');
   /* She's flagged this twice: pasted-in history text (from ShelterMate, from
      the Previous notes reference box, from anywhere) keeps landing as choppy
-     one-line-per-fragment paragraphs. The auto-fill-on-import cleanup alone
-     doesn't cover every way text ends up in this field, so catch it at the
-     point it actually lands: any paste into Reason/History gets the whole
-     field reflowed into prose right after the paste completes. Idempotent —
+     paragraphs — and she's since clarified it's not just History, it's every
+     free-text section of the note. The auto-fill-on-import cleanup alone
+     doesn't cover every way text ends up in a field, so catch it at the
+     point it actually lands: any paste into one of these fields gets the
+     whole field reflowed right after the paste completes. Idempotent —
      already-clean text passed through again is unchanged. */
-  const historyEl = document.getElementById('fld_history');
-  if(historyEl){
-    historyEl.addEventListener('paste', ()=>{
+  function bindPasteReflow(elId, key, onObj){
+    const el = document.getElementById(elId);
+    if(!el) return;
+    const target = onObj || a;
+    el.addEventListener('paste', ()=>{
       setTimeout(()=>{
-        historyEl.value = joinIntoProse(historyEl.value);
-        a.history = historyEl.value;
+        el.value = reflowFreeText(el.value);
+        target[key] = el.value;
         refreshNote(a); saveShift();
       }, 0);
     });
   }
+  bindPasteReflow('fld_history', 'history');
+  bindPasteReflow('fld_treatment', 'treatment');
+  bindPasteReflow('fld_plan', 'plan');
+  bindPasteReflow('fld_examFree', 'free', a.exam);
   bindLiveText('fld_currentMed', 'currentMed');
   bindLiveText('fld_treatment', 'treatment');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
@@ -1689,7 +1735,7 @@ function assembleNote(a){
   if(a.ppeRequired) L.push(`PPE Required: ${a.ppeRequired}`);
   L.push('');
   L.push('Reason / History:');
-  L.push(a.history && a.history.trim() ? a.history.trim() : '-');
+  L.push(a.history && a.history.trim() ? reflowFreeText(a.history.trim()) : '-');
   L.push('');
   L.push('Examination:');
   if(a.template==='28day'){
@@ -1723,7 +1769,7 @@ function assembleNote(a){
     if(a.exam.urinating!=='') scores.push('Urinating: '+a.exam.urinating);
     if(a.exam.defecating!=='') scores.push('Defecating '+a.exam.defecating+'/7');
     if(scores.length) examParts.push(scores.join(', '));
-    if(a.exam.free && a.exam.free.trim()) examParts.push(a.exam.free.trim());
+    if(a.exam.free && a.exam.free.trim()) examParts.push(reflowFreeText(a.exam.free.trim()));
     L.push(examParts.length ? examParts.join('\n') : '-');
   }
   L.push('');
@@ -1737,12 +1783,12 @@ function assembleNote(a){
   } else {
     a.assessment.forEach(p=> assessLines.push(`${p.text}${p.resolved===true ? ' — resolved this visit' : ''}`));
   }
-  if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(a.assessmentNotes.trim());
+  if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(reflowFreeText(a.assessmentNotes.trim()));
   L.push(assessLines.join('\n'));
   L.push('');
   L.push('Treatment / Fees:');
   const treatmentLines = [];
-  if(a.treatment && a.treatment.trim()) treatmentLines.push(a.treatment.trim());
+  if(a.treatment && a.treatment.trim()) treatmentLines.push(reflowFreeText(a.treatment.trim()));
   (a.planItems||[]).forEach(pi=>{
     if(!pi.medName && !pi.recheckDate) return;
     const dateStr = pi.recheckDate ? ` (recheck ${formatRecheckDate(pi.recheckDate)})` : '';
@@ -1753,7 +1799,7 @@ function assembleNote(a){
   L.push('Pathway / Plan / Waivers:');
   const planLines = [];
   if(a.pathway) planLines.push(`Pathway: ${a.pathway}`);
-  if(a.plan && a.plan.trim()) planLines.push(a.plan.trim());
+  if(a.plan && a.plan.trim()) planLines.push(reflowFreeText(a.plan.trim()));
   L.push(planLines.length ? planLines.join('\n') : '-');
   L.push('');
   L.push(vetInitEl.value || '');
