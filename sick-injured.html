@@ -431,6 +431,21 @@ function formatReferenceNote(text){
   return esc(text).replace(REFERENCE_HEADER_RE, m => `<br><br><b>${m}</b>`).replace(/^(<br>)+/, '');
 }
 function normHeader(v){ return (v==null?'':String(v)).replace(/\s+/g,' ').trim().toLowerCase(); }
+/* Vet-authored consult notes are often typed Excel-cell style — one short
+   phrase per line, breaking mid-sentence — which reads as a stack of
+   choppy fragments when carried forward verbatim. Join the line
+   fragments into flowing prose instead: collapse internal whitespace and
+   join with single spaces rather than hard line breaks, so a sentence
+   that was split across lines reads as one continuous sentence again. */
+function joinIntoProse(text){
+  return (text||'')
+    .split(/\r?\n/)
+    .map(line=>line.trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s{2,}/g,' ')
+    .trim();
+}
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -650,6 +665,18 @@ function findExistingAnimal(idStr){
   return state.animals.find(a=>idsOverlap(a.animalId, idStr)) || null;
 }
 
+/* Appends a reference-note label to an animal's otherReminders, skipping it
+   if that exact text is already there — guards against the same previous
+   consult getting stacked twice (re-importing the same report, or a
+   double-tap on "Add" before the shift list re-renders). */
+function addUniqueReminder(existing, label){
+  if(!label) return;
+  existing.otherReminders = existing.otherReminders || [];
+  if(!existing.otherReminders.some(t=>t.trim()===label.trim())){
+    existing.otherReminders.push(label);
+  }
+}
+
 /* Adds a Vet Reminder Report row, merging into an existing animal (matched by
    ID) if one is already in the shift — e.g. from a previously-imported flag. */
 function addOrMergeFromRecheck(r){
@@ -660,7 +687,7 @@ function addOrMergeFromRecheck(r){
   const sections = parseNoteSections(r.noteText || '');
   if(r.noteText && r.noteText.trim()){
     const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`;
-    existing.otherReminders = (existing.otherReminders||[]).concat([label]);
+    addUniqueReminder(existing, label);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = [sections.treatment||'', ...medLines].filter(Boolean).join('\n');
@@ -676,7 +703,7 @@ function addOrMergeFromRecheck(r){
     }
   });
   existing.lastConsultDate = sections.date || existing.lastConsultDate;
-  existing.otherReminders = (existing.otherReminders||[]).concat(r.otherReminders||[]);
+  (r.otherReminders||[]).forEach(t=> addUniqueReminder(existing, t));
   const matchedPathway = matchPathway(sections.pathway);
   if(matchedPathway) existing.pathway = matchedPathway;
   const importedPlan = stripTrailingInitials(sections.pathway);
@@ -702,10 +729,12 @@ function addOrMergeFromFlag(r){
     return;
   }
   if(!existing.location && r.location) existing.location = r.location;
-  if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
-    existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
+  if(!existing.history || !existing.history.includes(label.trim())){
+    if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
+      existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
+    }
+    existing.history = existing.history ? (existing.history + '\n\n' + label) : label;
   }
-  existing.history = existing.history ? (existing.history + '\n\n' + label) : label;
   existing.flagged = true;
   if(r.problem && !existing.assessment.some(p=>p.text===r.problem)){
     const m = matchResolvable(r.problem);
@@ -922,18 +951,20 @@ function makeAnimal(r){
     weight: r.weight || '',
     sex: r.sex || '',
     lastConsultDate: sections.date || '',
-    /* The previous vet's full note is reference material for THIS visit,
-       not the current History field — dumping it into an active "Reason /
-       History" box meant it read as if it were today's note. Keep the
-       COMPLETE original note reviewable here (not just whatever this
-       parser managed to pull into reasonHistory — a note with two consults
+    /* Her ask: don't make her retype the history every consult — start
+       today's Reason/History from the previous consult's own
+       Reason/History, cleaned into flowing prose (the source note is
+       often typed Excel-cell style, one short phrase per line, which
+       reads as broken paragraphs if carried forward verbatim). She edits
+       it from there rather than starting blank. The COMPLETE original
+       note stays reviewable in otherReminders too (not just whatever this
+       parser pulled into reasonHistory — a note with two consults
        stapled into one cell, or unusual headers, won't split perfectly,
        so the full original stays available to cross-check against
-       whatever landed in Assessment/Treatment/Plan below), and leave
-       history blank for a short current summary instead. */
+       whatever landed in Assessment/Treatment/Plan below). */
     otherReminders: (r.noteText && r.noteText.trim() ? [`Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`] : []).concat(r.otherReminders || []),
     ppeRequired: '',
-    history: '',
+    history: sections.reasonHistory ? joinIntoProse(sections.reasonHistory) : '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
     assessment: assessmentLines.map(t=>{
       const m = matchResolvable(t);
@@ -1409,11 +1440,17 @@ function examFormHtml(a){
     </div>
     <div style="margin-bottom:8px">
       <span style="font-size:11px;color:var(--ink-soft);display:block;margin-bottom:4px">Urinating</span>
-      <div class="opts">${['0','1','2','3'].map(v=>`<button type="button" class="opt-btn ${a.exam.urinating===v?'selected':''}" data-urinating="${v}">${v}</button>`).join('')}</div>
+      <div class="opts">
+        <button type="button" class="opt-btn ${a.exam.urinating==='Yes'?'selected':''}" data-urinating="Yes">Yes</button>
+        <button type="button" class="opt-btn ${a.exam.urinating==='No'?'selected abn':''}" data-urinating="No">No</button>
+      </div>
     </div>
     <div style="margin-bottom:8px">
       <span style="font-size:11px;color:var(--ink-soft);display:block;margin-bottom:4px">Defecating</span>
-      <div class="opts">${['0','1','2','3'].map(v=>`<button type="button" class="opt-btn ${a.exam.defecating===v?'selected':''}" data-defecating="${v}">${v}</button>`).join('')}</div>
+      <select class="plain" id="fld_defecating" style="width:100%">
+        <option value="" ${a.exam.defecating===''?'selected':''}>-</option>
+        ${['0','1','2','3','4','5','6','7'].map(v=>`<option value="${v}" ${a.exam.defecating===v?'selected':''}>${v}</option>`).join('')}
+      </select>
     </div>
     <textarea class="free-input" id="fld_examFree" placeholder="Other findings...">${esc(a.exam.free||'')}</textarea>
   </div>`;
@@ -1446,16 +1483,7 @@ function examFormHtml(a){
 
   h += `<div class="pe-field"><div class="lbl">Treatment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Medication given today — dose, route, frequency (e.g. "Doxycycline 50mg PO BID").</p>
-    <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea></div>`;
-
-  h += `<div class="pe-field"><div class="lbl">PPE Required</div>
-    <div class="opts">
-      <button type="button" class="opt-btn ${a.ppeRequired==='YES'?'selected abn':''}" data-ppe="YES">Yes</button>
-      <button type="button" class="opt-btn ${a.ppeRequired==='NO'?'selected':''}" data-ppe="NO">No</button>
-    </div></div>`;
-
-  h += `<div class="pe-field"><div class="lbl">Plan</div>
-    <textarea class="free-input" id="fld_plan">${esc(a.plan||'')}</textarea>
+    <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea>
     <p style="font-size:11.5px;color:var(--ink-soft);margin:10px 0 8px">Add each medication (or task) that needs a recheck, with its own date — each becomes a row in the Excel reminder export.</p>
     <div id="planList">`;
   a.planItems.forEach(pi=>{
@@ -1466,6 +1494,15 @@ function examFormHtml(a){
     </div>`;
   });
   h += `</div><button type="button" class="btn small secondary" id="addPlanBtn">+ Add medication / recheck</button></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">PPE Required</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.ppeRequired==='YES'?'selected abn':''}" data-ppe="YES">Yes</button>
+      <button type="button" class="opt-btn ${a.ppeRequired==='NO'?'selected':''}" data-ppe="NO">No</button>
+    </div></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Plan</div>
+    <textarea class="free-input" id="fld_plan">${esc(a.plan||'')}</textarea></div>`;
 
   h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>
     <select class="plain" id="fld_pathway" style="width:100%">
@@ -1524,7 +1561,7 @@ function bindExamForm(a){
       saveShift(); openExam(a.id);
     });
   });
-  ['eating','urinating','defecating'].forEach(field=>{
+  ['eating','urinating'].forEach(field=>{
     body.querySelectorAll('[data-'+field+']').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const val = btn.dataset[field];
@@ -1533,6 +1570,12 @@ function bindExamForm(a){
       });
     });
   });
+  const defecatingEl = document.getElementById('fld_defecating');
+  if(defecatingEl){
+    defecatingEl.addEventListener('change', ()=>{
+      a.exam.defecating = defecatingEl.value; refreshNote(a); saveShift();
+    });
+  }
 
   body.querySelectorAll('[data-resolveflag]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1652,8 +1695,8 @@ function assembleNote(a){
     if(a.exam.demeanour) examParts.push(a.exam.demeanour);
     const scores = [];
     if(a.exam.eating!=='') scores.push('Eating '+a.exam.eating+'/3');
-    if(a.exam.urinating!=='') scores.push('Urinating '+a.exam.urinating+'/3');
-    if(a.exam.defecating!=='') scores.push('Defecating '+a.exam.defecating+'/3');
+    if(a.exam.urinating!=='') scores.push('Urinating: '+a.exam.urinating);
+    if(a.exam.defecating!=='') scores.push('Defecating '+a.exam.defecating+'/7');
     if(scores.length) examParts.push(scores.join(', '));
     if(a.exam.free && a.exam.free.trim()) examParts.push(a.exam.free.trim());
     L.push(examParts.length ? examParts.join('\n') : '-');
@@ -1673,17 +1716,19 @@ function assembleNote(a){
   L.push(assessLines.join('\n'));
   L.push('');
   L.push('Treatment / Fees:');
-  L.push(a.treatment && a.treatment.trim() ? a.treatment.trim() : '-');
+  const treatmentLines = [];
+  if(a.treatment && a.treatment.trim()) treatmentLines.push(a.treatment.trim());
+  (a.planItems||[]).forEach(pi=>{
+    if(!pi.medName && !pi.recheckDate) return;
+    const dateStr = pi.recheckDate ? ` (recheck ${formatRecheckDate(pi.recheckDate)})` : '';
+    treatmentLines.push(`- ${pi.medName||'(reminder)'}${dateStr}`);
+  });
+  L.push(treatmentLines.length ? treatmentLines.join('\n') : '-');
   L.push('');
   L.push('Pathway / Plan / Waivers:');
   const planLines = [];
   if(a.pathway) planLines.push(`Pathway: ${a.pathway}`);
   if(a.plan && a.plan.trim()) planLines.push(a.plan.trim());
-  (a.planItems||[]).forEach(pi=>{
-    if(!pi.medName && !pi.recheckDate) return;
-    const dateStr = pi.recheckDate ? ` (recheck ${formatRecheckDate(pi.recheckDate)})` : '';
-    planLines.push(`- ${pi.medName||'(reminder)'}${dateStr}`);
-  });
   L.push(planLines.length ? planLines.join('\n') : '-');
   L.push('');
   L.push(vetInitEl.value || '');
