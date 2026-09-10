@@ -497,6 +497,7 @@ function normalizeAnimal(a){
   if(!a.examSectionsOpen || typeof a.examSectionsOpen!=='object') a.examSectionsOpen = {};
   ['peri','intra','post','paper'].forEach(k=>{ if(a.examSectionsOpen[k]==null) a.examSectionsOpen[k]=true; });
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
+  if(!a.hcNotExaminedFields || typeof a.hcNotExaminedFields!=='object') a.hcNotExaminedFields = {};
   if(!Array.isArray(a.vitals)) a.vitals = [];
   if(!Array.isArray(a.postopVitals)) a.postopVitals = [];
   if(!Array.isArray(a.customTicks)) a.customTicks = [];
@@ -545,7 +546,7 @@ const WAIVER_CATEGORIES = [
   {key:'gi', label:'Gastrointestinal / Abdominal', items:[
     'Giardia - On Treatment','Flutd','Gastrointestinal Infection Waiver','Parvo','Panleukopaenia Exposure','Bladder Issue (recovered)'
   ]},
-  {key:'skin', label:'Skin / Integument', items:['Skin Conditions','Recovered Ringworm','Ringworm: In Contact']},
+  {key:'skin', label:'Skin / Integument', items:['Skin Conditions','Recovered Ringworm','Ringworm: In Contact','Grooming']},
   {key:'eyesEars', label:'Eyes / Ears', items:['Entropion','Ears','Deaf']},
   {key:'ortho', label:'Musculoskeletal', items:[
     'Conformation-Musculoskeletal','Luxating Patella(s) - No Surgical Intervention','Luxating Patella(s) - Surgical Intervention','Large Breed Waiver'
@@ -763,6 +764,7 @@ function buildTemplate(a){
   }
 
   if(proc==='spey')return 'Surgical Procedure:\nRoutine midline spey performed, pedicle ties performed over both ovaries, cervix is ligated with 3/0 PDS and the uterus is removed.\n'+close;
+  if(proc==='spey-flank')return 'Surgical Procedure:\nFlank spey performed via a left flank incision, ventral to the greater trochanter and dorsal to the mammary chain — DRAFT: confirm side and layer detail with the operating vet, edit as needed.\nIncision made through skin, subcutaneous tissue, external abdominal oblique, internal abdominal oblique and transversus abdominis muscles.\nOvarian pedicles and uterine body identified, pedicle ties performed over both ovaries, cervix is ligated with 3/0 PDS and the uterus is removed.\n'+close;
   if(proc==='preg1')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 1 pregnancy confirmed on examination.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;
   if(proc==='preg2')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 2 pregnancy confirmed on examination (mid gestation).\nExtended midline incision performed. Careful handling of the enlarged uterus.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;
   if(proc==='preg3')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 3 pregnancy confirmed on examination (late gestation).\nSignificantly extended midline incision performed. High-risk procedure — careful exteriorisation to prevent uterine rupture.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;
@@ -770,7 +772,7 @@ function buildTemplate(a){
   return '';
 }
 function surgTypeLabel(t){
-  const map = {castrate:'Routine Castration', cryptorchid:'Cryptorchid Castration', spey:'Routine Spey (OVH)', preg1:'Pregnant Spey — Stage 1', preg2:'Pregnant Spey — Stage 2', preg3:'Pregnant Spey — Stage 3', pyometra:'Pyometra OVH'};
+  const map = {castrate:'Routine Castration', cryptorchid:'Cryptorchid Castration', spey:'Routine Spey (OVH) — midline', 'spey-flank':'Routine Spey (OVH) — flank', preg1:'Pregnant Spey — Stage 1', preg2:'Pregnant Spey — Stage 2', preg3:'Pregnant Spey — Stage 3', pyometra:'Pyometra OVH'};
   return map[t] || t;
 }
 
@@ -1126,6 +1128,7 @@ function matchSurgType(text){
   if(/crypt/.test(t)) return 'cryptorchid';
   if(/pyo/.test(t)) return 'pyometra';
   if(/pregn/.test(t)) return 'preg1';
+  if(/flank/.test(t) && /spey|spay|ovh/.test(t)) return 'spey-flank';
   if(/spey|spay|ovh/.test(t)) return 'spey';
   if(/castrat|neuter/.test(t)) return 'castrate';
   return '';
@@ -1752,9 +1755,9 @@ function examFormHtml(a){
   </div>`;
   h += `<div class="two-col" style="margin-top:8px">
     <div><label style="font-size:12px">MM colour</label><br>
-      <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic','Not able to be examined'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
     <div><label style="font-size:12px">CRT</label><br>
-      <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s','Not able to be examined'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
   </div>`;
 
   h += `<div class="pe-field" style="margin-top:12px"><div class="lbl">Cardiac auscultation</div>
@@ -1788,15 +1791,20 @@ function examFormHtml(a){
         ['0','1','2','3','4'].forEach(g=>{
           h += `<button type="button" class="opt-btn ${a.hcDental.grade===g?'selected':''}" data-hcdentalgrade="${g}">${g}</button>`;
         });
+        h += `<button type="button" class="opt-btn ${a.hcDental.grade==='NE'?'selected abn':''}" data-hcdentalgrade="NE">Not able to be examined</button>`;
         h += `</div>
           <textarea class="free-input" id="hcDentalDesc" placeholder="Description (optional)...">${esc(a.hcDental.desc)}</textarea>
         </div>`;
         return;
       }
-      const isNsf = a.hcNsf[f.key] !== false;
+      const fieldNE = !!(a.hcNotExaminedFields && a.hcNotExaminedFields[f.key]);
+      const isNsf = !fieldNE && a.hcNsf[f.key] !== false;
       h += `<div class="pe-field">
         <div class="lbl">${f.label}</div>
-        <button type="button" class="opt-btn ${isNsf?'selected':''}" data-hcnsfkey="${f.key}">NSF</button>
+        <div class="opts">
+          <button type="button" class="opt-btn ${isNsf?'selected':''}" data-hcnsfkey="${f.key}">NSF</button>
+          <button type="button" class="opt-btn ${fieldNE?'selected abn':''}" data-hcnekey="${f.key}">Not able to be examined</button>
+        </div>
         <textarea class="free-input" data-hcnoteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.hcNotes[f.key]||'')}</textarea>
       </div>`;
     });
@@ -1910,7 +1918,8 @@ function examFormHtml(a){
     <select class="plain" id="fld_surgType" style="width:100%">
       <option value="castrate" ${a.surgType==='castrate'?'selected':''}>Routine Castration</option>
       <option value="cryptorchid" ${a.surgType==='cryptorchid'?'selected':''}>Cryptorchid Castration</option>
-      <option value="spey" ${a.surgType==='spey'?'selected':''}>Routine Spey (OVH)</option>
+      <option value="spey" ${a.surgType==='spey'?'selected':''}>Routine Spey (OVH) — midline</option>
+      <option value="spey-flank" ${a.surgType==='spey-flank'?'selected':''}>Routine Spey (OVH) — flank</option>
       <option value="preg1" ${a.surgType==='preg1'?'selected':''}>Pregnant Spey — Stage 1</option>
       <option value="preg2" ${a.surgType==='preg2'?'selected':''}>Pregnant Spey — Stage 2</option>
       <option value="preg3" ${a.surgType==='preg3'?'selected':''}>Pregnant Spey — Stage 3</option>
@@ -2132,6 +2141,15 @@ function bindExamForm(a){
     btn.addEventListener('click', ()=>{
       const key = btn.dataset.hcnsfkey;
       a.hcNsf[key] = !(a.hcNsf[key] !== false);
+      if(a.hcNotExaminedFields) a.hcNotExaminedFields[key] = false;
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-hcnekey]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.dataset.hcnekey;
+      if(!a.hcNotExaminedFields) a.hcNotExaminedFields = {};
+      a.hcNotExaminedFields[key] = !a.hcNotExaminedFields[key];
       saveShift(); openExam(a.id);
     });
   });
@@ -2441,7 +2459,16 @@ function assembleNote(a){
     L.push(`Behaviour observed: ${a.hcBehaviour&&a.hcBehaviour.trim() ? a.hcBehaviour.trim() : '-'}`);
     HC_PE_FIELDS.forEach(f=>{
       if(f.special==='teeth'){
-        L.push(`Teeth: Grade ${a.hcDental.grade}${a.hcDental.desc&&a.hcDental.desc.trim() ? ' — '+a.hcDental.desc.trim() : ''}`);
+        if(a.hcDental.grade==='NE'){
+          L.push(`Teeth: Not able to be examined${a.hcDental.desc&&a.hcDental.desc.trim() ? ' — '+a.hcDental.desc.trim() : ''}`);
+        } else {
+          L.push(`Teeth: Grade ${a.hcDental.grade}${a.hcDental.desc&&a.hcDental.desc.trim() ? ' — '+a.hcDental.desc.trim() : ''}`);
+        }
+        return;
+      }
+      const fieldNE = !!(a.hcNotExaminedFields && a.hcNotExaminedFields[f.key]);
+      if(fieldNE){
+        L.push(`${f.label}: Not able to be examined${a.hcNotes[f.key]&&a.hcNotes[f.key].trim() ? ' — '+a.hcNotes[f.key].trim() : ''}`);
         return;
       }
       const isNsf = a.hcNsf[f.key] !== false;
