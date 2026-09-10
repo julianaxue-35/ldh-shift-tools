@@ -527,6 +527,7 @@ function allWaiverLabels(a){ return a.waiversSelected||[]; }
    before a schema change still opens — see the localStorage-schema-migration
    pattern used across all 3 LDH shift tools. */
 function normalizeAnimal(a){
+  if(a.weight == null) a.weight = '';
   if(!Array.isArray(a.waiversSelected)){
     const migrated = [];
     const dismissed = a.waiversDismissed||{};
@@ -934,6 +935,7 @@ function makeAnimal(r){
     id: uid(),
     animalId: r.animalId||'',
     location: r.location||'',
+    weight: r.weight||'',
     dueDate: r.dueDate||'',
     species: r.species||'cat',
     sex: r.sex||'',
@@ -1188,6 +1190,7 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%${!a.animalId?';border-color:var(--amber)':''}" placeholder="e.g. 1174501"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. Cat Room 1 / 01"></div>
   </div>
+  <div style="margin-top:8px"><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
   <div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>
   <div class="pe-field" style="margin-top:8px"><div class="lbl">Examined this shift?</div>
     <div class="opts">
@@ -1501,6 +1504,7 @@ function bindExamForm(a){
   const body = document.getElementById('examBody');
   const map = {
     vhc:'fld_vhc',
+    weight:'fld_weight',
     pathway:'fld_pathway',
     treatments:'fld_treatments',chillRequired:'fld_chill',
     bloodworkType:'fld_bwtype'};
@@ -2007,7 +2011,7 @@ function computeProblemList(a){
 function assembleNote(a){
   const L = [];
   L.push(`${a.species==='cat'?'CAT':'DOG'} PHYSICAL EXAM`);
-  L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}`);
+  L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
   L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
   if(a.notExamined){
     L.push('');
@@ -2262,27 +2266,27 @@ function buildExcelFile(){
   const incomplete = sorted.filter(a=>a.registered && a.notExamined);
   const pending = sorted.filter(a=>!a.registered);
 
-  const completedAoa = [['Patient ID','Location','Microchip','Pathway','Treatments','Plan','Next step in pathway','Procedures required']];
-  pushGroupedRows(completedAoa, completed, 8, a=>{
+  const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway','Procedures required']];
+  pushGroupedRows(completedAoa, completed, 9, a=>{
     const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
-    return [a.animalId, a.location, a.microchip||'-', a.pathway||'-', a.treatments||'-',
+    return [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
       (a.medPlan && a.medPlan.trim()) || '-', allNextSteps(a).length ? allNextSteps(a).join('; ') : '-', procText];
   });
 
-  const incompleteAoa = [['Patient ID','Location','Assessment','Plan']];
-  pushGroupedRows(incompleteAoa, incomplete, 4, a=>[
-    a.animalId, a.location,
+  const incompleteAoa = [['Patient ID','Location','Weight','Assessment','Plan']];
+  pushGroupedRows(incompleteAoa, incomplete, 5, a=>[
+    a.animalId, a.location, a.weight||'-',
     (a.assessmentNotes && a.assessmentNotes.trim()) || '-',
     (a.notExaminedPlan && a.notExaminedPlan.trim()) || '-'
   ]);
 
-  const pendingAoa = [['Patient ID','Location','Microchip']];
-  pushGroupedRows(pendingAoa, pending, 3, a=>[a.animalId, a.location, a.microchip||'-']);
+  const pendingAoa = [['Patient ID','Location','Weight','Microchip']];
+  pushGroupedRows(pendingAoa, pending, 4, a=>[a.animalId, a.location, a.weight||'-', a.microchip||'-']);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,16,30,30,35,25,25]), 'Completed');
-  XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,45,45]), 'Incomplete');
-  XLSX.utils.book_append_sheet(wb, styledSheet(pendingAoa, [12,20,16]), 'Not Registered');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,12,16,30,30,35,25,25]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,12,45,45]), 'Incomplete');
+  XLSX.utils.book_append_sheet(wb, styledSheet(pendingAoa, [12,20,12,16]), 'Not Registered');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
   const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   return new File([blob], `Processing_Shift_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});

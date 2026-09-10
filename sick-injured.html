@@ -373,6 +373,7 @@ function normalizeAnimal(a){
   if(a.flagged == null) a.flagged = false;
   if(a.registered == null) a.registered = !!a.done;
   if(!Array.isArray(a.otherReminders)) a.otherReminders = [];
+  if(a.species == null) a.species = '';
   /* Root cause of "I fixed it but she still sees the old broken formatting":
      the reflow fix only ever ran at the moment text was newly imported or
      pasted — it never touched text already sitting in a record saved
@@ -752,6 +753,7 @@ function addOrMergeFromFlag(r){
     const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
     a.history = label;
     a.flagged = true;
+    a.species = r.species || '';
     if(r.problem){
       const m = matchResolvable(r.problem);
       a.assessment.push({id:uid(), text:r.problem, matched:m?m.key:null, resolved:null});
@@ -760,6 +762,7 @@ function addOrMergeFromFlag(r){
     return;
   }
   if(!existing.location && r.location) existing.location = r.location;
+  if(!existing.species && r.species) existing.species = r.species;
   if(!existing.history || !existing.history.includes(label.trim())){
     if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
       existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
@@ -948,9 +951,18 @@ document.getElementById('parseFlagBtn').addEventListener('click', ()=>{
     try{
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, {type:'array', cellDates:true});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      const rows = parseAaFlagLog(aoa);
+      /* She now exports this as one tab per species ("Cats" / "Dogs") rather
+         than a single flat sheet — read every sheet, not just the first, and
+         tag each row with the species its tab name implies. Falls back to
+         blank species (not dropped) for a sheet name that doesn't say
+         cat/dog, so an unexpected tab layout doesn't silently lose rows. */
+      const rows = [];
+      wb.SheetNames.forEach(sheetName=>{
+        const ws = wb.Sheets[sheetName];
+        const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+        const species = /cat/i.test(sheetName) ? 'cat' : /dog/i.test(sheetName) ? 'dog' : '';
+        parseAaFlagLog(aoa).forEach(r=>{ r.species = species; rows.push(r); });
+      });
       renderParsedFlagTable(rows);
     }catch(err){
       alert('Could not read that file — is it the AA Vet Flag Log export? (' + err.message + ')');
@@ -966,9 +978,14 @@ function renderParsedFlagTable(rows){
   }
   let html = '<div class="warn">Check ID / Location / Problem before adding — matching IDs already in your list will be merged, not duplicated.</div>';
   html += `<div class="row-actions"><button class="btn" id="confirmFlagAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Presenting Problem</th></tr>';
+  html += '<table class="parsed"><tr><th>Species</th><th>ID</th><th>Location</th><th>Presenting Problem</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
+      <td data-label="Species"><select data-i="${i}" data-f="species">
+        <option value="" ${!r.species?'selected':''}>-</option>
+        <option value="cat" ${r.species==='cat'?'selected':''}>Cat</option>
+        <option value="dog" ${r.species==='dog'?'selected':''}>Dog</option>
+      </select></td>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Presenting Problem"><input data-i="${i}" data-f="problem" value="${esc(r.problem)}"></td>
@@ -1011,6 +1028,7 @@ function makeAnimal(r){
     location: r.location || '',
     weight: r.weight || '',
     sex: r.sex || '',
+    species: r.species || '',
     lastConsultDate: sections.date || '',
     /* Her ask: don't make her retype the history every consult — start
        today's Reason/History from the previous consult's own
@@ -1082,7 +1100,7 @@ function groupedListHtml(animals){
     const cards = byRoom.get(room).map(a=>`
     <div class="animal-card">
       <div class="info">
-        <b>${a.flagged ? '<span title="Flagged by an AA today">🚩</span> ' : ''}${esc(a.animalId||'(no ID)')}</b>
+        <b>${a.species==='cat'?'🐱 ':a.species==='dog'?'🐶 ':''}${a.flagged ? '<span title="Flagged by an AA today">🚩</span> ' : ''}${esc(a.animalId||'(no ID)')}</b>
         <div class="sub">${esc(a.location||'no location')} &middot; ${esc(a.weight||'-')}</div>
       </div>
       <div>

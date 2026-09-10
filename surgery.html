@@ -255,6 +255,17 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div id="parsedSmWrap"></div>
   </div>
 
+  <div class="card" id="bookingCard">
+    <h2>Add from booking sheet</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Download the template below, fill in a row per animal from the day's booking list, then upload it here — ID/Type/Species/Location/Age/Procedure/Tasks/Notes all come across. Tasks and Notes land in the Assist section's comment box for you to action; SCP is auto-detected and flags the care warning.</p>
+    <div class="row-actions" style="margin-bottom:10px"><button type="button" class="btn secondary" id="downloadBookingTemplateBtn">⬇ Download booking template</button></div>
+    <input type="file" id="bookingXlsxInput" accept=".xlsx,.xls">
+    <div class="row-actions">
+      <button class="btn secondary" id="parseBookingBtn">Parse booking sheet</button>
+    </div>
+    <div id="parsedBookingWrap"></div>
+  </div>
+
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">Today's list (<span id="shiftCount">0</span>)</h2>
@@ -456,8 +467,8 @@ function formatRecheckDate(dateStr){
    ever shows, which looks like "nothing happens" with no visible error. */
 function normalizeAnimal(a){
   const defaults = {
-    animalId:'', species:'', weight:'', sex:'', age:'', ageUnit:'months',
-    fleaDueDate:'', wormDueDate:'', vaccDue:'',
+    animalId:'', species:'', weight:'', sex:'', age:'', ageUnit:'months', location:'', scp:false,
+    fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
     hr:'', rr:'Normal bronchovesicular sounds', mm:'Pink', crt:'<2s',
     caMurmur:false, caMurmurGrade:'1', caGallop:false, caArrhythmia:false, caNA:false,
@@ -475,7 +486,7 @@ function normalizeAnimal(a){
     surgType:'spey', surgStart:'', surgEnd:'', surgNotes:'',
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
     scLayer:false, isoNotes:'',
-    buprenorphineRoute:'SC', tempPost:'', mmPost:'Pink', crtPost:'<2s', recoveryNotes:'',
+    buprenorphineRoute:'SC', recoveryNotes:'',
     meloxOral:false, meloxTiming:'AM',
     microchipNum:'9560000', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
     rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
@@ -487,6 +498,9 @@ function normalizeAnimal(a){
   ['peri','intra','post','paper'].forEach(k=>{ if(a.examSectionsOpen[k]==null) a.examSectionsOpen[k]=true; });
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
   if(!Array.isArray(a.vitals)) a.vitals = [];
+  if(!Array.isArray(a.postopVitals)) a.postopVitals = [];
+  if(!Array.isArray(a.customTicks)) a.customTicks = [];
+  if(a.assistComments == null) a.assistComments = '';
   if(!Array.isArray(a.planItems)) a.planItems = [];
   if(!Array.isArray(a.emergency)) a.emergency = [];
   if(!a.emgConc || typeof a.emgConc!=='object') a.emgConc = {};
@@ -699,7 +713,7 @@ function dogPremedRange(w){
   return { lo:+(w*0.075).toFixed(2), hi:+(w*0.1).toFixed(2) };
 }
 function tickSub(a, key){
-  if(key==='vacc') return 'Tricat F3';
+  if(key==='vacc') return a.species==='dog' ? 'DHP (+ KC if indicated — note route)' : 'Tricat F3';
   const d = calcDoses(a.weight);
   if(!d) return '';
   const meloxSC = meloxSCDose(a.weight, a.species, a.meloxOral);
@@ -773,6 +787,7 @@ const PREOP_TICKS = [
   {key:'zmd', label:'ZMD given IM'},
   {key:'microchip', label:'Microchip implanted'},
   {key:'vacc', label:'Vaccination given'},
+  {key:'fiv', label:'FIV test done'},
   {key:'ivc', label:'IV catheter placed'},
   {key:'intubation', label:'Intubation'},
   {key:'alfax-pre', label:'Alfaxalone IV (if light)'}
@@ -1026,12 +1041,25 @@ function tickHtml(a, def){
     <div class="tick-time ${t.time?'':'hidden'}">🕐 ${esc(t.time)}</div>
   </div>`;
 }
+/* Same tap-to-tick pattern as tickHtml, but for a free-form list she builds
+   herself per animal (a.customTicks) rather than a fixed key from one of
+   the PREOP/INTRAOP/POSTOP_TICKS arrays — so each item carries its own
+   label, not just a lookup key, plus a remove button since these aren't
+   part of the fixed checklist. */
+function customTickHtml(ct){
+  return `<div class="tick ${ct.done?'done':''}" data-customtickid="${ct.id}" style="position:relative">
+    <div class="tick-box"><span class="tick-check">✓</span></div>
+    <div><div class="tick-lbl">${esc(ct.label)}</div></div>
+    <div class="tick-time ${ct.time?'':'hidden'}">🕐 ${esc(ct.time)}</div>
+    <button type="button" data-delcustomtick="${ct.id}" style="position:absolute;top:4px;right:4px;border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:15px;line-height:1;padding:2px 6px">&times;</button>
+  </div>`;
+}
 function vitalsRowHtml(v){
   const spo2Mode = v.spo2Mode || (v.spo2 && v.spo2!=='>98%' ? 'other' : 'default');
   return `<tr data-vitalid="${v.id}">
     <td data-label="Time"><input type="text" class="plain" data-vfield="time" data-vid="${v.id}" value="${esc(v.time)}" style="width:60px"></td>
-    <td data-label="HR"><input type="number" class="plain" data-vfield="hr" data-vid="${v.id}" value="${esc(v.hr)}" style="width:50px"></td>
-    <td data-label="RR"><input type="number" class="plain" data-vfield="rr" data-vid="${v.id}" value="${esc(v.rr)}" style="width:44px"></td>
+    <td data-label="HR"><input type="text" class="plain" data-vfield="hr" data-vid="${v.id}" value="${esc(v.hr)}" style="width:60px" placeholder="bpm"></td>
+    <td data-label="RR"><input type="text" class="plain" data-vfield="rr" data-vid="${v.id}" value="${esc(v.rr)}" style="width:56px" placeholder="rpm"></td>
     <td data-label="SpO2">
       <select class="plain" data-vfield="spo2mode" data-vid="${v.id}" style="width:100%">
         <option value="default" ${spo2Mode==='default'?'selected':''}>&gt;98%</option>
@@ -1039,8 +1067,29 @@ function vitalsRowHtml(v){
       </select>
       ${spo2Mode==='other' ? `<input type="text" class="plain" data-vfield="spo2" data-vid="${v.id}" value="${esc(v.spo2==='>98%'?'':v.spo2)}" placeholder="e.g. 94%" style="width:100%;margin-top:4px">` : ''}
     </td>
+    <td data-label="ISO %"><input type="text" class="plain" data-vfield="iso" data-vid="${v.id}" value="${esc(v.iso)}" style="width:50px"></td>
+    <td data-label="O2 L/min"><input type="text" class="plain" data-vfield="o2" data-vid="${v.id}" value="${esc(v.o2)}" style="width:60px" placeholder="4"></td>
+    <td data-label="Temp °C"><input type="text" class="plain" data-vfield="temp" data-vid="${v.id}" value="${esc(v.temp)}" style="width:56px"></td>
+    <td data-label="ETCO2"><input type="text" class="plain" data-vfield="etco2" data-vid="${v.id}" value="${esc(v.etco2)}" style="width:56px"></td>
     <td data-label="BP"><input type="text" class="plain" data-vfield="bp" data-vid="${v.id}" value="${esc(v.bp)}" placeholder="sys/dia MAP" style="width:100px"></td>
     <td data-label=""><button type="button" class="btn small rust" data-delvital="${v.id}" aria-label="Remove reading" title="Remove reading">×</button></td>
+  </tr>`;
+}
+function postopVitalsRowHtml(v){
+  const mentationOther = v.mentation === 'Other';
+  return `<tr data-pvitalid="${v.id}">
+    <td data-label="Time"><input type="text" class="plain" data-pvfield="time" data-pvid="${v.id}" value="${esc(v.time)}" style="width:60px"></td>
+    <td data-label="HR"><input type="text" class="plain" data-pvfield="hr" data-pvid="${v.id}" value="${esc(v.hr)}" style="width:60px" placeholder="bpm, Purring, N/A"></td>
+    <td data-label="Temp °C"><input type="text" class="plain" data-pvfield="temp" data-pvid="${v.id}" value="${esc(v.temp)}" style="width:56px"></td>
+    <td data-label="MM"><select class="plain" data-pvfield="mm" data-pvid="${v.id}">${['Pink','Pale pink','Pale','Injected'].map(m=>`<option ${v.mm===m?'selected':''}>${m}</option>`).join('')}</select></td>
+    <td data-label="CRT"><select class="plain" data-pvfield="crt" data-pvid="${v.id}">${['<2s','2s','2-3s','>3s'].map(c=>`<option ${v.crt===c?'selected':''}>${c}</option>`).join('')}</select></td>
+    <td data-label="Mentation">
+      <select class="plain" data-pvfield="mentation" data-pvid="${v.id}">
+        ${['Recumbent','Lifting head','Ambulating','Not able to be examined','Other'].map(m=>`<option ${v.mentation===m?'selected':''}>${m}</option>`).join('')}
+      </select>
+      ${mentationOther ? `<input type="text" class="plain" data-pvfield="mentationOther" data-pvid="${v.id}" value="${esc(v.mentationOther||'')}" placeholder="describe..." style="width:100%;margin-top:4px">` : ''}
+    </td>
+    <td data-label=""><button type="button" class="btn small rust" data-delpvital="${v.id}" aria-label="Remove reading" title="Remove reading">×</button></td>
   </tr>`;
 }
 
@@ -1169,6 +1218,154 @@ function parseSmExport(aoa){
   }
   return Array.from(byId.values());
 }
+/* ---------- Booking sheet import (her own template, not ezyVet directly) ----------
+   She books surgeries in ezyVet but that's a screenshot-only view with no
+   reliable way for this offline tool to read it (the one thing that's ever
+   tried reading an image here — the microchip camera scanner — turned out
+   unreliable). Instead: she fills in this known, deterministic template
+   (same "upload a known Excel shape" pattern already proven for the
+   ShelterMate export above), and Procedure/Tasks/Notes are read as
+   free text and surfaced for her to action — not force-parsed into
+   specific UI toggles, per her explicit "just read whatever's been input,
+   sometimes it isn't just one procedure" instruction. The one exception is
+   SCP, detected as a whole word in Tasks or Notes, since that's a single
+   unambiguous safety flag worth auto-setting rather than relying on her to
+   remember to tick it every time. */
+function downloadBookingTemplate(){
+  const bookingsAoa = [
+    ['Shelter ID','Type','Species','Location','Age','Procedure','Tasks','Notes'],
+    ['1174362','Shelter','Cat','CR2-48','2y','Spey','TT, M/C, R/C ortho, R/C abdo','flagged for constipation 8/9']
+  ];
+  const legendAoa = [
+    ['Column','What to type'],
+    ['Shelter ID','The 7-digit shelter/SM number'],
+    ['Type','Shelter / Foster / Pathways'],
+    ['Species','Cat / Dog'],
+    ['Location','e.g. CR1-7, CA1, P2, T — leave blank for Foster/Pathways'],
+    ['Age','e.g. 2y, 6m, 1y6m (optional)'],
+    ['Procedure','Free text — list more than one if needed, e.g. "Castration + 104 extraction"'],
+    ['Tasks','Space or comma separated, using any of the shorthand below'],
+    ['  TT','Tattoo needed'],
+    ['  M/C','Microchip needed'],
+    ['  F3','Vaccination needed (Tricat F3 for cats / DHP for dogs)'],
+    ['  R/C ortho','Recheck orthopaedic / MSK exam needed'],
+    ['  R/C abdo','Recheck abdominal palpation needed'],
+    ['  wound recheck','Wound recheck needed'],
+    ['  any tx','Due for worming, flea and vaccination'],
+    ['  HAS IP','Already has an interested party / adopter lined up'],
+    ['  SCP','Scared Cat Program — auto-flags the CARE warning in the tool'],
+    ['Notes','Anything else — clinical flags, ringworm status, etc.']
+  ];
+  const wb = XLSX.utils.book_new();
+  const wsB = XLSX.utils.aoa_to_sheet(bookingsAoa);
+  wsB['!cols'] = [{wch:12},{wch:10},{wch:8},{wch:12},{wch:8},{wch:28},{wch:30},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, wsB, 'Bookings');
+  const wsL = XLSX.utils.aoa_to_sheet(legendAoa);
+  wsL['!cols'] = [{wch:20},{wch:55}];
+  XLSX.utils.book_append_sheet(wb, wsL, 'Legend');
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  downloadFile(new File([wbout], 'Surgery_Booking_Template.xlsx', {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+}
+document.getElementById('downloadBookingTemplateBtn').addEventListener('click', downloadBookingTemplate);
+
+function parseBookingSheet(aoa){
+  const found = findHeaderRowFuzzy(aoa, [/shelter.*id/, /type/, /species/, /location/, /age/, /procedure/, /task/, /note/]);
+  if(!found) return [];
+  const [idIdx, typeIdx, speciesIdx, locIdx, ageIdx, procIdx, taskIdx, noteIdx] = found.idxs;
+  const results = [];
+  for(let i=found.rowIdx+1;i<aoa.length;i++){
+    const row = aoa[i]; if(!row) continue;
+    const idVal = idIdx!==-1 ? row[idIdx] : null;
+    if(idVal==null || idVal==='') continue;
+    const tasks = taskIdx!==-1 && row[taskIdx]!=null ? String(row[taskIdx]).trim() : '';
+    const notes = noteIdx!==-1 && row[noteIdx]!=null ? String(row[noteIdx]).trim() : '';
+    results.push({
+      animalId: String(idVal).trim(),
+      type: typeIdx!==-1 && row[typeIdx]!=null ? String(row[typeIdx]).trim() : '',
+      species: speciesIdx!==-1 && row[speciesIdx]!=null ? matchSpecies(String(row[speciesIdx])) : '',
+      location: locIdx!==-1 && row[locIdx]!=null ? String(row[locIdx]).trim() : '',
+      age: ageIdx!==-1 && row[ageIdx]!=null ? String(row[ageIdx]).trim() : '',
+      surgType: procIdx!==-1 && row[procIdx]!=null ? String(row[procIdx]).trim() : '',
+      tasks, notes,
+      scp: /\bscp\b/i.test(tasks) || /\bscp\b/i.test(notes)
+    });
+  }
+  return results;
+}
+document.getElementById('parseBookingBtn').addEventListener('click', ()=>{
+  const fileInput = document.getElementById('bookingXlsxInput');
+  const file = fileInput.files && fileInput.files[0];
+  if(!file){ alert('Choose the booking Excel file first.'); return; }
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames.find(n=>/booking/i.test(n)) || wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      const rows = parseBookingSheet(aoa);
+      renderParsedBookingTable(rows);
+    }catch(err){
+      alert('Could not read that file — is it the booking template? (' + err.message + ')');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+function renderParsedBookingTable(rows){
+  const wrap = document.getElementById('parsedBookingWrap');
+  if(!rows.length){
+    wrap.innerHTML = '<p class="warn">No animals detected — check this is the booking template with a Shelter ID column, or download a fresh copy above.</p>';
+    return;
+  }
+  let html = '<div class="warn">Check every field before adding. Tasks/Notes land in the Assist section comment box on each animal — tick the relevant boxes yourself once added.</div>';
+  html += `<div class="row-actions"><button class="btn" id="confirmBookingAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
+  html += '<table class="parsed"><tr><th>ID</th><th>Type</th><th>Species</th><th>Location</th><th>Age</th><th>Procedure</th><th>Tasks</th><th>Notes</th><th>SCP</th></tr>';
+  rows.forEach((r,i)=>{
+    html += `<tr>
+      <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
+      <td data-label="Type"><input data-i="${i}" data-f="type" value="${esc(r.type)}"></td>
+      <td data-label="Species"><input data-i="${i}" data-f="species" value="${esc(r.species)}"></td>
+      <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
+      <td data-label="Age"><input data-i="${i}" data-f="age" value="${esc(r.age)}"></td>
+      <td data-label="Procedure"><input data-i="${i}" data-f="surgType" value="${esc(r.surgType)}"></td>
+      <td data-label="Tasks"><input data-i="${i}" data-f="tasks" value="${esc(r.tasks)}"></td>
+      <td data-label="Notes"><input data-i="${i}" data-f="notes" value="${esc(r.notes)}"></td>
+      <td data-label="SCP">${r.scp ? '⚠️ SCP' : ''}</td>
+    </tr>`;
+  });
+  html += '</table><div class="row-actions"><button class="btn" id="confirmBookingAddBtn">Add these to the shift</button></div>';
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('input').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      rows[el.dataset.i][el.dataset.f] = el.value;
+      if(el.dataset.f==='tasks' || el.dataset.f==='notes'){
+        rows[el.dataset.i].scp = /\bscp\b/i.test(rows[el.dataset.i].tasks) || /\bscp\b/i.test(rows[el.dataset.i].notes);
+      }
+    });
+  });
+  function confirmBookingAdd(){
+    rows.forEach(r=>{
+      const a = normalizeAnimal({animalId:r.animalId, species:r.species, location:r.location, age:r.age});
+      const matchedType = matchSurgType(r.surgType);
+      if(matchedType) a.surgType = matchedType;
+      a.scp = !!r.scp;
+      const commentParts = [];
+      if(r.type) commentParts.push(`Type: ${r.type}`);
+      if(r.surgType) commentParts.push(`Booked procedure: ${r.surgType}`);
+      if(r.tasks) commentParts.push(`Tasks: ${r.tasks}`);
+      if(r.notes) commentParts.push(`Notes: ${r.notes}`);
+      a.assistComments = commentParts.join('\n');
+      a.surgNotes = buildTemplate(a);
+      state.animals.push(a);
+    });
+    saveShift(); renderShiftList();
+    document.getElementById('bookingXlsxInput').value = '';
+    wrap.innerHTML = '';
+  }
+  document.getElementById('confirmBookingAddBtnTop').addEventListener('click', confirmBookingAdd);
+  document.getElementById('confirmBookingAddBtn').addEventListener('click', confirmBookingAdd);
+}
+
 document.getElementById('parseSmBtn').addEventListener('click', ()=>{
   const fileInput = document.getElementById('smXlsxInput');
   const file = fileInput.files && fileInput.files[0];
@@ -1439,14 +1636,69 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
   showTab('shift');
 });
 
+/* Rendered twice — once inline in the Surgery section (so add-on waivers
+   like FIV/grooming/obesity can be ticked the moment they come up during
+   surgery) and once in Paperwork (the full review before discharge). Both
+   read/write the same a.waiversSelected, so a change in either place is
+   reflected in both the next time the form re-renders — every waiver
+   handler below forces that full re-render (openExam), not a partial
+   refresh, specifically so the two copies never go visibly out of sync. */
+function waiversBlockHtml(a, idSuffix){
+  ensureAutoWaivers(a);
+  const openCats = waiverOpenCategories(a);
+  const selected = a.waiversSelected;
+  let h = `<div class="pe-field"><div class="lbl">Waivers required?</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.waiversRequired!=='NO'?'selected':''}" data-waiversreq="YES">Yes</button>
+      <button type="button" class="opt-btn ${a.waiversRequired==='NO'?'selected':''}" data-waiversreq="NO">No</button>
+    </div>
+  </div>`;
+  if(a.waiversRequired!=='NO'){
+    h += `<div class="pe-field"><div class="lbl">Waivers</div>`;
+    if(selected.length){
+      h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">`;
+      selected.forEach((label,i)=>{
+        h += `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper-2);border-radius:20px;padding:4px 6px 4px 12px;font-size:12px">${esc(label)}<button type="button" data-waiverremove="${i}" style="border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:14px;line-height:1;padding:0 4px">&times;</button></span>`;
+      });
+      h += `</div>`;
+    } else {
+      h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">None selected yet.</div>`;
+    }
+    h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
+    WAIVER_CATEGORIES.forEach(cat=>{
+      h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
+        <div style="padding:4px 0 6px 4px">`;
+      cat.items.forEach(item=>{
+        h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
+          <input type="checkbox" data-waiveritem="${esc(item)}" ${selected.includes(item)?'checked':''}> ${esc(item)}
+        </label>`;
+      });
+      h += `</div></details>`;
+    });
+    h += `<div style="display:flex;gap:6px;margin-top:8px">
+      <input type="text" class="plain" data-waivercustominput="${idSuffix}" placeholder="Other waiver not listed..." style="flex:1">
+      <button type="button" class="btn small secondary" data-addwaiverbtn="${idSuffix}">Add</button>
+    </div>
+    </div>`;
+  }
+  return h;
+}
 function examFormHtml(a){
   syncMeloxPlanItem(a);
   let h = '';
-  h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Perioperative — health checks, induction</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
     <div><label style="font-size:12px">Patient ID / Tag</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
     <div><label style="font-size:12px">Weight (kg)</label><br><input class="plain" id="fld_weight" type="number" step="0.1" value="${esc(a.weight||'')}" style="width:100%"></div>
   </div>`;
+  h += `<div style="margin-top:8px"><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. CR1-7, CA1, P2, T"></div>`;
+  h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">Scared Cat Program (SCP)</div>
+    <div class="opts"><button type="button" class="opt-btn ${a.scp?'selected abn':''}" id="scpToggle">SCP — handle with care</button></div>
+  </div>`;
+  if(a.scp){
+    h += `<div class="warn" style="font-weight:600">⚠️ CARE — Scared Cat Program. Nervous/fractious history — use a crush cage or minimal-handling technique. Flag for whoever handles this patient next.</div>`;
+  }
   h += `<div class="two-col" style="margin-top:8px">
     <div><label style="font-size:12px">Species</label><br>
       <select class="plain" id="fld_species" style="width:100%">
@@ -1476,15 +1728,26 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Worming treatment due (ref)</label><br><input class="plain" id="fld_wormDueDate" value="${esc(a.wormDueDate||'')}" style="width:100%"></div>
   </div>`;
   h += `<div style="margin-top:8px"><label style="font-size:12px">Vaccination due date (ref)</label><br><input class="plain" id="fld_vaccDue" value="${esc(a.vaccDue||'')}" style="width:100%"></div>`;
+  h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">Microchip needed?</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.microchipDue?'selected abn':''}" data-microchipdue="1">Due — not yet chipped</button>
+      <button type="button" class="opt-btn ${!a.microchipDue?'selected':''}" data-microchipdue="0">Already chipped / not needed</button>
+    </div>
+  </div>`;
+  if(a.microchipDue && !(a.ticks['microchip'] && a.ticks['microchip'].done)){
+    h += `<div class="warn">Microchip due — implant preop.</div>`;
+  }
 
   h += `<div class="sechdr">Physical Examination</div>`;
   h += `<div class="two-col">
-    <div><label style="font-size:12px">HR (bpm)</label><br><input class="plain" id="fld_hr" type="number" value="${esc(a.hr||'')}" style="width:100%"></div>
+    <div><label style="font-size:12px">HR (bpm)</label><br><input class="plain" id="fld_hr" type="text" value="${esc(a.hr||'')}" style="width:100%" placeholder="e.g. 180, Purring, or N/A"></div>
     <div><label style="font-size:12px">Respiratory sounds</label><br>
       <select class="plain" id="fld_rr" style="width:100%">
         <option ${a.rr==='Normal bronchovesicular sounds'?'selected':''}>Normal bronchovesicular sounds</option>
         <option ${a.rr==='Tachypnoea'?'selected':''}>Tachypnoea</option>
         <option ${a.rr==='Increased respiratory effort'?'selected':''}>Increased respiratory effort</option>
+        <option ${a.rr==='Purring'?'selected':''}>Purring</option>
+        <option ${a.rr==='Not able to be examined'?'selected':''}>Not able to be examined</option>
       </select></div>
   </div>`;
   h += `<div class="two-col" style="margin-top:8px">
@@ -1632,9 +1895,16 @@ function examFormHtml(a){
   if(a.ticks['alfax-pre'] && a.ticks['alfax-pre'].done){
     h += `<div class="pe-field"><label style="font-size:12px">Alfaxalone pre-op given (mL)</label><br><input class="plain" id="fld_alfaxPreMl" type="number" step="0.01" value="${esc(a.alfaxPreMl||'')}" style="width:100%"></div>`;
   }
+  h += `<div class="pe-field"><div class="lbl">Additional checks</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Anything else that comes up — add a check on the fly, same tap-to-tick pattern as above.</p>`;
+  (a.customTicks||[]).forEach(ct=> h += customTickHtml(ct));
+  h += `<button type="button" class="btn small secondary" id="addCustomTickBtn" style="margin-top:6px">+ Add custom check</button>
+    <div style="margin-top:8px"><label style="font-size:12px">Comment</label><br>
+      <textarea class="free-input" id="fld_assistComments" placeholder="Anything else worth noting...">${esc(a.assistComments||'')}</textarea></div>
+  </div>`;
   h += `</div></details>`;
 
-  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Intraoperative — monitoring, surgery notes</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Surgery — monitoring, surgery notes</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Surgery</div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Procedure</label><br>
     <select class="plain" id="fld_surgType" style="width:100%">
@@ -1707,40 +1977,9 @@ function examFormHtml(a){
       <div class="lbl" style="margin:0">Vital signs — every 5 min</div>
       <button type="button" class="btn small secondary" id="addVitalsBtn">+ Add reading</button>
     </div>
-    <div style="overflow-x:auto"><table class="vitals"><thead><tr><th>Time</th><th>HR</th><th>RR</th><th>SpO2</th><th>BP</th><th></th></tr></thead>
+    <div style="overflow-x:auto"><table class="vitals"><thead><tr><th>Time</th><th>HR</th><th>RR</th><th>SpO2</th><th>ISO %</th><th>O2 L/min</th><th>Temp °C</th><th>ETCO2</th><th>BP</th><th></th></tr></thead>
       <tbody>${a.vitals.map(v=>vitalsRowHtml(v)).join('')}</tbody></table></div>
     ${!a.vitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
-  </div>`;
-  h += `</div></details>`;
-
-  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Postoperative — meloxicam, atipam, recovery</summary><div class="exam-section-body">`;
-  h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
-  if(a.wormDueDate && !a.wormGiven){
-    h += `<div class="warn">Worming due ${esc(a.wormDueDate)} — usually given postop.</div>`;
-  }
-  h += `<div class="pe-field"><div class="lbl">Post-op procedures</div>`;
-  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
-  h += `</div>`;
-  h += `<div class="pe-field"><div class="lbl">Buprenorphine (optional)</div>
-    <div class="opts"><button type="button" class="opt-btn ${a.ticks['buprenorphine']&&a.ticks['buprenorphine'].done?'selected':''}" data-tickkey="buprenorphine">Buprenorphine given</button></div>`;
-  if(a.ticks['buprenorphine'] && a.ticks['buprenorphine'].done){
-    h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
-      <select class="plain" id="fld_buprenorphineRoute" style="width:100%">
-        ${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}
-      </select></div>`;
-    const bupRepeat = bupRepeatDose(a.weight);
-    if(bupRepeat!=null){
-      h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = <b>${bupRepeat}mg</b>, given ~4 hours post-surgery.</p>`;
-    }
-  }
-  h += `</div>`;
-
-  h += `<div class="pe-field"><div class="lbl">Post-op vitals</div>
-    <div class="two-col">
-      <div><label style="font-size:12px">Temp (°C)</label><br><input class="plain" id="fld_tempPost" type="number" step="0.1" value="${esc(a.tempPost||'')}" style="width:100%"></div>
-      <div><label style="font-size:12px">MM colour</label><br><select class="plain" id="fld_mmPost" style="width:100%">${['Pink','Pale pink','Pale','Injected'].map(v=>`<option ${a.mmPost===v?'selected':''}>${v}</option>`).join('')}</select></div>
-    </div>
-    <div style="margin-top:8px"><label style="font-size:12px">CRT</label><br><select class="plain" id="fld_crtPost" style="width:100%">${['<2s','2s','2-3s','>3s'].map(v=>`<option ${a.crtPost===v?'selected':''}>${v}</option>`).join('')}</select></div>
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Oral meloxicam send-home (optional)</div>
@@ -1772,6 +2011,43 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
+  h += `<div class="sechdr">Add-on waivers (available now, in case something comes up during surgery)</div>`;
+  h += waiversBlockHtml(a, 'intra');
+
+  h += `</div></details>`;
+
+  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Recovery — atipam, meloxicam, vitals</summary><div class="exam-section-body">`;
+  h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
+  if(a.wormDueDate && !a.wormGiven){
+    h += `<div class="warn">Worming due ${esc(a.wormDueDate)} — usually given postop.</div>`;
+  }
+  h += `<div class="pe-field"><div class="lbl">Post-op procedures</div>`;
+  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
+  h += `</div>`;
+  h += `<div class="pe-field"><div class="lbl">Buprenorphine (optional)</div>
+    <div class="opts"><button type="button" class="opt-btn ${a.ticks['buprenorphine']&&a.ticks['buprenorphine'].done?'selected':''}" data-tickkey="buprenorphine">Buprenorphine given</button></div>`;
+  if(a.ticks['buprenorphine'] && a.ticks['buprenorphine'].done){
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
+      <select class="plain" id="fld_buprenorphineRoute" style="width:100%">
+        ${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}
+      </select></div>`;
+    const bupRepeat = bupRepeatDose(a.weight);
+    if(bupRepeat!=null){
+      h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = <b>${bupRepeat}mg</b>, given ~4 hours post-surgery.</p>`;
+    }
+  }
+  h += `</div>`;
+
+  h += `<div class="pe-field">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div class="lbl" style="margin:0">Post-op vitals — every 5-10 min</div>
+      <button type="button" class="btn small secondary" id="addPostopVitalsBtn">+ Add reading</button>
+    </div>
+    <div style="overflow-x:auto"><table class="vitals"><thead><tr><th>Time</th><th>HR</th><th>Temp °C</th><th>MM</th><th>CRT</th><th>Mentation</th><th></th></tr></thead>
+      <tbody>${a.postopVitals.map(v=>postopVitalsRowHtml(v)).join('')}</tbody></table></div>
+    ${!a.postopVitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
+  </div>`;
+
   h += `<div class="pe-field"><div class="lbl">Recovery notes</div>
     <textarea class="free-input" id="fld_recoveryNotes">${esc(a.recoveryNotes||'')}</textarea></div>`;
   h += `</div></details>`;
@@ -1786,46 +2062,7 @@ function examFormHtml(a){
     ${a.rehomingPathway==='not-suitable' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason</label><br><input class="plain" id="fld_notSuitableReason" value="${esc(a.notSuitableReason||'')}" style="width:100%"></div>` : ''}
   </div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Paperwork by (usually the surgery nurse on the day)</label><br><input class="plain" id="fld_paperworkBy" value="${esc(a.paperworkBy||'')}" placeholder="Surgery nurse initials" style="width:100%"></div>`;
-  {
-    ensureAutoWaivers(a);
-    const openCats = waiverOpenCategories(a);
-    const selected = a.waiversSelected;
-    h += `<div class="pe-field"><div class="lbl">Waivers required?</div>
-      <div class="opts">
-        <button type="button" class="opt-btn ${a.waiversRequired!=='NO'?'selected':''}" data-waiversreq="YES">Yes</button>
-        <button type="button" class="opt-btn ${a.waiversRequired==='NO'?'selected':''}" data-waiversreq="NO">No</button>
-      </div>
-    </div>`;
-    if(a.waiversRequired!=='NO'){
-      h += `<div class="pe-field"><div class="lbl">Waivers</div>`;
-      if(selected.length){
-        h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">`;
-        selected.forEach((label,i)=>{
-          h += `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--paper-2);border-radius:20px;padding:4px 6px 4px 12px;font-size:12px">${esc(label)}<button type="button" data-waiverremove="${i}" style="border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:14px;line-height:1;padding:0 4px">&times;</button></span>`;
-        });
-        h += `</div>`;
-      } else {
-        h += `<div style="font-size:12px;color:var(--ink-soft);margin-bottom:8px">None selected yet.</div>`;
-      }
-      h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
-      WAIVER_CATEGORIES.forEach(cat=>{
-        h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
-          <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
-          <div style="padding:4px 0 6px 4px">`;
-        cat.items.forEach(item=>{
-          h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
-            <input type="checkbox" data-waiveritem="${esc(item)}" ${selected.includes(item)?'checked':''}> ${esc(item)}
-          </label>`;
-        });
-        h += `</div></details>`;
-      });
-      h += `<div style="display:flex;gap:6px;margin-top:8px">
-        <input type="text" class="plain" id="waiverCustomInput" placeholder="Other waiver not listed..." style="flex:1">
-        <button type="button" class="btn small secondary" id="addWaiverBtn">Add</button>
-      </div>
-      </div>`;
-    }
-  }
+  h += waiversBlockHtml(a, 'paper');
   h += `<div class="pe-field"><div class="lbl">Vet chat needed?</div>
     <div class="opts">
       <button type="button" class="opt-btn ${a.vetChatNeeded==='YES'?'selected':''}" data-vetchat="YES">Yes</button>
@@ -1875,7 +2112,13 @@ function bindExamForm(a){
     el.addEventListener('change', ()=>{ a[key] = el.value; saveShift(); refreshNote(a); });
   }
   bindChange('fld_animalId','animalId');
+  bindChange('fld_location','location');
   bindChange('fld_fleaDueDate','fleaDueDate'); bindChange('fld_wormDueDate','wormDueDate'); bindChange('fld_vaccDue','vaccDue');
+  const scpBtn = document.getElementById('scpToggle');
+  if(scpBtn) scpBtn.addEventListener('click', ()=>{ a.scp = !a.scp; saveShift(); openExam(a.id); });
+  body.querySelectorAll('[data-microchipdue]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.microchipDue = btn.dataset.microchipdue==='1'; saveShift(); openExam(a.id); });
+  });
   bindChange('fld_hr','hr'); bindChange('fld_rr','rr'); bindChange('fld_mm','mm'); bindChange('fld_crt','crt');
   bindChange('fld_age','age'); bindChange('fld_ageUnit','ageUnit');
   bindChange('fld_murmurGrade','caMurmurGrade');
@@ -1912,7 +2155,6 @@ function bindExamForm(a){
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
-  bindChange('fld_tempPost','tempPost'); bindChange('fld_mmPost','mmPost'); bindChange('fld_crtPost','crtPost');
   bindChange('fld_recoveryNotes','recoveryNotes');
   bindChange('fld_notSuitableReason','notSuitableReason'); bindChange('fld_paperworkBy','paperworkBy');
   body.querySelectorAll('[data-waiversreq]').forEach(btn=>{
@@ -1926,7 +2168,7 @@ function bindExamForm(a){
       const label = cb.dataset.waiveritem;
       if(cb.checked){ if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); }
       else { a.waiversSelected = a.waiversSelected.filter(x=>x!==label); }
-      saveShift(); refreshNote(a);
+      saveShift(); openExam(a.id);
     });
   });
   body.querySelectorAll('[data-waiverremove]').forEach(btn=>{
@@ -1935,14 +2177,16 @@ function bindExamForm(a){
       saveShift(); openExam(a.id);
     });
   });
-  const addWaiverBtn = document.getElementById('addWaiverBtn');
-  if(addWaiverBtn) addWaiverBtn.addEventListener('click', ()=>{
-    const input = document.getElementById('waiverCustomInput');
-    const text = (input.value||'').trim();
-    if(!text) return;
-    if(!a.waiversSelected.includes(text)) a.waiversSelected.push(text);
-    saveShift();
-    openExam(a.id);
+  body.querySelectorAll('[data-addwaiverbtn]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const suffix = btn.dataset.addwaiverbtn;
+      const input = body.querySelector(`[data-waivercustominput="${suffix}"]`);
+      const text = (input && input.value || '').trim();
+      if(!text) return;
+      if(!a.waiversSelected.includes(text)) a.waiversSelected.push(text);
+      saveShift();
+      openExam(a.id);
+    });
   });
   const pathwayEl = document.getElementById('fld_pathway');
   if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });
@@ -2041,6 +2285,31 @@ function bindExamForm(a){
     });
   });
 
+  body.querySelectorAll('[data-delcustomtick]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      a.customTicks = a.customTicks.filter(ct=>ct.id!==btn.dataset.delcustomtick);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-customtickid]').forEach(div=>{
+    div.addEventListener('click', ()=>{
+      const ct = a.customTicks.find(x=>x.id===div.dataset.customtickid);
+      if(!ct) return;
+      ct.done = !ct.done;
+      ct.time = ct.done ? nowTime() : '';
+      saveShift(); openExam(a.id);
+    });
+  });
+  const addCustomTickBtn = document.getElementById('addCustomTickBtn');
+  if(addCustomTickBtn) addCustomTickBtn.addEventListener('click', ()=>{
+    const label = window.prompt('New check (e.g. "Ears cleaned"):');
+    if(!label) return;
+    a.customTicks.push({id: uid(), label: label.trim(), done:false, time:''});
+    saveShift(); openExam(a.id);
+  });
+  bindChange('fld_assistComments','assistComments');
+
   const surgTypeEl = document.getElementById('fld_surgType');
   if(surgTypeEl) surgTypeEl.addEventListener('change', ()=>{
     a.surgType = surgTypeEl.value; a.surgNotes = buildTemplate(a);
@@ -2086,7 +2355,7 @@ function bindExamForm(a){
 
   const addVitalsBtn = document.getElementById('addVitalsBtn');
   if(addVitalsBtn) addVitalsBtn.addEventListener('click', ()=>{
-    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', bp:''});
+    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', iso:'0', o2:'4', temp:'', etco2:'', bp:''});
     saveShift(); openExam(a.id);
   });
   body.querySelectorAll('[data-delvital]').forEach(btn=>{
@@ -2116,6 +2385,27 @@ function bindExamForm(a){
     });
   });
 
+  const addPostopVitalsBtn = document.getElementById('addPostopVitalsBtn');
+  if(addPostopVitalsBtn) addPostopVitalsBtn.addEventListener('click', ()=>{
+    a.postopVitals.push({id: uid(), time: nowTime(), hr:'', temp:'', mm:'Pink', crt:'<2s', mentation:'Recumbent', mentationOther:''});
+    saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-delpvital]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.postopVitals = a.postopVitals.filter(v=>v.id!==btn.dataset.delpvital);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-pvfield]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const v = a.postopVitals.find(x=>x.id===el.dataset.pvid);
+      if(!v) return;
+      v[el.dataset.pvfield] = el.value;
+      saveShift();
+      if(el.dataset.pvfield === 'mentation') openExam(a.id); else refreshNote(a);
+    });
+  });
+
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
@@ -2130,8 +2420,9 @@ function bindExamForm(a){
 function assembleNote(a){
   const L = [];
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
+  if(a.scp) L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
   L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
-  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} ${a.ageUnit}`);
+  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} ${a.ageUnit} | Location: ${a.location||'-'}`);
   if(a.fleaDueDate||a.wormDueDate||a.vaccDue) L.push(`Flea due: ${a.fleaDueDate||'-'} | Worming due: ${a.wormDueDate||'-'} | Vaccination due: ${a.vaccDue||'-'}`);
   L.push('');
   L.push('Physical Examination:');
@@ -2191,6 +2482,9 @@ function assembleNote(a){
     if(t && t.done){ anyPreop = true; L.push(`- ${def.label} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
   });
   if(!anyPreop) L.push('-');
+  (a.customTicks||[]).forEach(ct=>{ if(ct.done) L.push(`- ${ct.label} (${ct.time})`); });
+  if(a.assistComments && a.assistComments.trim()) L.push(`  Comment: ${a.assistComments.trim()}`);
+  if(a.microchipDue && !(a.ticks['microchip'] && a.ticks['microchip'].done)) L.push('  ⚠ Microchip due — not yet implanted');
   if(a.microchipNum) L.push(`  Microchip: ${a.microchipNum}`);
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);
   if(a.ticks['intubation'] && a.ticks['intubation'].done) L.push(`  ET tube size: ${a.etTubeSize||'-'}`);
@@ -2212,7 +2506,7 @@ function assembleNote(a){
   if(a.isoNotes && a.isoNotes.trim()) L.push(`  Isoflurane notes: ${a.isoNotes.trim()}`);
   if(a.vitals.length){
     L.push('  Vitals:');
-    a.vitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} RR:${v.rr||'-'} SpO2:${v.spo2||'-'} BP:${v.bp||'-'}`));
+    a.vitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} RR:${v.rr||'-'} SpO2:${v.spo2||'-'} ISO:${v.iso||'-'}% O2:${v.o2||'-'}L/min Temp:${v.temp||'-'}°C ETCO2:${v.etco2||'-'} BP:${v.bp||'-'}`));
   }
   L.push('');
   L.push('Post-op:');
@@ -2228,7 +2522,12 @@ function assembleNote(a){
     if(bupRepeat!=null) L.push(`  Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = ${bupRepeat}mg, given ~4 hours post-surgery.`);
   }
   if(!anyPostop) L.push('-');
-  L.push(`Post-op: Temp ${a.tempPost||'-'}°C  MM ${a.mmPost}  CRT ${a.crtPost}`);
+  if(a.postopVitals.length){
+    L.push('  Post-op vitals:');
+    a.postopVitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} Temp:${v.temp||'-'}°C MM:${v.mm} CRT:${v.crt}  Mentation:${v.mentation==='Other'?(v.mentationOther||'-'):v.mentation}`));
+  } else {
+    L.push('  Post-op vitals: -');
+  }
   const meloxOralVal = meloxOralDoseVal(a.weight, a.species);
   const meloxTiming = resolvedMeloxTiming(a);
   if(a.meloxOral && meloxOralVal!=null && meloxTiming){
