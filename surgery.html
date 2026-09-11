@@ -161,6 +161,19 @@ table.vitals input,table.vitals select{padding:5px 6px;font-size:12px;min-width:
 .tabbar button .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#fff;margin-left:4px;vertical-align:middle}
 .tab-panel.hidden{display:none}
 
+/* ---------- FAQ ---------- */
+.faq-item{border-bottom:1px solid var(--line-soft);padding:11px 0}
+.faq-item:last-child{border-bottom:none}
+.faq-item summary{cursor:pointer;font-weight:600;color:var(--teal-dark);font-size:13.5px;list-style:none}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::before{content:'+ ';color:var(--teal);font-weight:700}
+.faq-item[open] summary::before{content:'\2212 '}
+.faq-item .a{margin-top:8px;font-size:13px;color:var(--ink);line-height:1.55}
+.faq-item .a table.cmp{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+.faq-item .a table.cmp th,.faq-item .a table.cmp td{border:1px solid var(--line);padding:5px 7px;text-align:left}
+.faq-item .a table.cmp th{background:var(--paper-2)}
+.faq-refs{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-soft);line-height:1.6}
+
 /* ---------- mobile (phone/tablet touch) ---------- */
 @media (max-width:600px){
   .two-col, .emg-scn-grid{grid-template-columns:1fr}
@@ -239,6 +252,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" class="on" data-tab="shift">Shift List</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
+    <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
 
@@ -315,6 +329,72 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <h2>Automatic backups</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Kept automatically in this browser roughly every 3 minutes, plus right before Clear list — restorable below if the list ever looks wrong or goes missing. This can't survive this device's browser storage being wiped entirely, so still export a copy above regularly for that.</p>
     <div id="backupList"></div>
+  </div>
+</div>
+
+<div class="wrap tab-panel hidden" id="tabFaq">
+  <div class="card">
+    <h2>ZMD Premed &amp; HQHVSN — FAQ</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Background on the standard cat premed (ZMD = Zoletil + Methadone + Medetomidine) and why our HQHVSN protocols differ from a normal-practice spay/neuter. Tap a question to expand.</p>
+
+    <details class="faq-item">
+      <summary>What is HQHVSN, and how does it differ from a normal spay/neuter?</summary>
+      <div class="a">HQHVSN = High-Quality, High-Volume Spay-Neuter, defined by the Association of Shelter Veterinarians' 2016 Veterinary Medical Care Guidelines for Spay-Neuter Programs. The "quality" isn't traded off for the "volume": the same standard of individual patient care applies, but a dedicated team doing nothing but desexing — standardized weight-based drug protocols, refined technique, minimal individualized pre-op workup in healthy young adults — lets an experienced HQHVSN vet safely do 30-60+ desexings in a day versus a handful in general practice. The outcome data below is the actual proof this isn't a lower standard of care.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why don't we intubate for HQHVSN procedures?</summary>
+      <div class="a">Feline intubation isn't benign — it carries a real risk of tracheal trauma (including the rare but serious tracheal-tear/stricture complication), and CEPSAF identifies it as a specific feline anaesthetic risk factor. For short, routine desexings under ZMD (a total injectable protocol, not inhalant gas), omitting intubation is acceptable as long as backup airway equipment and someone trained to use it are immediately at hand. We still intubate — or keep a much lower threshold to — for anything outside routine: brachycephalics, pyometra, prolonged/complicated procedures, regurgitation/vomiting risk, or any patient not maintaining a clear airway on its own.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why don't we give IV fluid therapy to every animal?</summary>
+      <div class="a">Per ASV guidance, routine IV fluids are reserved for patients with an actual indication — pregnant, pyometra, substantial blood loss, or prolonged surgery — plus warmed fluids for pediatric, small, frail, or ill patients. A healthy ASA I-II patient having a short, low-blood-loss elective desexing doesn't show a benefit from routine IV fluids; SC fluids can be given for comfort instead. It's a judgement call based on the individual patient, not a blanket rule — if anything about the case raises risk, place a line.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Fasting: kittens/puppies vs mature cats/dogs?</summary>
+      <div class="a">
+        <table class="cmp">
+          <tr><th>Age</th><th>Fasting</th></tr>
+          <tr><td>6-16 weeks</td><td>Small meal 2-4h pre-op; do <b>not</b> withhold food &gt;4h — hypoglycaemia risk</td></tr>
+          <tr><td>&gt;16 weeks</td><td>Withhold a minimum of 4h; overnight is acceptable; &gt;6h is unnecessary</td></tr>
+        </table>
+        Water is never withheld in either group. (ASV 2016 guidelines)
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Why do cats stay dysphoric for longer after ZMD — isn't zolazepam just a benzo?</summary>
+      <div class="a">Zoletil is tiletamine (a dissociative, same family as ketamine) combined with zolazepam (a benzodiazepine). In cats, zolazepam's elimination half-life (up to ~5h) outlasts tiletamine's (~2-4h) — as the dissociative tiletamine clears first, the cat is left in a phase where the benzodiazepine's tranquilisation exceeds any remaining anaesthetic effect. Clinically this shows up as prolonged sedation, ataxia, and a rough, disoriented recovery rather than a clean wake-up. This is expected pharmacology for ZMD in cats — a slow, dysphoric recovery on its own isn't evidence of a dosing error or poor technique; even a correctly-dosed, correctly-given premed will still show this pattern.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Drug elimination — how long until dissociative signs are gone?</summary>
+      <div class="a">There's no single hard cutoff — it depends on dose, whether the cat needed a top-up, and individual metabolism — but as a working guide: most cats are through the disoriented/ataxic phase within 6-8h, and full return to normal behaviour can take up to 24h, especially after multiple injections. Don't expect "back to normal within an hour or two," and don't mistake ongoing zolazepam-driven grogginess for a complication needing reversal — atipamezole only reverses the medetomidine component of ZMD, not the Zoletil.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>What's the mortality rate for HQHVSN patients? (Julie Levy's study)</summary>
+      <div class="a">Levy et al. (2017, <i>The Veterinary Journal</i> 224:11-15) followed 71,557 cats and 42,349 dogs desexed at a single high-volume clinic (Humane Society of Tampa Bay) from 2010-2016, and found an overall perioperative mortality of <b>3.3 per 10,000 surgeries (0.03%)</b> — 5/10,000 in cats (0.05%), 0.9/10,000 in dogs (0.009%). That's in the range reported for elective human surgery.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How does that compare to general-practice spay/neuter mortality?</summary>
+      <div class="a">
+        <table class="cmp">
+          <tr><th>Population</th><th>Dogs</th><th>Cats</th></tr>
+          <tr><td>HQHVSN (Levy 2017)</td><td>0.009%</td><td>0.05%</td></tr>
+          <tr><td>GP, healthy elective ASA I-II (CEPSAF)</td><td>0.05%</td><td>0.11%</td></tr>
+          <tr><td>GP, all cases (CEPSAF)</td><td>0.17%</td><td>0.24%</td></tr>
+        </table>
+        Levy's discussion places the HQHVSN result at roughly a tenth of the rate reported for healthy-animal anaesthesia in low-volume general practice (Brodbelt et al.'s CEPSAF data). The streamlined, single-procedure HQHVSN model isn't a lower standard of care — the data says it's measurably safer than traditional general practice for this specific procedure type.
+      </div>
+    </details>
+
+    <div class="faq-refs">
+      <b>Sources:</b> Griffin B, et al. 2016 ASV Veterinary Medical Care Guidelines for Spay-Neuter Programs, <i>JAVMA</i> 249(2):165-188 &middot; Levy JK, Bard KM, Tucker SJ, et al. Perioperative mortality in cats and dogs undergoing spay or castration at a high-volume clinic. <i>Vet J.</i> 2017;224:11-15 &middot; Brodbelt DC, et al. CEPSAF, <i>Vet Anaesth Analg.</i> 2008 &middot; Drugs.com Tiletamine-Zolazepam veterinary monograph; Narrative review, clinical applications of tiletamine-zolazepam in canine/feline anaesthesia, <i>Frontiers in Veterinary Science</i>, 2026.
+    </div>
   </div>
 </div>
 
@@ -1474,6 +1554,7 @@ function showTab(name){
   document.getElementById('tabShift').classList.toggle('hidden', name!=='shift');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
+  document.getElementById('tabFaq').classList.toggle('hidden', name!=='faq');
 }
 function goToExamTab(){
   const last = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
