@@ -412,6 +412,38 @@ const NEXT_STEP_OPTIONS = [
 function allNextSteps(a){
   return [a.nextStep, ...(a.nextStepsExtra||[])].filter(Boolean);
 }
+/* Her ask: a field marked "not able to examine" this shift shouldn't just
+   vanish from the record — it needs to come back to whoever's handling the
+   animal next. Rather than a manually-typed reminder, derive it live from
+   whichever fields are currently flagged not-examined (including heart and
+   teeth's own not-examined states), so it can never drift out of sync with
+   the actual exam findings. Computed at render time only — never written
+   back into a.nextStep itself. */
+function pendingNotExaminedLabels(a){
+  const labels = [];
+  peFields(a.species).forEach(f=>{
+    if(f.special==='teeth'){ if(a.dental.grade==='NE') labels.push('teeth'); return; }
+    if(f.special==='heart'){ if(a.heart.notExamined) labels.push('heart'); return; }
+    if(a.notExaminedFields && a.notExaminedFields[f.key]) labels.push(f.label.toLowerCase());
+  });
+  return labels;
+}
+function notExaminedFollowupText(a){
+  const labels = pendingNotExaminedLabels(a);
+  if(!labels.length) return '';
+  const joined = labels.length===1 ? labels[0] : labels.slice(0,-1).join(', ')+' and '+labels[labels.length-1];
+  return `, then examine ${joined}`;
+}
+/* Single source of truth for "what does Next step in pathway actually say"
+   — used by both the note text and the Excel export, so the two can never
+   drift apart. Does NOT include her free-text nextStepNotes (that's always
+   shown as its own separate line/column, not folded into this one). */
+function nextStepFullText(a){
+  const steps = allNextSteps(a);
+  const followup = notExaminedFollowupText(a);
+  if(steps.length) return steps.join('; ') + followup;
+  return followup ? followup.replace(/^, then /, 'Then ') : '-';
+}
 
 /* "Treatments provided" defaults to a free-text base ("Physical exam and
    wormer") — Flea/Vaccine are quick-tick add-ons rather than separate
@@ -541,6 +573,7 @@ function normalizeAnimal(a){
   }
   if(a.waiversRequired==null) a.waiversRequired = '';
   if(!Array.isArray(a.nextStepsExtra)) a.nextStepsExtra = [];
+  if(a.nextStepNotes == null) a.nextStepNotes = '';
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
@@ -961,7 +994,7 @@ function makeAnimal(r){
     pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
     vaccineGiven:false, vaccineKcRoute:'',
-    nextStep:'', nextStepsExtra:[], procedures:'', proceduresOther:'', chillRequired:'',
+    nextStep:'', nextStepsExtra:[], nextStepNotes:'', procedures:'', proceduresOther:'', chillRequired:'',
     bloodwork: autoBloodwork?'YES':'NO', bloodworkType:'', bloodworkAuto: autoBloodwork,
     vetNurse:'',
     noteEdited: null,   // if set, user has manually edited the note
@@ -1465,6 +1498,8 @@ function examFormHtml(a){
     </div>`;
   });
   h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="addNextStepBtn">+ Add another status</button></div>
+    <div style="margin-top:8px"><label style="font-size:12px">Notes</label><br>
+      <textarea class="plain" id="fld_nextStepNotes" style="width:100%;min-height:50px" placeholder="Anything not covered by the options above...">${esc(a.nextStepNotes||'')}</textarea></div>
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Procedures required</div>
@@ -1507,7 +1542,8 @@ function bindExamForm(a){
     weight:'fld_weight',
     pathway:'fld_pathway',
     treatments:'fld_treatments',chillRequired:'fld_chill',
-    bloodworkType:'fld_bwtype'};
+    bloodworkType:'fld_bwtype',
+    nextStepNotes:'fld_nextStepNotes'};
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
     if(!el) return;
@@ -2084,7 +2120,8 @@ function assembleNote(a){
   L.push(`WAIVERS: ${waiverLabels.length ? waiverLabels.join(', ') : '-'}    VET CHAT: ${a.vetChat||'-'}`);
   L.push('');
   L.push(`Treatments provided: ${a.treatments||'-'}`);
-  L.push(`Next step in pathway: ${allNextSteps(a).length ? allNextSteps(a).join('; ') : '-'}`);
+  L.push(`Next step in pathway: ${nextStepFullText(a)}`);
+  if(a.nextStepNotes && a.nextStepNotes.trim()) L.push(`  Notes: ${a.nextStepNotes.trim()}`);
   const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
   L.push(`Procedures required: ${procText}`);
   if(a.species==='dog') L.push(`Chill Required: ${a.chillRequired||'-'}`);
@@ -2266,11 +2303,11 @@ function buildExcelFile(){
   const incomplete = sorted.filter(a=>a.registered && a.notExamined);
   const pending = sorted.filter(a=>!a.registered);
 
-  const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway','Procedures required']];
-  pushGroupedRows(completedAoa, completed, 9, a=>{
+  const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway','Next step notes','Procedures required']];
+  pushGroupedRows(completedAoa, completed, 10, a=>{
     const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
     return [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
-      (a.medPlan && a.medPlan.trim()) || '-', allNextSteps(a).length ? allNextSteps(a).join('; ') : '-', procText];
+      (a.medPlan && a.medPlan.trim()) || '-', nextStepFullText(a), (a.nextStepNotes && a.nextStepNotes.trim()) || '-', procText];
   });
 
   const incompleteAoa = [['Patient ID','Location','Weight','Assessment','Plan']];
@@ -2284,7 +2321,7 @@ function buildExcelFile(){
   pushGroupedRows(pendingAoa, pending, 4, a=>[a.animalId, a.location, a.weight||'-', a.microchip||'-']);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,12,16,30,30,35,25,25]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,12,16,30,30,35,25,30,25]), 'Completed');
   XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,12,45,45]), 'Incomplete');
   XLSX.utils.book_append_sheet(wb, styledSheet(pendingAoa, [12,20,12,16]), 'Not Registered');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
