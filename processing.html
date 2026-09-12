@@ -47,6 +47,18 @@ header.top{position:sticky;top:0;z-index:50;background:var(--teal);padding:12px 
 .field-row label{font-size:12px;color:rgba(255,255,255,.85)}
 .field-row input{border:none;border-radius:6px;padding:5px 8px;width:80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+/* ---------- FAQ ---------- */
+.faq-item{border-bottom:1px solid var(--line-soft);padding:11px 0}
+.faq-item:last-child{border-bottom:none}
+.faq-item summary{cursor:pointer;font-weight:600;color:var(--teal-dark);font-size:13.5px;list-style:none}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::before{content:'+ ';color:var(--teal);font-weight:700}
+.faq-item[open] summary::before{content:'\2212 '}
+.faq-item .a{margin-top:8px;font-size:13px;color:var(--ink);line-height:1.55}
+.faq-item .a img{max-width:100%;border:1px solid var(--line);border-radius:6px;margin-top:8px}
+.faq-item .a ol,.faq-item .a ul{margin:6px 0 6px 20px}
+.faq-item .a li{margin-bottom:3px}
+
 .card h2{font-size:15px;margin-bottom:10px;color:var(--teal-dark)}
 textarea.paste-box{width:100%;min-height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:13px}
 .btn{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
@@ -177,6 +189,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="incomplete">Incomplete</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
+    <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
 
@@ -253,6 +266,63 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <h2>Automatic backups</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Kept automatically in this browser roughly every 3 minutes, plus right before Clear list — restorable below if the list ever looks wrong or goes missing. This can't survive this device's browser storage being wiped entirely, so still export a copy above regularly for that.</p>
     <div id="backupList"></div>
+  </div>
+</div>
+
+<div class="wrap tab-panel hidden" id="tabFaq">
+  <div class="card">
+    <h2>How to use Processing — FAQ</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">What this tool is for, and how to run a Processing shift with it start to finish. Tap a question to expand.</p>
+
+    <details class="faq-item">
+      <summary>What's the point of this tool?</summary>
+      <div class="a">Instead of waiting until day 5 for a routine PE, this report pulls every animal in shelter that's still awaiting its vet exam / health check — so we can pick up illness earlier, start things like gabapentin sooner for stress, and get surgery booked sooner after the due-date-out, which shortens length of stay overall.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Step 1 — generating the report in ShelterMate</summary>
+      <div class="a">
+        <ol>
+          <li>ShelterMate → <b>Report → Vets → In Care Inventory</b></li>
+          <li>Region: <b>Cranbourne</b>. Shelter locations: <b>All</b></li>
+          <li>For <b>dog PE</b>: change status to <b>Awaiting vet exam / health check</b></li>
+          <li>For <b>cat PE</b>: keep status as <b>All</b>, but change sub-status to <b>Awaiting veterinary exam</b></li>
+          <li>Group by <b>Region</b> and <b>Shelter</b> for both</li>
+          <li>Include fields: turn on <b>Due date out</b>; remove <b>Vet notes</b></li>
+          <li>Click <b>Generate report</b></li>
+        </ol>
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Step 2 — bringing it into the tool</summary>
+      <div class="a">Download the report as an Excel file, then on the Shift List tab upload it here. Every animal on the report appears in the list automatically, sorted by room and then by due-date-out — the ones due soonest show first within each room.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>What does the 🔴 next to an animal mean?</summary>
+      <div class="a">Its due-date-out has arrived (or already passed) — that's a priority check for today, not a routine one. Do these first before working through the rest of the room.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Step 3 — examining and exporting</summary>
+      <div class="a">Work through each animal's exam as normal. Once you've finished an animal, use <b>Register to Word &amp; Excel</b> so it's counted. If you go back and change notes on an animal you've already registered, click <b>Refresh</b> on its note, then register it again — otherwise the export still holds your earlier version. The Shift List tab shows a running completed/incomplete count all day.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Registering a new medication chart</summary>
+      <div class="a">If you've started a new medication that needs its own printable 14-day chart, type it into the Plan box (e.g. "Amoxyclav 250mg: give 1 tablet orally BID for 5 days") and click <b>+ Register medication chart</b>. Review the parsed drug/dose/frequency/route before saving — nothing is guessed silently, so fix anything it couldn't confidently read. Every chart registered today (from this tool, Sick &amp; Injured, or Surgery) collects in one place — open <b>Medication Charts</b> from the Shift Tools hub to select and export them as one Excel workbook, one real 14-day sheet per animal.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Printing medication charts</summary>
+      <div class="a">Ask a nurse or the admission AA to print the charts and collect the medications. Print on the <b>Cranadopt</b> printer, drawer 2 (yellow paper).</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>When should I export?</summary>
+      <div class="a">Export your notes at <b>12pm and 4pm</b> each day. That gives the admission AA enough time to enter your notes and update statuses in ShelterMate, and gives nurses time to collect and give medications before end of shift.</div>
+    </details>
   </div>
 </div>
 
@@ -1030,6 +1100,15 @@ function parseDueDate(str){
   const d2 = new Date(str);
   return isNaN(d2) ? Infinity : d2.getTime();
 }
+// Due date has arrived or already passed — this PE is now overdue and
+// should be prioritised today (picking these up sooner, rather than
+// waiting for the day-5 default, is the whole point of this report).
+function isPriorityDue(dueDateStr){
+  const t = parseDueDate(dueDateStr);
+  if(t === Infinity) return false;
+  const endOfToday = new Date(); endOfToday.setHours(23,59,59,999);
+  return t <= endOfToday.getTime();
+}
 function sortedAnimals(){
   return [...state.animals].sort((a,b)=>{
     const la = parseLocation(a.location), lb = parseLocation(b.location);
@@ -1052,8 +1131,8 @@ function groupedListHtml(animals){
     const cards = byRoom.get(room).map(a=>`
     <div class="animal-card">
       <div class="info">
-        <b>${a.notExamined ? '<span title="Not able to be examined">\u26a0\ufe0f</span> ' : ''}${esc(a.animalId||'(no ID)')} \u2014 ${a.species==='cat'?'Cat':'Dog'}</b>
-        <div class="sub">${esc(a.location||'no location')} &middot; due ${esc(a.dueDate||'-')}</div>
+        <b>${isPriorityDue(a.dueDate) ? '<span title="Due date out has arrived \u2014 prioritise this PE today">\ud83d\udd34 </span>' : ''}${a.notExamined ? '<span title="Not able to be examined">\u26a0\ufe0f</span> ' : ''}${esc(a.animalId||'(no ID)')} \u2014 ${a.species==='cat'?'Cat':'Dog'}</b>
+        <div class="sub">${esc(a.location||'no location')} &middot; due ${isPriorityDue(a.dueDate) ? `<b style="color:#c0392b">${esc(a.dueDate)}</b>` : esc(a.dueDate||'-')}</div>
       </div>
       <div>
         <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
@@ -1083,6 +1162,7 @@ function showTab(name){
   document.getElementById('tabIncomplete').classList.toggle('hidden', name!=='incomplete');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
+  document.getElementById('tabFaq').classList.toggle('hidden', name!=='faq');
 }
 function goToExamTab(){
   const last = state.openId ? state.animals.find(a=>a.id===state.openId) : null;

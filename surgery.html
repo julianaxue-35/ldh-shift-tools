@@ -334,6 +334,31 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <div class="wrap tab-panel hidden" id="tabFaq">
   <div class="card">
+    <h2>How to use Surgery — FAQ</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">How to run a Surgery shift with this tool start to finish. Tap a question to expand.</p>
+
+    <details class="faq-item">
+      <summary>Step 1 — before the day: the booking sheet</summary>
+      <div class="a">Vets or nurses fill in the <b>Surgery Booking Template</b> Excel sheet the day before surgery (use the "⬇ Download booking template" button on the Shift List tab if you need a blank copy). Upload the completed sheet the next day to register every booked animal in one go — ID, type, species, location, age, procedure, tasks and notes all come across automatically.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>How should the device be used through the day?</summary>
+      <div class="a">One device should follow the same animal the whole way through — pre-exam, assist, surgery, and recovery — rather than being handed between different stations for different animals. That keeps every stage of that animal's record in one continuous note.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Registering a new medication chart</summary>
+      <div class="a">The automatic oral meloxicam post-op course (the toggle in Recovery) registers and updates its own medication chart for you — no extra step needed. For any other genuinely new medication that needs its own printable 14-day chart, use "+ Register medication chart" under Paperwork: type the instruction, check the parsed drug/dose/frequency/route/days before saving. Every chart registered today (from this tool, Processing, or Sick &amp; Injured) collects in one place — open <b>Medication Charts</b> from the Shift Tools hub to select and export them as one Excel workbook, one real 14-day sheet per animal. Ask a nurse or the admission AA to print these and collect medications — print on the <b>Cranadopt</b> printer, drawer 2 (yellow paper).</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>End of day</summary>
+      <div class="a">Export all notes at the end of the day and send them to the surgery nurses (assist, recovery, and surgery) so they can complete all notes, update ShelterMate statuses, and action medication requests.</div>
+    </details>
+  </div>
+
+  <div class="card">
     <h2>ZMD Premed &amp; HQHVSN — FAQ</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Background on the standard cat premed (ZMD = Zoletil + Methadone + Medetomidine) and why our HQHVSN protocols differ from a normal-practice spay/neuter. Tap a question to expand.</p>
 
@@ -857,7 +882,7 @@ function buildTemplate(a){
   }
 
   if(proc==='spey')return 'Surgical Procedure:\nRoutine midline spey performed, pedicle ties performed over both ovaries, cervix is ligated with 3/0 PDS and the uterus is removed.\n'+close;
-  if(proc==='spey-flank')return 'Surgical Procedure:\nFlank spey performed via a left flank incision, ventral to the greater trochanter and dorsal to the mammary chain — DRAFT: confirm side and layer detail with the operating vet, edit as needed.\nIncision made through skin, subcutaneous tissue, external abdominal oblique, internal abdominal oblique and transversus abdominis muscles.\nOvarian pedicles and uterine body identified, pedicle ties performed over both ovaries, cervix is ligated with 3/0 PDS and the uterus is removed.\n'+close;
+  if(proc==='spey-flank')return 'Surgical Procedure:\nFlank spey performed via a left flank incision, ventral to the greater trochanter and dorsal to the mammary chain.\nIncision made through skin, subcutaneous tissue, external abdominal oblique, internal abdominal oblique and transversus abdominis muscles.\nOvarian pedicles and uterine body identified, pedicle ties performed over both ovaries, cervix is ligated with 3/0 PDS and the uterus is removed.\n'+close;
   if(proc==='preg1')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 1 pregnancy confirmed on examination.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;
   if(proc==='preg2')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 2 pregnancy confirmed on examination (mid gestation).\nExtended midline incision performed. Careful handling of the enlarged uterus.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;
   if(proc==='preg3')return 'Surgical Procedure:\nEn bloc ovariohysterectomy performed. Stage 3 pregnancy confirmed on examination (late gestation).\nSignificantly extended midline incision performed. High-risk procedure — careful exteriorisation to prevent uterine rupture.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed en bloc with foetal contents intact.\nVascular clamps applied to the uterine pedicles following removal. Clamps left in situ for a minimum of 60 minutes post removal to ensure humane euthanasia of the foetuses.\nFoetal sac removed.\n'+close;

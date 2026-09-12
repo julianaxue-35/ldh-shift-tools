@@ -48,6 +48,18 @@ header.top{position:sticky;top:0;z-index:50;background:var(--teal);padding:12px 
 .field-row label{font-size:12px;color:rgba(255,255,255,.85)}
 .field-row input{border:none;border-radius:6px;padding:5px 8px;width:80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+/* ---------- FAQ ---------- */
+.faq-item{border-bottom:1px solid var(--line-soft);padding:11px 0}
+.faq-item:last-child{border-bottom:none}
+.faq-item summary{cursor:pointer;font-weight:600;color:var(--teal-dark);font-size:13.5px;list-style:none}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::before{content:'+ ';color:var(--teal);font-weight:700}
+.faq-item[open] summary::before{content:'\2212 '}
+.faq-item .a{margin-top:8px;font-size:13px;color:var(--ink);line-height:1.55}
+.faq-item .a img{max-width:100%;border:1px solid var(--line);border-radius:6px;margin-top:8px}
+.faq-item .a ol,.faq-item .a ul{margin:6px 0 6px 20px}
+.faq-item .a li{margin-bottom:3px}
+
 .card h2{font-size:15px;margin-bottom:10px;color:var(--teal-dark)}
 textarea.paste-box{width:100%;min-height:110px;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:13px}
 .btn{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
@@ -179,6 +191,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="completed">Completed</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
+    <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
 
@@ -256,6 +269,60 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <h2>Automatic backups</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Kept automatically in this browser roughly every 3 minutes, plus right before Clear list — restorable below if the list ever looks wrong or goes missing. This can't survive this device's browser storage being wiped entirely, so still export a copy above regularly for that.</p>
     <div id="backupList"></div>
+  </div>
+</div>
+
+<div class="wrap tab-panel hidden" id="tabFaq">
+  <div class="card">
+    <h2>How to use Sick &amp; Injured — FAQ</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">What this tool is for, and how to run a Sick &amp; Injured shift with it start to finish. Tap a question to expand.</p>
+
+    <details class="faq-item">
+      <summary>Step 1 — generating the Vet Reminder Report in ShelterBuddy</summary>
+      <div class="a">
+        <ol>
+          <li>Log in to ShelterBuddy → <b>Reports → Vets → Vet Reminder Report</b></li>
+          <li>Date: today's date</li>
+          <li>Region: <b>Cranbourne</b></li>
+          <li>Type of animals: <b>All</b></li>
+          <li>Tick <b>Only include animals that are in care</b></li>
+          <li>Order by: <b>Shelter / Kennel</b></li>
+          <li>Click <b>Generate</b></li>
+          <li>On the generated report, click the Excel icon (top left), then choose <b>With Formatting</b> and click Done to download it</li>
+        </ol>
+        <img src="faq-vet-reminder-report.png" alt="ShelterBuddy Vet Reminder Report — Excel download icon">
+      </div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Step 2 — bringing it into the tool</summary>
+      <div class="a">On the Shift List tab, upload that file where it says to upload the Vet Reminder Report. Every animal on it shows up with its history already filled in from the report.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>What's the AA Vet Flag Log, and where does it come from?</summary>
+      <div class="a">Through the day, an admission Animal Attendant filters out which animals need a vet look and keeps that list current. You'll get it at <b>12pm</b> each day, either printed or as an Excel file. Upload the Excel version on the same Shift List tab where it says "Upload AA Vet Flag Log" — it automatically drops the flagged problem into that animal's History, and also shows you the correct medical note format expected of every LDH shelter veterinarian.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Entering notes and treatment</summary>
+      <div class="a">Work through each animal's history/assessment/plan as normal. If you're recording a medication already being given (something already hand-charted at the cage), just type it into <b>Treatment</b> — no need to register anything for that. If it's a genuinely <b>new</b> medication that needs its own printable 14-day chart, click <b>+ Register medication chart</b> under Treatment — it parses what you've typed, lets you check/correct the drug, dose, frequency, route and days before saving, then adds the confirmed line back into Treatment for you.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Registering to Word &amp; Excel, and re-registering after edits</summary>
+      <div class="a">Once you're done with an animal, press <b>Register to Word &amp; Excel</b> to compile it into the shift's export. If you come back later and change your notes, press <b>Refresh</b> on that note first, then register it to Word &amp; Excel again — otherwise the export still holds the old version.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>What happens to a registered medication chart?</summary>
+      <div class="a">Every chart registered today — from this tool, Processing, or Surgery — collects in one place. Open <b>Medication Charts</b> from the Shift Tools hub any time during the day to see how many are ready, select the ones you want, and export them as one Excel workbook (a real, printable 14-day sheet per animal). Ask a nurse or the admission AA to print these and collect the medications — print on the <b>Cranadopt</b> printer, drawer 2 (yellow paper).</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>When should I export?</summary>
+      <div class="a">Export your notes at <b>12pm and 4pm</b> each day. That gives the admission AA enough time to enter your notes and update statuses in ShelterMate, and gives nurses time to collect and give medications before end of shift. Through the day, the Shift List tab shows a running completed/incomplete count so you can see what's left.</div>
+    </details>
   </div>
 </div>
 
@@ -390,6 +457,14 @@ function normalizeAnimal(a){
   a.treatment = reflowFreeText(a.treatment);
   a.plan = reflowFreeText(a.plan);
   a.currentMed = reflowFreeText(a.currentMed);
+  /* "Current medication" was its own textarea until 2026-09-12, when it was
+     folded into Treatment (one field, one register-chart button). The two
+     could have drifted apart from independent edits under the old UI — pull
+     across anything from currentMed that isn't already sitting in treatment,
+     once, so nothing she'd already typed goes missing. */
+  if(a.currentMed && a.currentMed.trim() && !(a.treatment||'').includes(a.currentMed.trim())){
+    a.treatment = [a.treatment, a.currentMed.trim()].filter(Boolean).join('\n');
+  }
   a.exam.free = reflowFreeText(a.exam.free);
   a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
   return a;
@@ -1059,7 +1134,6 @@ function makeAnimal(r){
     pathway: matchPathway(sections.pathway),
     plan: reflowFreeText(stripTrailingInitials(sections.pathway)),
     planItems: [],
-    newMedChartText: '',
     noteEdited: null,
     registered: false,
     flagged: false,
@@ -1136,6 +1210,7 @@ function showTab(name){
   document.getElementById('tabCompleted').classList.toggle('hidden', name!=='completed');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
+  document.getElementById('tabFaq').classList.toggle('hidden', name!=='faq');
 }
 function goToExamTab(){
   const last = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
@@ -1339,7 +1414,6 @@ function bindChartDraft(a, body){
     if(existing) MedChart.deleteChart(existing.id);
     MedChart.addChart(chart);
     delete chartDrafts[a.id];
-    a.newMedChartText = '';
     saveShift();
     alert(MedChart.saveConfirmationMessage(chart));
     openExam(a.id);
@@ -1587,9 +1661,6 @@ function examFormHtml(a){
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
     <textarea class="free-input" id="fld_history" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Current medication</div>
-    <textarea class="free-input" id="fld_currentMed" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.currentMed||'')}</textarea></div>`;
-
   if(a.template==='28day'){
     h += examination28DayHtml(a);
   } else {
@@ -1649,13 +1720,8 @@ function examFormHtml(a){
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Treatment</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Medication given today — dose, route, frequency (e.g. "Doxycycline 50mg PO BID"). Already-charted meds like this stay hand-written on the existing cage chart — no need to register a new one here.</p>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Current and today's medication — dose, route, frequency (e.g. "Doxycycline 50mg PO BID"). If a line here is a genuinely new medication that needs its own printable 14-day chart, click "+ Register medication chart" — it'll parse this text and add the confirmed line back in here automatically.</p>
     <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea>
-  </div>`;
-
-  h += `<div class="pe-field"><div class="lbl">New medication chart</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">For a genuinely new medication that needs its own printable 14-day chart — type the instruction, then register it below.</p>
-    <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
   </div>`;
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id]);
@@ -1728,8 +1794,6 @@ function bindExamForm(a){
   bindPasteReflow('fld_treatment', 'treatment');
   bindPasteReflow('fld_plan', 'plan');
   bindPasteReflow('fld_examFree', 'free', a.exam);
-  bindPasteReflow('fld_currentMed', 'currentMed');
-  bindLiveText('fld_currentMed', 'currentMed');
   bindLiveText('fld_treatment', 'treatment');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
   bindLiveText('fld_examFree', 'free', a.exam);
@@ -1804,15 +1868,10 @@ function bindExamForm(a){
     saveShift(); openExam(a.id);
   });
 
-  const newMedPlanEl = document.getElementById('fld_newmedplan');
-  if(newMedPlanEl){
-    newMedPlanEl.addEventListener('change', ()=>{ a.newMedChartText = newMedPlanEl.value; saveShift(); });
-    newMedPlanEl.addEventListener('input', ()=>{ a.newMedChartText = newMedPlanEl.value; });
-  }
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
-    if(!parsed.length){ alert('Type a new medication instruction above first.'); return; }
+    const parsed = MedChart.parseMedPlan(a.treatment||'');
+    if(!parsed.length){ alert('Type the medication into Treatment above first.'); return; }
     chartDrafts[a.id] = parsed;
     openExam(a.id);
   });
