@@ -1011,10 +1011,26 @@ function parseLocation(loc){
   const numMatch = loc.slice(idx+1).match(/\d+/);
   return {room: room || 'No location', num: numMatch ? parseInt(numMatch[0],10) : Infinity};
 }
+/* Due date is stored as a display string (e.g. "12 Sep 2026" from
+   fmtExcelDate, but user-editable via the plain-text input), so parse it
+   loosely for sorting. Missing/unparseable dates sort last within a room. */
+function parseDueDate(str){
+  str = (str||'').trim();
+  if(!str) return Infinity;
+  const m = str.match(/^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/);
+  if(m){
+    const d = new Date(`${m[2]} ${m[1]}, ${m[3]}`);
+    if(!isNaN(d)) return d.getTime();
+  }
+  const d2 = new Date(str);
+  return isNaN(d2) ? Infinity : d2.getTime();
+}
 function sortedAnimals(){
   return [...state.animals].sort((a,b)=>{
     const la = parseLocation(a.location), lb = parseLocation(b.location);
     if(la.room !== lb.room) return la.room.localeCompare(lb.room);
+    const da = parseDueDate(a.dueDate), db = parseDueDate(b.dueDate);
+    if(da !== db) return da - db;
     return la.num - lb.num;
   });
 }
