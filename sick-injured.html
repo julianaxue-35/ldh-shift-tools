@@ -457,14 +457,16 @@ function normalizeAnimal(a){
   a.treatment = reflowFreeText(a.treatment);
   a.plan = reflowFreeText(a.plan);
   a.currentMed = reflowFreeText(a.currentMed);
-  /* "Current medication" was its own textarea until 2026-09-12, when it was
-     folded into Treatment (one field, one register-chart button). The two
-     could have drifted apart from independent edits under the old UI — pull
-     across anything from currentMed that isn't already sitting in treatment,
-     once, so nothing she'd already typed goes missing. */
+  /* Current medication always copies into Treatment too (her standing
+     rule) — this is the load-time safety net for records that haven't been
+     through the UI's change handler yet (fresh imports, or a currentMed
+     value set some other way). Records the synced block so the change
+     handler's own find-and-replace (see bindExamForm) starts from a known
+     baseline instead of re-appending a duplicate on the next edit. */
   if(a.currentMed && a.currentMed.trim() && !(a.treatment||'').includes(a.currentMed.trim())){
     a.treatment = [a.treatment, a.currentMed.trim()].filter(Boolean).join('\n');
   }
+  if(a.currentMed && a.currentMed.trim()) a.currentMedSyncedBlock = a.currentMed.trim();
   a.exam.free = reflowFreeText(a.exam.free);
   a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
   return a;
@@ -1661,6 +1663,10 @@ function examFormHtml(a){
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
     <textarea class="free-input" id="fld_history" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
 
+  h += `<div class="pe-field"><div class="lbl">Current medication</div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Copied into Treatment automatically — no need to retype it there.</p>
+    <textarea class="free-input" id="fld_currentMed" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.currentMed||'')}</textarea></div>`;
+
   if(a.template==='28day'){
     h += examination28DayHtml(a);
   } else {
@@ -1792,11 +1798,34 @@ function bindExamForm(a){
   }
   bindPasteReflow('fld_history', 'history');
   bindPasteReflow('fld_treatment', 'treatment');
+  bindPasteReflow('fld_currentMed', 'currentMed');
   bindPasteReflow('fld_plan', 'plan');
   bindPasteReflow('fld_examFree', 'free', a.exam);
   bindLiveText('fld_treatment', 'treatment');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
   bindLiveText('fld_examFree', 'free', a.exam);
+
+  /* Current medication is its own field again (she wants both — it's not
+     replaced by Treatment), but whatever's typed there should also show up
+     in Treatment without retyping. Finds-and-replaces its own previous
+     contribution (tracked in currentMedSyncedBlock) so re-editing Current
+     medication updates Treatment in place instead of appending duplicates,
+     the same find-your-own-row approach used for the auto-meloxicam entry
+     in surgery.html. */
+  const currentMedEl = document.getElementById('fld_currentMed');
+  if(currentMedEl) currentMedEl.addEventListener('change', ()=>{
+    a.currentMed = currentMedEl.value;
+    const prevBlock = a.currentMedSyncedBlock || '';
+    const curBlock = a.currentMed.trim();
+    if(prevBlock !== curBlock){
+      let treatment = a.treatment || '';
+      if(prevBlock) treatment = treatment.split(prevBlock).join('').replace(/\n{3,}/g,'\n\n').trim();
+      if(curBlock) treatment = [treatment, curBlock].filter(Boolean).join('\n');
+      a.treatment = treatment;
+      a.currentMedSyncedBlock = curBlock;
+    }
+    refreshNote(a); saveShift(); openExam(a.id);
+  });
 
   const pathwayEl = document.getElementById('fld_pathway');
   if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });

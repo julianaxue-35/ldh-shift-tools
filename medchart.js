@@ -101,9 +101,14 @@
   // its own, since a plain volume (e.g. "1ml") is her dosing amount,
   // not the drug's strength — even when there's no colon to separate
   // the name from the instruction (e.g. "Lactulose 1ml BID..." must
-  // stay "Lactulose", not "Lactulose 1ml").
+  // stay "Lactulose", not "Lactulose 1ml"). Also excludes anything
+  // immediately followed by "/kg" (e.g. "25mg/kg", "90mg/kg") — that's
+  // a dosing rate per bodyweight, never the drug's own concentration.
+  // A real concentration is always just "Amoxyclav 250mg", never
+  // "Amoxyclav 25mg/kg"; the mg/kg number still gets recorded, just
+  // under Dose (see detectDoseText), not folded into the drug name.
   function detectStrength(text) {
-    var m = text.match(/(\d+(\.\d+)?\s*(?:mg|mcg)(?:\s*\/\s*m[lL])?)/i);
+    var m = text.match(/(\d+(\.\d+)?\s*(?:mg|mcg)(?:\s*\/\s*m[lL])?)(?!\s*\/\s*kg)/i);
     return m ? m[1].replace(/\s+/g, '') : null;
   }
 
