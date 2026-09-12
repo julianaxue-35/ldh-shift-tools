@@ -68,9 +68,9 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   function unlock() {
     body.classList.remove('ldh-locked');
     gate.classList.add('hidden');
-    sessionStorage.setItem('ldhGateOk', '1');
+    localStorage.setItem('ldhGateOk', '1');
   }
-  if (sessionStorage.getItem('ldhGateOk') === '1') { unlock(); return; }
+  if (localStorage.getItem('ldhGateOk') === '1') { unlock(); return; }
   var input = document.getElementById('ldh-gate-input');
   var err = document.getElementById('ldh-gate-err');
   function check() {

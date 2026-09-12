@@ -158,9 +158,9 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   function unlock() {
     body.classList.remove('ldh-locked');
     gate.classList.add('hidden');
-    sessionStorage.setItem('ldhGateOk', '1');
+    localStorage.setItem('ldhGateOk', '1');
   }
-  if (sessionStorage.getItem('ldhGateOk') === '1') { unlock(); return; }
+  if (localStorage.getItem('ldhGateOk') === '1') { unlock(); return; }
   var input = document.getElementById('ldh-gate-input');
   var err = document.getElementById('ldh-gate-err');
   function check() {
@@ -457,16 +457,18 @@ function normalizeAnimal(a){
   a.treatment = reflowFreeText(a.treatment);
   a.plan = reflowFreeText(a.plan);
   a.currentMed = reflowFreeText(a.currentMed);
-  /* Current medication always copies into Treatment too (her standing
-     rule) — this is the load-time safety net for records that haven't been
-     through the UI's change handler yet (fresh imports, or a currentMed
-     value set some other way). Records the synced block so the change
-     handler's own find-and-replace (see bindExamForm) starts from a known
-     baseline instead of re-appending a duplicate on the next edit. */
-  if(a.currentMed && a.currentMed.trim() && !(a.treatment||'').includes(a.currentMed.trim())){
-    a.treatment = [a.treatment, a.currentMed.trim()].filter(Boolean).join('\n');
+  /* Whatever's added in Treatment during a consult should show up in
+     Current medication too — so next time this animal's opened, "existing
+     + newly added" is all sitting in one place. This is the load-time
+     safety net for records that haven't been through the UI's change
+     handler yet (fresh imports, or a treatment value set some other way).
+     Records the synced block so the change handler's own find-and-replace
+     (see bindExamForm) starts from a known baseline instead of
+     re-appending a duplicate on the next edit. */
+  if(a.treatment && a.treatment.trim() && !(a.currentMed||'').includes(a.treatment.trim())){
+    a.currentMed = [a.currentMed, a.treatment.trim()].filter(Boolean).join('\n');
   }
-  if(a.currentMed && a.currentMed.trim()) a.currentMedSyncedBlock = a.currentMed.trim();
+  if(a.treatment && a.treatment.trim() && !a.treatmentSyncedBlock) a.treatmentSyncedBlock = a.treatment.trim();
   a.exam.free = reflowFreeText(a.exam.free);
   a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
   return a;
@@ -805,7 +807,7 @@ function addOrMergeFromRecheck(r){
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   if(importedTreatment && !existing.currentMed) existing.currentMed = importedTreatment;
-  if(importedTreatment && !existing.treatment) existing.treatment = importedTreatment;
+  if(importedTreatment && !existing.treatment){ existing.treatment = importedTreatment; existing.treatmentSyncedBlock = importedTreatment; }
   else if(medLines.length){
     medLines.forEach(ml=>{ if(!existing.treatment.includes(ml)) existing.treatment = existing.treatment ? existing.treatment+'\n'+ml : ml; });
   }
@@ -1133,6 +1135,7 @@ function makeAnimal(r){
     assessmentNotes: '',
     currentMed: treatmentText,
     treatment: treatmentText,
+    treatmentSyncedBlock: treatmentText,
     pathway: matchPathway(sections.pathway),
     plan: reflowFreeText(stripTrailingInitials(sections.pathway)),
     planItems: [],
@@ -1664,7 +1667,7 @@ function examFormHtml(a){
     <textarea class="free-input" id="fld_history" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
 
   h += `<div class="pe-field"><div class="lbl">Current medication</div>
-    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Copied into Treatment automatically — no need to retype it there.</p>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Updated automatically from Treatment — a medication added there today shows up here too, alongside what's already on it.</p>
     <textarea class="free-input" id="fld_currentMed" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.currentMed||'')}</textarea></div>`;
 
   if(a.template==='28day'){
@@ -1801,31 +1804,36 @@ function bindExamForm(a){
   bindPasteReflow('fld_currentMed', 'currentMed');
   bindPasteReflow('fld_plan', 'plan');
   bindPasteReflow('fld_examFree', 'free', a.exam);
-  bindLiveText('fld_treatment', 'treatment');
+  bindLiveText('fld_currentMed', 'currentMed');
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
   bindLiveText('fld_examFree', 'free', a.exam);
 
-  /* Current medication is its own field again (she wants both — it's not
-     replaced by Treatment), but whatever's typed there should also show up
-     in Treatment without retyping. Finds-and-replaces its own previous
-     contribution (tracked in currentMedSyncedBlock) so re-editing Current
-     medication updates Treatment in place instead of appending duplicates,
-     the same find-your-own-row approach used for the auto-meloxicam entry
-     in surgery.html. */
-  const currentMedEl = document.getElementById('fld_currentMed');
-  if(currentMedEl) currentMedEl.addEventListener('change', ()=>{
-    a.currentMed = currentMedEl.value;
-    const prevBlock = a.currentMedSyncedBlock || '';
-    const curBlock = a.currentMed.trim();
-    if(prevBlock !== curBlock){
-      let treatment = a.treatment || '';
-      if(prevBlock) treatment = treatment.split(prevBlock).join('').replace(/\n{3,}/g,'\n\n').trim();
-      if(curBlock) treatment = [treatment, curBlock].filter(Boolean).join('\n');
-      a.treatment = treatment;
-      a.currentMedSyncedBlock = curBlock;
-    }
-    refreshNote(a); saveShift(); openExam(a.id);
-  });
+  /* Treatment is where a medication gets added during today's consult;
+     Current medication is meant to be the running "what's this animal on"
+     record, so whatever lands in Treatment should show up there too —
+     existing meds plus whatever was just added, next time the animal's
+     opened. Finds-and-replaces Treatment's own previous contribution
+     (tracked in treatmentSyncedBlock) so re-editing Treatment updates
+     Current medication in place instead of appending duplicates each
+     time — the same find-your-own-row approach used for the
+     auto-meloxicam entry in surgery.html. */
+  const treatmentEl = document.getElementById('fld_treatment');
+  if(treatmentEl){
+    treatmentEl.addEventListener('input', ()=>{ a.treatment = treatmentEl.value; refreshNote(a); });
+    treatmentEl.addEventListener('change', ()=>{
+      a.treatment = treatmentEl.value;
+      const prevBlock = a.treatmentSyncedBlock || '';
+      const curBlock = a.treatment.trim();
+      if(prevBlock !== curBlock){
+        let currentMed = a.currentMed || '';
+        if(prevBlock) currentMed = currentMed.split(prevBlock).join('').replace(/\n{3,}/g,'\n\n').trim();
+        if(curBlock) currentMed = [currentMed, curBlock].filter(Boolean).join('\n');
+        a.currentMed = currentMed;
+        a.treatmentSyncedBlock = curBlock;
+      }
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  }
 
   const pathwayEl = document.getElementById('fld_pathway');
   if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });
