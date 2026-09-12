@@ -1997,9 +1997,13 @@ function buildWordFile(){
   const toExport = sortedAnimals().filter(a=>a.registered);
   if(!toExport.length) return null;
   let body = `<h1 style="font-family:Arial">Sick &amp; Injured Notes — ${esc(todayStr())}</h1>`;
-  toExport.forEach(a=>{
+  toExport.forEach((a,i)=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
-    body += `<div style="page-break-after:always">
+    // page-break-before (not -after) on every entry but the first: reliably
+    // starts each animal on its own page in real Word, and doesn't leave a
+    // trailing blank page after the last one the way page-break-after would.
+    const breakStyle = i>0 ? 'page-break-before:always;mso-page-break-before:always' : '';
+    body += `<div style="${breakStyle}">
       <h3 style="font-family:Arial">${esc(a.animalId||'(no ID)')} — ${esc(a.location||'')}</h3>
       <pre style="font-family:Arial;font-size:11pt;white-space:pre-wrap">${esc(noteText)}</pre>
     </div>`;
