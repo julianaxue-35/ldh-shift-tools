@@ -312,12 +312,17 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script src="ocr-vendor/tesseract.min.js"></script>
+<script src="medchart.js"></script>
 <script>
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_processing_shift_v1';
 const LS_BACKUP = LS_SHIFT + '_backups';
 const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
+// In-memory only (never persisted to LS_SHIFT) — a parsed-but-not-yet-saved
+// medication chart, keyed by animal id, shown as an editable preview under
+// the Plan box. Cleared once saved into MedChart's own shared store.
+const chartDrafts = {};
 const BACKUP_MIN_INTERVAL_MS = 3 * 60 * 1000; // don't snapshot more than once per 3min
 const BACKUP_MAX_COUNT = 6;
 
@@ -1206,6 +1211,87 @@ document.getElementById('examSearchBox').addEventListener('input', renderShiftLi
 renderShiftList();
 
 /* ---------- exam modal ---------- */
+/* ---------- medication chart draft preview ---------- */
+function chartDraftHtml(a, draft){
+  let h = `<div class="pe-field" style="border:2px solid var(--teal);border-radius:8px;padding:12px;margin-top:8px;background:#f4fbf8">
+    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>`;
+  draft.forEach((m, i)=>{
+    h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="flex:2;min-width:140px"><label style="font-size:11px">Drug${m.matched?'':' (not recognised — check spelling)'}</label>
+          <input type="text" class="plain" data-mfield="drugLabel" data-mi="${i}" value="${esc(m.drugLabel)}" style="width:100%"></div>
+        <div style="flex:1;min-width:100px"><label style="font-size:11px">Dose</label>
+          <input type="text" class="plain" data-mfield="doseText" data-mi="${i}" value="${esc(m.doseText)}" placeholder="e.g. 1 tablet" style="width:100%"></div>
+        <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
+          <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}" style="width:100%"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+        <div><label style="font-size:11px">Frequency</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
+          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+        <div><label style="font-size:11px">Days</label><br>
+          <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:60px"></div>
+        <div><label style="font-size:11px">If once-daily, start</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
+          <label style="font-size:12px"><input type="radio" name="slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+        <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
+      </div>
+      ${m.drugWarning ? `<div style="color:#a33;font-size:11.5px;font-weight:600;margin-top:6px">⚠ ${esc(m.drugWarning)}</div>` : ''}
+      ${m.warnings.length ? `<div style="color:#b5730a;font-size:11.5px;margin-top:4px">⚠ ${esc(m.warnings.join(' · '))}</div>` : ''}
+    </div>`;
+  });
+  h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" class="btn small secondary" id="addMedRowBtn">+ Add another line</button>
+    <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal);color:#fff">Save chart</button>
+    <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
+  </div></div>`;
+  return h;
+}
+function blankMedRow(){
+  return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
+    startSlot:'AM', drugWarning:'', matched:false, warnings:[]};
+}
+function bindChartDraft(a, body){
+  const draft = chartDrafts[a.id];
+  if(!draft) return;
+  body.querySelectorAll('[data-mfield]').forEach(el=>{
+    const evt = (el.type==='radio') ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{
+      const i = parseInt(el.dataset.mi,10);
+      const field = el.dataset.mfield;
+      if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
+      else draft[i][field] = el.value;
+    });
+  });
+  body.querySelectorAll('[data-delmedrow]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      draft.splice(parseInt(btn.dataset.delmedrow,10),1);
+      if(!draft.length) delete chartDrafts[a.id];
+      openExam(a.id);
+    });
+  });
+  const addBtn = document.getElementById('addMedRowBtn');
+  if(addBtn) addBtn.addEventListener('click', ()=>{ draft.push(blankMedRow()); openExam(a.id); });
+  const saveBtn = document.getElementById('saveChartBtn');
+  if(saveBtn) saveBtn.addEventListener('click', ()=>{
+    const existing = MedChart.findChartBySourceAnimal(a.id);
+    if(existing && !confirm('A medication chart already exists for this animal (saved '+(existing.createdAt||'').slice(0,16).replace('T',' ')+'). Replace it with this one?')) return;
+    const chart = {
+      id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'processing', createdAt: new Date().toISOString(),
+      animalId: a.animalId, species: a.species, weight: a.weight, location: a.location, microchip: a.microchip,
+      vetInCharge: vetInitEl.value || '', problemList: computeProblemList(a).map(p=>p.title).join('; '),
+      meds: draft.map(m=>Object.assign({}, m))
+    };
+    if(existing) MedChart.deleteChart(existing.id);
+    MedChart.addChart(chart);
+    delete chartDrafts[a.id];
+    alert(MedChart.saveConfirmationMessage(chart));
+    openExam(a.id);
+  });
+  const cancelBtn = document.getElementById('cancelChartBtn');
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; openExam(a.id); });
+}
+
 function openExam(id){
   state.openId = id;
   showTab('exam');
@@ -1425,7 +1511,9 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Plan</div>
     <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan — continue as-is, adjust dose, or start something new.</p>
     <textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px" placeholder="e.g. Continue gabapentin 100mg PO BID">${esc(a.medPlan||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
   </div>`;
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id]);
 
   h += `<div class="pe-field"><div class="lbl">Pathway</div>
     <select class="plain" id="fld_pathway" style="width:100%">
@@ -1956,6 +2044,14 @@ function bindExamForm(a){
     medPlanEl.addEventListener('change', ()=>{ a.medPlan = medPlanEl.value; refreshNote(a); saveShift(); });
     medPlanEl.addEventListener('input', ()=>{ a.medPlan = medPlanEl.value; });
   }
+  const regChartBtn = body.querySelector('[data-regchart]');
+  if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
+    const parsed = MedChart.parseMedPlan(a.medPlan||'');
+    if(!parsed.length){ alert('Type a medication instruction in the Plan box above first.'); return; }
+    chartDrafts[a.id] = parsed;
+    openExam(a.id);
+  });
+  bindChartDraft(a, body);
 
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{

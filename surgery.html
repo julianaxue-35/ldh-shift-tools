@@ -493,7 +493,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 </script>
 <script src="ocr-vendor/tesseract.min.js"></script>
+<script src="medchart.js"></script>
 <script>
+// In-memory only — a parsed-but-not-yet-saved medication chart, keyed
+// by animal id, shown as an editable preview. Cleared once saved.
+const chartDrafts = {};
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_surgery_shift_v1';
@@ -548,6 +552,7 @@ function formatRecheckDate(dateStr){
 function normalizeAnimal(a){
   const defaults = {
     animalId:'', species:'', weight:'', sex:'', age:'', ageUnit:'months', location:'', scp:false,
+    newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
     hr:'', rr:'Normal bronchovesicular sounds', mm:'Pink', crt:'<2s',
@@ -717,7 +722,7 @@ function calcDoses(w){
   };
 }
 /* Meloxicam dosing differs by species, and (for cats) by whether an oral
-   send-home course is also planned — giving the full 0.2mg/kg SC dose on top
+   post-op oral course is also planned — giving the full 0.2mg/kg SC dose on top
    of a same-day oral dose risks cumulative NSAID overdose in cats, so the SC
    dose drops to 0.1mg/kg when oral is planned. Dogs don't carry that
    restriction and always get the full 0.2mg/kg SC dose. */
@@ -749,7 +754,7 @@ function resolvedMeloxTiming(a){
   }
   return a.meloxTiming;
 }
-/* Start date is tomorrow (send-home meds start the day after surgery), then
+/* Start date is tomorrow (post-op meds start the day after surgery), then
    the recheck lands `days` after that — matches her worked example: surgery
    6/9, oral starts 7/9, 4-day course -> recheck 11/9 (7/9 + 4 days). */
 function meloxRecheckDateISO(a){
@@ -782,10 +787,18 @@ function syncMeloxPlanItem(a){
       a.planItems[idx].recheckDate = recheckDate;
       changed = true;
     }
+    MedChart.upsertAutoMed(
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:a.weight, location:a.location, vetInCharge:vetInitEl.value||''},
+      'auto-melox',
+      {rawText:medName, drugKey:'meloxicam', drugLabel:'Meloxicam oral suspension 0.5mg/mL', doseText:val+'mL',
+       freq:'SID', route:'PO', days:days, startSlot:timing,
+       drugWarning:'MUST BE GIVEN WITH FOOD. STOP if vomiting, diarrhoea, or not eating.'}
+    );
   } else if(idx!==-1){
     a.planItems.splice(idx,1);
     changed = true;
   }
+  if(!a.meloxOral) MedChart.removeAutoMed(a.id, 'auto-melox');
   if(changed) saveShift();
 }
 function dogPremedRange(w){
@@ -1688,6 +1701,89 @@ window.addEventListener('storage', (e)=>{
 });
 
 /* ---------- exam modal ---------- */
+/* ---------- medication chart draft preview ---------- */
+function chartDraftHtml(a, draft){
+  let h = `<div class="pe-field" style="border:2px solid var(--teal, #1f7a4d);border-radius:8px;padding:12px;margin-top:8px;background:#f4fbf8">
+    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>`;
+  draft.forEach((m, i)=>{
+    h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="flex:2;min-width:140px"><label style="font-size:11px">Drug${m.matched?'':' (not recognised — check spelling)'}</label>
+          <input type="text" class="plain" data-mfield="drugLabel" data-mi="${i}" value="${esc(m.drugLabel)}" style="width:100%"></div>
+        <div style="flex:1;min-width:100px"><label style="font-size:11px">Dose</label>
+          <input type="text" class="plain" data-mfield="doseText" data-mi="${i}" value="${esc(m.doseText)}" placeholder="e.g. 1 tablet" style="width:100%"></div>
+        <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
+          <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}" style="width:100%"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+        <div><label style="font-size:11px">Frequency</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
+          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+        <div><label style="font-size:11px">Days</label><br>
+          <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:60px"></div>
+        <div><label style="font-size:11px">If once-daily, start</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
+          <label style="font-size:12px"><input type="radio" name="slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+        <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
+      </div>
+      ${m.drugWarning ? `<div style="color:#a33;font-size:11.5px;font-weight:600;margin-top:6px">⚠ ${esc(m.drugWarning)}</div>` : ''}
+      ${m.warnings.length ? `<div style="color:#b5730a;font-size:11.5px;margin-top:4px">⚠ ${esc(m.warnings.join(' · '))}</div>` : ''}
+    </div>`;
+  });
+  h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" class="btn small secondary" id="addMedRowBtn">+ Add another line</button>
+    <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart</button>
+    <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
+  </div></div>`;
+  return h;
+}
+function blankMedRow(){
+  return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
+    startSlot:'AM', drugWarning:'', s8:false, matched:false, warnings:[]};
+}
+function bindChartDraft(a, body){
+  const draft = chartDrafts[a.id];
+  if(!draft) return;
+  body.querySelectorAll('[data-mfield]').forEach(el=>{
+    const evt = (el.type==='radio') ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{
+      const i = parseInt(el.dataset.mi,10);
+      const field = el.dataset.mfield;
+      if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
+      else draft[i][field] = el.value;
+    });
+  });
+  body.querySelectorAll('[data-delmedrow]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      draft.splice(parseInt(btn.dataset.delmedrow,10),1);
+      if(!draft.length) delete chartDrafts[a.id];
+      openExam(a.id);
+    });
+  });
+  const addBtn = document.getElementById('addMedRowBtn');
+  if(addBtn) addBtn.addEventListener('click', ()=>{ draft.push(blankMedRow()); openExam(a.id); });
+  const saveBtn = document.getElementById('saveChartBtn');
+  if(saveBtn) saveBtn.addEventListener('click', ()=>{
+    const existing = MedChart.findChartBySourceAnimal(a.id);
+    if(existing && !confirm('A medication chart already exists for this animal (saved '+(existing.createdAt||'').slice(0,16).replace('T',' ')+'). Replace it with this one?')) return;
+    const chart = {
+      id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'surgery', createdAt: new Date().toISOString(),
+      animalId: a.animalId, species: a.species, weight: a.weight, location: a.location,
+      vetInCharge: vetInitEl.value || '',
+      meds: draft.map(m=>Object.assign({}, m))
+    };
+    if(existing) MedChart.deleteChart(existing.id);
+    MedChart.addChart(chart);
+    delete chartDrafts[a.id];
+    a.newMedChartText = '';
+    saveShift();
+    alert(MedChart.saveConfirmationMessage(chart));
+    openExam(a.id);
+  });
+  const cancelBtn = document.getElementById('cancelChartBtn');
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; openExam(a.id); });
+}
+
 function openExam(id){
   const a = state.animals.find(x=>x.id===id);
   if(!a){
@@ -2072,7 +2168,7 @@ function examFormHtml(a){
     ${!a.vitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
   </div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Oral meloxicam send-home (optional)</div>
+  h += `<div class="pe-field"><div class="lbl">Oral meloxicam post op (optional)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button></div>`;
   if(a.meloxOral){
     const meloxOralVal = meloxOralDoseVal(a.weight, a.species);
@@ -2165,17 +2261,12 @@ function examFormHtml(a){
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Medication / recheck</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">If this patient is on medication, add it here with a recheck date — each becomes a row in the Excel export.</p>
-    <div id="planList">`;
-  a.planItems.forEach(pi=>{
-    h += `<div class="plan-item" data-planid="${esc(pi.id)}">
-      <input type="text" class="plain" data-medname="${esc(pi.id)}" placeholder="e.g. Meloxicam" value="${esc(pi.medName||'')}" style="flex:1;min-width:160px">
-      <input type="date" class="plain" data-recheckdate="${esc(pi.id)}" value="${esc(pi.recheckDate||'')}">
-      <button type="button" class="btn small rust" data-delplan="${esc(pi.id)}">Remove</button>
-    </div>`;
-  });
-  h += `</div><button type="button" class="btn small secondary" id="addPlanBtn">+ Add medication / recheck</button></div>`;
+  h += `<div class="pe-field"><div class="lbl">New medication chart</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">For a genuinely new medication that needs its own printable 14-day chart — the automatic oral-meloxicam post-op course above already registers itself, no need to type it here. Type the instruction, then register it below.</p>
+    <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+  </div>`;
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id]);
   h += `</div></details>`;
 
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
@@ -2341,31 +2432,19 @@ function bindExamForm(a){
       saveShift(); openExam(a.id);
     });
   });
-  body.querySelectorAll('[data-medname]').forEach(inp=>{
-    inp.addEventListener('change', ()=>{
-      const item = a.planItems.find(p=>p.id===inp.dataset.medname);
-      if(item){ item.medName = inp.value; item.autoMelox = false; }
-      saveShift(); refreshNote(a);
-    });
+  const newMedPlanEl = document.getElementById('fld_newmedplan');
+  if(newMedPlanEl){
+    newMedPlanEl.addEventListener('change', ()=>{ a.newMedChartText = newMedPlanEl.value; saveShift(); });
+    newMedPlanEl.addEventListener('input', ()=>{ a.newMedChartText = newMedPlanEl.value; });
+  }
+  const regChartBtn = body.querySelector('[data-regchart]');
+  if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
+    const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
+    if(!parsed.length){ alert('Type a new medication instruction above first.'); return; }
+    chartDrafts[a.id] = parsed;
+    openExam(a.id);
   });
-  body.querySelectorAll('[data-recheckdate]').forEach(inp=>{
-    inp.addEventListener('change', ()=>{
-      const item = a.planItems.find(p=>p.id===inp.dataset.recheckdate);
-      if(item){ item.recheckDate = inp.value; item.autoMelox = false; }
-      saveShift(); refreshNote(a);
-    });
-  });
-  body.querySelectorAll('[data-delplan]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      a.planItems = a.planItems.filter(p=>p.id!==btn.dataset.delplan);
-      saveShift(); openExam(a.id);
-    });
-  });
-  const addPlanBtn = document.getElementById('addPlanBtn');
-  if(addPlanBtn) addPlanBtn.addEventListener('click', ()=>{
-    a.planItems.push({id:uid(), medName:'', recheckDate:''});
-    saveShift(); openExam(a.id);
-  });
+  bindChartDraft(a, body);
   body.querySelectorAll('[data-fleaworm]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const which = btn.dataset.fleaworm;
@@ -2641,7 +2720,7 @@ function assembleNote(a){
   if(a.meloxOral && meloxOralVal!=null && meloxTiming){
     const days = meloxOralDurationDays(a.species, a.surgType);
     L.push('');
-    L.push('SEND-HOME MEDICATION');
+    L.push('ORAL MELOXICAM POST OP');
     L.push('MELOXICAM oral suspension 0.5mg/mL');
     L.push(`Give ${meloxOralVal}mL orally in the ${meloxTiming} ONCE daily WITH FOOD for ${days} days.`);
     L.push(`Start: ${tomorrowDate()}, ${meloxTiming}`);
