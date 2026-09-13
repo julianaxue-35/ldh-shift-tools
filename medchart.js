@@ -345,6 +345,51 @@
     return 'mc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
 
+  // ---------- passive mg/kg annotation ----------
+  // Reads the strength she already typed (e.g. "Amoxyclav 250mg") plus the
+  // tablet/capsule count from the dose instruction, and the animal's own
+  // recorded weight, then appends "(X mg/kg)" onto the drug label — no
+  // separate calculator fields to fill in. Deliberately narrow: only fires
+  // on a bare mg strength (never mcg, never a mg/mL concentration — those
+  // need real volume math, not this shortcut), and defaults the quantity to
+  // 1 when the instruction doesn't name a tablet/capsule count, which also
+  // makes it correct for a liquid dose already written as a total mg amount
+  // (e.g. "Meloxicam 1.5mg: give 0.3ml PO SID").
+  var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*\/\s*m[lL])/i;
+  var QTY_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(?:tablets?|tabs?|capsules?|caps?)\b/i;
+
+  function formatMgPerKg(n) {
+    return String(Math.round(n * 10) / 10);
+  }
+
+  // Returns { mgPerKg, insertAt } for one instruction line, or null if it
+  // can't be confidently computed (missing strength, mcg-based, a mg/mL
+  // concentration, or no usable weight).
+  function computeMgPerKg(line, weight) {
+    var wNum = parseFloat(weight);
+    if (!(wNum > 0)) return null;
+    var parts = splitInstruction(line);
+    var m = STRENGTH_TOKEN_RE.exec(parts.head);
+    if (!m) return null;
+    var mgVal = parseFloat(m[1]);
+    if (!(mgVal > 0)) return null;
+    var qtyM = QTY_TOKEN_RE.exec(parts.tail) || QTY_TOKEN_RE.exec(line);
+    var qty = qtyM ? parseFloat(qtyM[1]) : 1;
+    if (!(qty > 0)) qty = 1;
+    return { mgPerKg: (mgVal * qty) / wNum, insertAt: m.index + m[0].length };
+  }
+
+  // Annotates every line of a multi-line Treatment/Plan block. Lines that
+  // can't be confidently computed are returned unchanged (never a guess).
+  function annotateMgPerKg(text, weight) {
+    return String(text || '').split('\n').map(function (line) {
+      if (!line.trim()) return line;
+      var r = computeMgPerKg(line, weight);
+      if (!r) return line;
+      return line.slice(0, r.insertAt) + ' (' + formatMgPerKg(r.mgPerKg) + 'mg/kg)' + line.slice(r.insertAt);
+    }).join('\n');
+  }
+
   // Keeps ONE machine-computed medication (e.g. the auto oral-meloxicam
   // post-op course) in sync on an animal's chart, identified by a stable
   // `autoKey` — finds-and-updates only its own row, so it never disturbs
@@ -414,6 +459,8 @@
     upsertAutoMed: upsertAutoMed,
     removeAutoMed: removeAutoMed,
     saveConfirmationMessage: saveConfirmationMessage,
-    uid: uid
+    uid: uid,
+    computeMgPerKg: computeMgPerKg,
+    annotateMgPerKg: annotateMgPerKg
   };
 })(window);

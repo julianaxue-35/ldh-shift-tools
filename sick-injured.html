@@ -1825,11 +1825,18 @@ function bindExamForm(a){
       const prevBlock = a.treatmentSyncedBlock || '';
       const curBlock = a.treatment.trim();
       if(prevBlock !== curBlock){
+        // Current medication carries the mg/kg hint (computed from this
+        // block + the animal's weight); Treatment itself stays exactly as
+        // typed. Removing/re-adding uses the previously-annotated text so
+        // re-editing Treatment doesn't leave a stale annotated copy behind.
+        const prevAnnotated = a.treatmentSyncedAnnotated || '';
+        const curAnnotated = curBlock ? MedChart.annotateMgPerKg(curBlock, a.weight) : '';
         let currentMed = a.currentMed || '';
-        if(prevBlock) currentMed = currentMed.split(prevBlock).join('').replace(/\n{3,}/g,'\n\n').trim();
-        if(curBlock) currentMed = [currentMed, curBlock].filter(Boolean).join('\n');
+        if(prevAnnotated) currentMed = currentMed.split(prevAnnotated).join('').replace(/\n{3,}/g,'\n\n').trim();
+        if(curAnnotated) currentMed = [currentMed, curAnnotated].filter(Boolean).join('\n');
         a.currentMed = currentMed;
         a.treatmentSyncedBlock = curBlock;
+        a.treatmentSyncedAnnotated = curAnnotated;
       }
       refreshNote(a); saveShift(); openExam(a.id);
     });
