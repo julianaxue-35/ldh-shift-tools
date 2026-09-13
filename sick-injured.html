@@ -383,6 +383,7 @@ const LS_INIT = 'ldh_processing_vetinit_v1';
 // In-memory only — a parsed-but-not-yet-saved medication chart, keyed
 // by animal id, shown as an editable preview. Cleared once saved.
 const chartDrafts = {};
+const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart currently being drafted
 const LS_SHIFT = 'ldh_sickinjured_shift_v1';
 const LS_BACKUP = LS_SHIFT + '_backups';
 const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
@@ -1346,9 +1347,11 @@ window.addEventListener('storage', (e)=>{
 });
 
 /* ---------- medication chart draft preview ---------- */
-function chartDraftHtml(a, draft){
+function chartDraftHtml(a, draft, planText){
   let h = `<div class="pe-field" style="border:2px solid var(--teal, #1f7a4d);border-radius:8px;padding:12px;margin-top:8px;background:#f4fbf8">
-    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>`;
+    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>
+    <div style="margin-bottom:10px"><label style="font-size:11px">Vet Plan (printed on the chart — pre-filled from Assessment, add anything else the attendants need, e.g. "Chlorhex wipe: use over the wound BID for 5 days. Location: left flank")</label><br>
+      <textarea class="plain" id="chartVetPlan_${esc(a.id)}" style="width:100%;min-height:60px">${esc(planText||'')}</textarea></div>`;
   draft.forEach((m, i)=>{
     h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1388,6 +1391,8 @@ function blankMedRow(){
 function bindChartDraft(a, body){
   const draft = chartDrafts[a.id];
   if(!draft) return;
+  const planEl = document.getElementById('chartVetPlan_'+a.id);
+  if(planEl) planEl.addEventListener('input', ()=>{ chartDraftPlans[a.id] = planEl.value; });
   body.querySelectorAll('[data-mfield]').forEach(el=>{
     const evt = (el.type==='radio') ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
@@ -1413,18 +1418,19 @@ function bindChartDraft(a, body){
     const chart = {
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'sick-injured', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: a.weight, location: a.location,
-      vetInCharge: vetInitEl.value || '', problemList: problemSummary(a) === '-' ? '' : problemSummary(a),
+      vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
       meds: draft.map(m=>Object.assign({}, m))
     };
     if(existing) MedChart.deleteChart(existing.id);
     MedChart.addChart(chart);
     delete chartDrafts[a.id];
+    delete chartDraftPlans[a.id];
     saveShift();
     alert(MedChart.saveConfirmationMessage(chart));
     openExam(a.id);
   });
   const cancelBtn = document.getElementById('cancelChartBtn');
-  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; openExam(a.id); });
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; openExam(a.id); });
 }
 
 /* ---------- exam modal ---------- */
@@ -1733,7 +1739,7 @@ function examFormHtml(a){
     <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea>
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
   </div>`;
-  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id]);
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
 
   h += `<div class="pe-field"><div class="lbl">PPE Required</div>
     <div class="opts">
@@ -1917,6 +1923,10 @@ function bindExamForm(a){
     const parsed = MedChart.parseMedPlan(a.treatment||'');
     if(!parsed.length){ alert('Type the medication into Treatment above first.'); return; }
     chartDrafts[a.id] = parsed;
+    if(chartDraftPlans[a.id] == null){
+      const seed = problemSummary(a);
+      chartDraftPlans[a.id] = seed === '-' ? '' : seed;
+    }
     openExam(a.id);
   });
   bindChartDraft(a, body);

@@ -102,7 +102,7 @@ function renderList(){
         <div>
           <div class="patient">${esc(c.animalId)||'(no ID)'} <span class="src-badge">${esc(sourceLabel(c.sourceTool))}</span></div>
           <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
-          ${c.problemList ? `<div class="meta">Problems: ${esc(c.problemList)}</div>` : ''}
+          ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
       </div>

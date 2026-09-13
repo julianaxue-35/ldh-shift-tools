@@ -299,7 +299,7 @@
     if (chart.location) xml = setCellXml(xml, HEADER_CELLS.location, 'Location: ' + chart.location);
     if (chart.weight) xml = setCellXml(xml, 'B8', parseFloat(chart.weight) || chart.weight);
     if (chart.vetInCharge) xml = setCellXml(xml, HEADER_CELLS.vetInCharge, 'Vet in Charge: ' + chart.vetInCharge);
-    if (chart.problemList) xml = setCellXml(xml, HEADER_CELLS.vetPlan, 'Vet Plan:   Problems — ' + chart.problemList);
+    if (chart.problemList) xml = setCellXml(xml, HEADER_CELLS.vetPlan, 'Vet Plan:   ' + chart.problemList);
     var meds = chart.meds.slice(0, MAX_MEDS_PER_SHEET);
     meds.forEach(function (m, i) {
       var box = BOXES[i];
