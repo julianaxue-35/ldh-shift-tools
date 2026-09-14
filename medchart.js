@@ -291,6 +291,20 @@
     return candidate;
   }
 
+  // Excel's date serial number: days since 1899-12-30 (Excel's epoch,
+  // including its historical 1900-leap-year quirk). Writing a plain number
+  // here — instead of the template's live "=TODAY()+1" formula — is what
+  // actually shows a date: the template's own cached value for that formula
+  // is empty, so any viewer that doesn't recalculate formulas on open (most
+  // non-Excel viewers, and even Excel without a forced recalculation) shows
+  // it blank. A frozen value also stops the date drifting if the chart is
+  // reopened on a later day — same "decided once at registration, not live"
+  // approach already used for the AM/PM grid (see computeGrid).
+  function excelDateSerial(date) {
+    var epoch = Date.UTC(1899, 11, 30);
+    return Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - epoch) / 86400000);
+  }
+
   // Builds one patched copy of the real template's sheet XML for a
   // single animal chart. Only the cells listed above are ever touched.
   function patchSheetXml(templateXml, chart) {
@@ -300,6 +314,13 @@
     if (chart.weight) xml = setCellXml(xml, 'B8', parseFloat(chart.weight) || chart.weight);
     if (chart.vetInCharge) xml = setCellXml(xml, HEADER_CELLS.vetInCharge, 'Vet in Charge: ' + chart.vetInCharge);
     if (chart.problemList) xml = setCellXml(xml, HEADER_CELLS.vetPlan, 'Vet Plan:   ' + chart.problemList);
+    // Day 1 starts one day ahead of the registration date (her house rule —
+    // matches the template's own original "=TODAY()+1" intent), Day 2 is
+    // +2, etc., one date per AM/PM row pair.
+    var startSerial = excelDateSerial(new Date(chart.createdAt || Date.now()));
+    GRID_ROWS.forEach(function (row, i) {
+      xml = setCellXml(xml, 'A' + row, startSerial + i + 1);
+    });
     var meds = chart.meds.slice(0, MAX_MEDS_PER_SHEET);
     meds.forEach(function (m, i) {
       var box = BOXES[i];
