@@ -370,14 +370,22 @@
   // Reads the strength she already typed (e.g. "Amoxyclav 250mg") plus the
   // tablet/capsule count from the dose instruction, and the animal's own
   // recorded weight, then appends "(X mg/kg)" onto the drug label — no
-  // separate calculator fields to fill in. Deliberately narrow: only fires
-  // on a bare mg strength (never mcg, never a mg/mL concentration — those
-  // need real volume math, not this shortcut), and defaults the quantity to
-  // 1 when the instruction doesn't name a tablet/capsule count, which also
-  // makes it correct for a liquid dose already written as a total mg amount
-  // (e.g. "Meloxicam 1.5mg: give 0.3ml PO SID").
+  // separate calculator fields to fill in. Bare mg strength defaults the
+  // quantity to 1 when the instruction doesn't name a tablet/capsule count,
+  // which also makes it correct for a liquid dose already written as a
+  // total mg amount (e.g. "Meloxicam 1.5mg: give 0.3ml PO SID"). A mg/mL
+  // concentration (e.g. "Gabapentin 200mg/mL: give 0.3ml") instead needs an
+  // EXPLICIT volume given — unlike the tablet-count default, a missing
+  // volume here is never assumed, since guessing one could be wildly wrong.
   var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*\/\s*m[lL])/i;
+  var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*\/\s*m[lL]\b/i;
   var QTY_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(?:tablets?|tabs?|capsules?|caps?)\b/i;
+  var VOLUME_ML_RE = /(\d+(?:\.\d+)?)\s*m[lL]\b/i;
+  // Matches an annotation this function itself inserted on an earlier pass,
+  // so re-running it on already-annotated text (e.g. re-editing the same
+  // field and blurring again) replaces the old figure instead of stacking
+  // a second one next to it.
+  var EXISTING_ANNOTATION_RE = /^ \(\d+(?:\.\d+)?mg\/kg\)/;
 
   function formatMgPerKg(n) {
     return String(Math.round(n * 10) / 10);
@@ -385,11 +393,22 @@
 
   // Returns { mgPerKg, insertAt } for one instruction line, or null if it
   // can't be confidently computed (missing strength, mcg-based, a mg/mL
-  // concentration, or no usable weight).
+  // concentration with no stated volume, or no usable weight).
   function computeMgPerKg(line, weight) {
     var wNum = parseFloat(weight);
     if (!(wNum > 0)) return null;
     var parts = splitInstruction(line);
+
+    var concM = CONCENTRATION_TOKEN_RE.exec(parts.head);
+    if (concM) {
+      var concVal = parseFloat(concM[0]);
+      var volM = VOLUME_ML_RE.exec(parts.tail) || VOLUME_ML_RE.exec(line);
+      if (!volM || !(concVal > 0)) return null;
+      var volMl = parseFloat(volM[1]);
+      if (!(volMl >= 0)) return null;
+      return { mgPerKg: (concVal * volMl) / wNum, insertAt: concM.index + concM[0].length };
+    }
+
     var m = STRENGTH_TOKEN_RE.exec(parts.head);
     if (!m) return null;
     var mgVal = parseFloat(m[1]);
@@ -407,7 +426,10 @@
       if (!line.trim()) return line;
       var r = computeMgPerKg(line, weight);
       if (!r) return line;
-      return line.slice(0, r.insertAt) + ' (' + formatMgPerKg(r.mgPerKg) + 'mg/kg)' + line.slice(r.insertAt);
+      var rest = line.slice(r.insertAt);
+      var existing = EXISTING_ANNOTATION_RE.exec(rest);
+      var replaceEnd = existing ? r.insertAt + existing[0].length : r.insertAt;
+      return line.slice(0, r.insertAt) + ' (' + formatMgPerKg(r.mgPerKg) + 'mg/kg)' + line.slice(replaceEnd);
     }).join('\n');
   }
 

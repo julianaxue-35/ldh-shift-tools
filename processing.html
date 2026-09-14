@@ -472,10 +472,19 @@ const NEXT_STEP_OPTIONS = [
   'Awaiting foster',
   'Awaiting rescue'
 ];
+/* An "Add another status" slot can hold a free-typed status instead of one
+   of the preset options — stored as this prefix + her text, so the dropdown
+   can tell "Other" apart from a genuinely blank/unset slot across renders
+   without needing a second field per slot. */
+const CUSTOM_NEXTSTEP_PREFIX = 'CUSTOM:';
+function isCustomNextStep(val){ return typeof val==='string' && val.indexOf(CUSTOM_NEXTSTEP_PREFIX)===0; }
+function customNextStepText(val){ return val.slice(CUSTOM_NEXTSTEP_PREFIX.length); }
 /* All statuses currently on an animal — primary slot first, then any
    additional ones, blanks dropped. Used for the note text and Excel export. */
 function allNextSteps(a){
-  return [a.nextStep, ...(a.nextStepsExtra||[])].filter(Boolean);
+  return [a.nextStep, ...(a.nextStepsExtra||[])]
+    .map(v => isCustomNextStep(v) ? customNextStepText(v).trim() : v)
+    .filter(Boolean);
 }
 /* Her ask: a field marked "not able to examine" this shift shouldn't just
    vanish from the record — it needs to come back to whoever's handling the
@@ -501,8 +510,7 @@ function notExaminedFollowupText(a){
 }
 /* Single source of truth for "what does Next step in pathway actually say"
    — used by both the note text and the Excel export, so the two can never
-   drift apart. Does NOT include her free-text nextStepNotes (that's always
-   shown as its own separate line/column, not folded into this one). */
+   drift apart. Free-text notes live in Plan, not folded into this one. */
 function nextStepFullText(a){
   const steps = allNextSteps(a);
   const followup = notExaminedFollowupText(a);
@@ -597,16 +605,26 @@ const WAIVER_CATEGORIES = [
 ];
 /* Only auto-ADDS a waiver when the finding deterministically implies it
    (cat innocent murmur, confirmed FIV) — never removes one she's ticked, so
-   unchecking a box is always the way to undo it, same as any other item. */
+   unchecking a box is always the way to undo it, same as any other item.
+   Also auto-reveals the whole Waivers section (waiversRequired: 'NO' -> 'YES')
+   the moment ANY finding would open a category below — otherwise the
+   auto-open-category logic is invisible, since the categories only render
+   once Waivers required is already YES. Same one-way rule: never flips it
+   back to NO on its own, so unticking stays her manual call. */
 function ensureAutoWaivers(a){
   if(!Array.isArray(a.waiversSelected)) a.waiversSelected = [];
   const add = label => { if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); };
   if(heartMurmurTier(a)==='waiver') add('Innocent Heart Murmur');
   if(a.species==='cat' && a.fivTest!=='NO' && a.fivResult==='POSITIVE') add('Feline Immunodeficiency Virus');
+  if(a.waiversRequired==='NO' && waiverOpenCategories(a).size) a.waiversRequired = 'YES';
 }
 /* Which categories to auto-expand (not auto-select) based on flagged findings
    elsewhere in the exam, per her rule: abdomen abnormal -> GI causes, skin
-   abnormal -> skin/ringworm, teeth graded -> the dental ladder, etc. */
+   abnormal -> skin/ringworm, teeth graded -> the dental ladder, etc. A
+   written note counts as a finding on its own (matches how NSF already gets
+   cleared the moment she types a note) — heart is the one field that isn't
+   part of that generic notes system, so it needs its own free-text check
+   here rather than only reacting to the separate Murmur toggle button. */
 function waiverOpenCategories(a){
   const open = new Set();
   if(a.nsf.abdomen===false) open.add('gi');
@@ -614,7 +632,7 @@ function waiverOpenCategories(a){
   if(a.nsf.eyes===false || a.nsf.ears===false) open.add('eyesEars');
   if(a.nsf.ortho===false) open.add('ortho');
   if(a.dental && a.dental.grade && a.dental.grade!=='0') open.add('dental');
-  if(a.heart && a.heart.murmur) open.add('cardiac');
+  if(a.heart && (a.heart.murmur || (a.heart.free && a.heart.free.trim()))) open.add('cardiac');
   if(a.species==='cat' && (a.fivResult==='POSITIVE' || a.fivTest==='YES')) open.add('feline');
   return open;
 }
@@ -638,7 +656,13 @@ function normalizeAnimal(a){
   }
   if(a.waiversRequired==null) a.waiversRequired = '';
   if(!Array.isArray(a.nextStepsExtra)) a.nextStepsExtra = [];
-  if(a.nextStepNotes == null) a.nextStepNotes = '';
+  // The separate "Next step" Notes box was merged into Plan (her ask — one
+  // place instead of two overlapping free-text boxes). Fold across any text
+  // already sitting in the old field so it isn't silently hidden.
+  if(a.nextStepNotes && a.nextStepNotes.trim()){
+    a.medPlan = [a.medPlan, a.nextStepNotes.trim()].filter(Boolean).join('\n');
+  }
+  a.nextStepNotes = '';
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
@@ -989,7 +1013,7 @@ function makeAnimal(r){
     pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
     treatments:'Physical exam and wormer',
     vaccineGiven:false, vaccineKcRoute:'',
-    nextStep:'', nextStepsExtra:[], nextStepNotes:'', procedures:'', proceduresOther:'', chillRequired:'',
+    nextStep:'', nextStepsExtra:[], nextStepNotes:'', chillRequired:'',
     bloodwork: autoBloodwork?'YES':'NO', bloodworkType:'', bloodworkAuto: autoBloodwork,
     vetNurse:'',
     noteEdited: null,   // if set, user has manually edited the note
@@ -1513,13 +1537,6 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Plan</div>
-    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan — continue as-is, adjust dose, or start something new.</p>
-    <textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px" placeholder="e.g. Continue gabapentin 100mg PO BID">${esc(a.medPlan||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
-  </div>`;
-  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
-
   h += `<div class="pe-field"><div class="lbl">Pathway</div>
     <select class="plain" id="fld_pathway" style="width:100%">
       <option value="">-</option>
@@ -1528,6 +1545,36 @@ function examFormHtml(a){
       <option ${a.pathway.startsWith('Medically NSGS, Rescue')?'selected':''}>Medically NSGS, Rescue only or IP adoption only</option>
       <option ${a.pathway.startsWith('Medically NSGS, Medical')?'selected':''}>Medically NSGS, Medical euthanasia recommended</option>
     </select></div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Next step in pathway</div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">An animal can carry more than one status at once — add another if it does.</p>
+    <select class="plain" id="fld_nextstep" style="width:100%">
+      <option value="">-</option>
+      ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}
+    </select>`;
+  (a.nextStepsExtra||[]).forEach((val,i)=>{
+    const isCustom = isCustomNextStep(val);
+    h += `<div style="margin-top:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="plain" data-nextstepextra="${i}" style="width:100%">
+          <option value="">-</option>
+          ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${val===o?'selected':''}>${esc(o)}</option>`).join('')}
+          <option value="__other__" ${isCustom?'selected':''}>Other (type below)</option>
+        </select>
+        <button type="button" class="btn small rust" data-delnextstepextra="${i}">Remove</button>
+      </div>
+      ${isCustom ? `<input type="text" class="plain" data-nextstepextracustom="${i}" style="width:100%;margin-top:6px" placeholder="Type the status..." value="${esc(customNextStepText(val))}">` : ''}
+    </div>`;
+  });
+  h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="addNextStepBtn">+ Add another status</button></div>
+  </div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Plan</div>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan, and anything else for this pathway not covered by the options above.</p>
+    <textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px" placeholder="e.g. Continue gabapentin 100mg PO BID">${esc(a.medPlan||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+  </div>`;
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
 
   {
     ensureAutoWaivers(a);
@@ -1591,37 +1638,6 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Next step in pathway</div>
-    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">An animal can carry more than one status at once — add another if it does.</p>
-    <select class="plain" id="fld_nextstep" style="width:100%">
-      <option value="">-</option>
-      ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}
-    </select>`;
-  (a.nextStepsExtra||[]).forEach((val,i)=>{
-    h += `<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-      <select class="plain" data-nextstepextra="${i}" style="width:100%">
-        <option value="">-</option>
-        ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${val===o?'selected':''}>${esc(o)}</option>`).join('')}
-      </select>
-      <button type="button" class="btn small rust" data-delnextstepextra="${i}">Remove</button>
-    </div>`;
-  });
-  h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="addNextStepBtn">+ Add another status</button></div>
-    <div style="margin-top:8px"><label style="font-size:12px">Notes</label><br>
-      <textarea class="plain" id="fld_nextStepNotes" style="width:100%;min-height:50px" placeholder="Anything not covered by the options above...">${esc(a.nextStepNotes||'')}</textarea></div>
-  </div>`;
-
-  h += `<div class="pe-field"><div class="lbl">Procedures required</div>
-    <select class="plain" id="fld_procedures" style="width:100%">
-      <option value="">-</option>
-      <option ${a.procedures==='Priority pregnant spey'?'selected':''}>Priority pregnant spey</option>
-      <option ${a.procedures==='Spay/neuter'?'selected':''}>Spay/neuter</option>
-      <option ${a.procedures==='Dental procedure'?'selected':''}>Dental procedure</option>
-      <option ${a.procedures==='Other'?'selected':''}>Other</option>
-    </select>
-    <input class="free-input ${a.procedures==='Other'?'':'hidden'}" id="fld_procedures_other" placeholder="e.g. eye enucleation, eye exam with PC, amputation" value="${esc(a.proceduresOther||'')}">
-    </div>`;
-
   if(a.species==='dog'){
     h += `<div class="pe-field"><div class="lbl">Chill required</div>
       <select class="plain" id="fld_chill" style="width:100%"><option value="">-</option><option ${a.chillRequired==='YES'?'selected':''}>YES</option><option ${a.chillRequired==='NO'?'selected':''}>NO</option></select></div>`;
@@ -1651,8 +1667,7 @@ function bindExamForm(a){
     weight:'fld_weight',
     pathway:'fld_pathway',
     treatments:'fld_treatments',chillRequired:'fld_chill',
-    bloodworkType:'fld_bwtype',
-    nextStepNotes:'fld_nextStepNotes'};
+    bloodworkType:'fld_bwtype'};
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
     if(!el) return;
@@ -1761,7 +1776,6 @@ function bindExamForm(a){
   body.querySelectorAll('[data-pregnant]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       a.pregnant = btn.dataset.pregnant;
-      if(a.pregnant==='YES') a.procedures = 'Priority pregnant spey';
       saveShift(); openExam(a.id);
     });
   });
@@ -1862,9 +1876,14 @@ function bindExamForm(a){
   body.querySelectorAll('[data-nextstepextra]').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       const i = Number(sel.dataset.nextstepextra);
-      a.nextStepsExtra[i] = sel.value;
+      a.nextStepsExtra[i] = sel.value==='__other__' ? CUSTOM_NEXTSTEP_PREFIX : sel.value;
       refreshNote(a); saveShift(); openExam(a.id);
     });
+  });
+  body.querySelectorAll('[data-nextstepextracustom]').forEach(inp=>{
+    const i = Number(inp.dataset.nextstepextracustom);
+    inp.addEventListener('input', ()=>{ a.nextStepsExtra[i] = CUSTOM_NEXTSTEP_PREFIX + inp.value; refreshNote(a); });
+    inp.addEventListener('change', ()=>{ a.nextStepsExtra[i] = CUSTOM_NEXTSTEP_PREFIX + inp.value; refreshNote(a); saveShift(); });
   });
   body.querySelectorAll('[data-delnextstepextra]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1885,17 +1904,6 @@ function bindExamForm(a){
     a.nextStep = nextStepEl.value;
     refreshSnPathway(a); // auto-upgrade to the right SN variant for current chip/FIV gaps
     refreshNote(a); saveShift(); openExam(a.id);
-  });
-
-  const procEl = document.getElementById('fld_procedures');
-  if(procEl) procEl.addEventListener('change', ()=>{
-    a.procedures = procEl.value;
-    saveShift();
-    openExam(a.id);
-  });
-  const procOtherEl = document.getElementById('fld_procedures_other');
-  if(procOtherEl) procOtherEl.addEventListener('change', ()=>{
-    a.proceduresOther = procOtherEl.value; refreshNote(a); saveShift();
   });
 
   // Dental grade pills
@@ -2036,7 +2044,11 @@ function bindExamForm(a){
   });
   const curMedDetailEl = document.getElementById('fld_curmeddetail');
   if(curMedDetailEl) curMedDetailEl.addEventListener('change', ()=>{
-    a.currentMedDetail = curMedDetailEl.value;
+    // Auto mg/kg from a strength/concentration + weight already on record —
+    // e.g. "Gabapentin 200mg/mL: give 0.3ml" at 3kg becomes "...200mg/mL
+    // (20mg/kg): give 0.3ml". Re-running this on an already-annotated value
+    // (editing then blurring again) replaces the old figure, never stacks.
+    a.currentMedDetail = MedChart.annotateMgPerKg(curMedDetailEl.value, a.weight);
     // Copy into Plan as a starting draft, so she edits rather than retypes —
     // but only while Plan is still blank so it never clobbers her own edits.
     if(!a.medPlan || !a.medPlan.trim()) a.medPlan = a.currentMedDetail;
@@ -2239,9 +2251,6 @@ function assembleNote(a){
   L.push('');
   L.push(`Treatments provided: ${a.treatments||'-'}`);
   L.push(`Next step in pathway: ${nextStepFullText(a)}`);
-  if(a.nextStepNotes && a.nextStepNotes.trim()) L.push(`  Notes: ${a.nextStepNotes.trim()}`);
-  const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
-  L.push(`Procedures required: ${procText}`);
   if(a.species==='dog') L.push(`Chill Required: ${a.chillRequired||'-'}`);
   L.push(`Blood work required: ${a.bloodwork||'-'}${a.bloodworkAuto?' (auto-flagged: age \u226510)':''}${a.bloodwork==='YES' ? '   Type: '+(a.bloodworkType||'-') : ''}`);
   L.push(`Due date: ${a.dueDate||'-'}`);
@@ -2450,12 +2459,10 @@ function buildExcelFile(){
   const incomplete = sorted.filter(a=>a.registered && a.notExamined);
   const pending = sorted.filter(a=>!a.registered);
 
-  const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway','Next step notes','Procedures required']];
-  pushGroupedRows(completedAoa, completed, 10, a=>{
-    const procText = a.procedures==='Other' ? (a.proceduresOther||'-') : (a.procedures||'-');
-    return [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
-      (a.medPlan && a.medPlan.trim()) || '-', nextStepFullText(a), (a.nextStepNotes && a.nextStepNotes.trim()) || '-', procText];
-  });
+  const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway']];
+  pushGroupedRows(completedAoa, completed, 8, a=>
+    [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
+      (a.medPlan && a.medPlan.trim()) || '-', nextStepFullText(a)]);
 
   const incompleteAoa = [['Patient ID','Location','Weight','Assessment','Plan']];
   pushGroupedRows(incompleteAoa, incomplete, 5, a=>[
