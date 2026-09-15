@@ -941,17 +941,29 @@ function parseInCareInventory(aoa){
   return rows;
 }
 
+/* Each parsed row defaults to checked (included) \u2014 she can untick individual
+   animals she doesn't want on the shift (e.g. already added, wrong species
+   caught before editing), or use Select all/none for bulk control, before
+   confirming. Only checked rows get added; unchecked ones are just left out,
+   never deleted from the preview, so she can re-tick if she changes her mind
+   without re-importing the whole file. */
 function renderParsedTable(rows){
   const wrap = document.getElementById('parsedWrap');
   if(!rows.length){
     wrap.innerHTML = '<p class="warn">No rows detected. Check the paste, or add the animal manually.</p>';
     return;
   }
-  let html = '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns.</div>';
-  html += `<div class="row-actions"><button class="btn" id="confirmAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
-  html += '<table class="parsed"><tr><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th><th>Sex</th></tr>';
+  rows.forEach(r=>{ if(r._checked==null) r._checked = true; });
+  let html = '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns. Untick any you don\u2019t want to add.</div>';
+  html += `<div class="row-actions" style="align-items:center">
+    <button class="btn" id="confirmAddBtnTop">Add selected to the shift</button>
+    <button type="button" class="btn small secondary" id="selectAllBtn">Select all</button>
+    <button type="button" class="btn small secondary" id="selectNoneBtn">Select none</button>
+  </div>`;
+  html += '<table class="parsed"><tr><th></th><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
+      <td data-label="Include"><input type="checkbox" class="parsedRowChk" data-i="${i}" ${r._checked?'checked':''}></td>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Age (yrs)"><input data-i="${i}" data-f="ageYears" value="${esc(r.ageYears)}" placeholder="est. on exam"></td>
@@ -960,16 +972,26 @@ function renderParsedTable(rows){
       <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
-  html += '</table><div class="row-actions"><button class="btn" id="confirmAddBtn">Add these to the shift</button></div>';
+  html += `</table><div class="row-actions"><button class="btn" id="confirmAddBtn">Add selected to the shift</button></div>`;
   wrap.innerHTML = html;
 
-  wrap.querySelectorAll('input,select').forEach(el=>{
+  wrap.querySelectorAll('input[data-f],select[data-f]').forEach(el=>{
     el.addEventListener('change', ()=>{
       rows[el.dataset.i][el.dataset.f] = el.value;
     });
   });
+  wrap.querySelectorAll('.parsedRowChk').forEach(el=>{
+    el.addEventListener('change', ()=>{ rows[el.dataset.i]._checked = el.checked; });
+  });
+  const selectAllBtn = document.getElementById('selectAllBtn');
+  if(selectAllBtn) selectAllBtn.addEventListener('click', ()=>{ rows.forEach(r=>r._checked=true); renderParsedTable(rows); });
+  const selectNoneBtn = document.getElementById('selectNoneBtn');
+  if(selectNoneBtn) selectNoneBtn.addEventListener('click', ()=>{ rows.forEach(r=>r._checked=false); renderParsedTable(rows); });
+
   function confirmAdd(){
-    rows.forEach(r=>{
+    const selected = rows.filter(r=>r._checked!==false);
+    if(!selected.length){ alert('Select at least one animal to add.'); return; }
+    selected.forEach(r=>{
       state.animals.push(makeAnimal(r));
     });
     saveShift();
