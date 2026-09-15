@@ -23,7 +23,7 @@
     { key: 'amoxyclav', label: 'Amoxyclav', aliases: ['amoxyclav', 'amoxi-clav', 'amoxiclav', 'clavulox', 'amoxicillin clavulanate'], route: 'PO' },
     { key: 'doxycycline-paste', label: 'Doxycycline paste', aliases: ['doxycycline paste', 'doxy paste'], route: 'PO' },
     { key: 'doxycycline', label: 'Doxycycline', aliases: ['doxycycline', 'doxy'], route: 'PO' },
-    { key: 'doxybrome', label: 'Doxybrome', aliases: ['doxybrome'], route: 'PO' },
+    { key: 'doxybrome', label: 'Doxybrome', aliases: ['doxybrome', 'doxybrom'], route: 'PO' },
     { key: 'meloxicam', label: 'Meloxicam', aliases: ['meloxicam', 'metacam'], route: 'PO', warning: 'MUST BE GIVEN WITH FOOD. STOP if vomiting, diarrhoea, or not eating.' },
     { key: 'panacur', label: 'Panacur (Fenbendazole)', aliases: ['panacur', 'fenbendazole'], route: 'PO' },
     { key: 'drontal', label: 'Drontal', aliases: ['drontal'], route: 'PO' },
@@ -54,23 +54,50 @@
   var S8_DRUG_RE = new RegExp('\\b(' + S8_DRUG_NAMES.join('|') + ')\\b', 'i');
   var DDBOOK_URL = 'https://app.ddbook.com.au/access/login?ReturnUrl=%2fHome%2fDashboard2';
 
-  // Longest-alias-first so e.g. "doxycycline paste" matches before
-  // the bare "doxycycline" entry.
-  var DRUGS_BY_ALIAS_LEN = DRUG_VOCAB.slice().sort(function (a, b) {
-    var am = Math.max.apply(null, a.aliases.map(function (x) { return x.length; }));
-    var bm = Math.max.apply(null, b.aliases.map(function (x) { return x.length; }));
-    return bm - am;
-  });
+  // A handful of drugs come in more than one form she needs distinguished
+  // on the printed chart itself (not just the free-text instruction) —
+  // e.g. Chlorsig Ointment vs Chlorsig Drops are dosed/applied differently.
+  // Checked against the whole line, longest/most-specific phrasing first
+  // per drug so "chlorsig ointment" doesn't also trip a looser match.
+  var FORM_SUFFIXES = {
+    chlorsig: [
+      { re: /\bointment\b/i, label: 'Ointment' },
+      { re: /\bdrops?\b/i, label: 'Drops' }
+    ],
+    famvir: [
+      { re: /\bliquid\b/i, label: 'Liquid' }
+    ]
+  };
+  function detectFormSuffix(text, drugKey) {
+    var variants = FORM_SUFFIXES[drugKey];
+    if (!variants) return '';
+    for (var i = 0; i < variants.length; i++) {
+      if (variants[i].re.test(text)) return variants[i].label;
+    }
+    return '';
+  }
 
+  // Picks whichever INDIVIDUAL alias actually found in the text is
+  // longest, across every drug — not a pre-sort by each drug's longest
+  // alias. That earlier approach broke whenever a drug had a mix of one
+  // long specific alias and one short generic one (e.g. Doxycycline's
+  // 'doxy' is only 4 chars, but Doxycycline as an ENTRY sorted ahead of
+  // Doxybrome because 'doxycycline' itself is 11 chars) — so "doxybrom"
+  // matched via Doxycycline's short 'doxy' alias before Doxybrome's own
+  // (longer, more specific) alias ever got checked. Comparing actual
+  // matched-alias length directly fixes both that and the original
+  // "doxycycline paste" vs bare "doxycycline" case it was written for.
   function findDrug(text) {
     var low = text.toLowerCase();
-    for (var i = 0; i < DRUGS_BY_ALIAS_LEN.length; i++) {
-      var d = DRUGS_BY_ALIAS_LEN[i];
+    var best = null, bestLen = 0;
+    for (var i = 0; i < DRUG_VOCAB.length; i++) {
+      var d = DRUG_VOCAB[i];
       for (var j = 0; j < d.aliases.length; j++) {
-        if (low.indexOf(d.aliases[j]) !== -1) return d;
+        var alias = d.aliases[j];
+        if (alias.length > bestLen && low.indexOf(alias) !== -1) { best = d; bestLen = alias.length; }
       }
     }
-    return null;
+    return best;
   }
 
   function detectFreq(text) {
@@ -171,6 +198,7 @@
       var route = detectRoute(line, drug);
       var days = detectDays(line);
       var doseText = detectDoseText(parts.tail) || detectDoseText(line);
+      var formSuffix = drug ? detectFormSuffix(line, drug.key) : '';
       var warnings = [];
       if (!drug) warnings.push('Drug not recognised — pick manually');
       if (!freq) warnings.push('Frequency unclear — confirm SID/BID');
@@ -190,7 +218,7 @@
       return {
         rawText: line,
         drugKey: drug ? drug.key : '',
-        drugLabel: drug ? (drug.label + (strength ? ' ' + strength : '')) : fallbackLabel,
+        drugLabel: drug ? (drug.label + (formSuffix ? ' ' + formSuffix : '') + (strength ? ' ' + strength : '')) : fallbackLabel,
         doseText: doseText,
         freq: freq || 'BID',
         route: route || 'PO',
