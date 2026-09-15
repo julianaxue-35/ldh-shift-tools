@@ -52,6 +52,11 @@ table.meds th{color:var(--ink-soft);font-weight:600;font-size:11px;text-transfor
 .empty{color:var(--ink-soft);font-size:13.5px;padding:30px 0;text-align:center}
 .src-badge{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:20px;background:var(--teal-soft);color:var(--teal-dark);margin-left:6px}
 footer.notice{font-size:11px;color:var(--ink-soft);text-align:center;padding:20px 16px 40px}
+.plain{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink)}
+.field{margin-bottom:10px}
+.field label{font-size:12px;color:var(--ink-soft);display:block;margin-bottom:4px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:520px){ .two-col{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -62,12 +67,14 @@ footer.notice{font-size:11px;color:var(--ink-soft);text-align:center;padding:20p
 </header>
 <div class="wrap">
   <div class="toolbar">
+    <button type="button" class="btn" id="newChartBtn">+ New chart</button>
     <label style="font-size:13px"><input type="checkbox" id="selectAll"> Select all</label>
     <button type="button" class="btn" id="exportBtn">Export selected as Excel</button>
     <button type="button" class="btn secondary" id="deleteSelectedBtn">Delete selected</button>
     <button type="button" class="btn secondary" id="refreshBtn">Refresh</button>
     <span id="countLabel" style="font-size:12.5px;color:var(--ink-soft)"></span>
   </div>
+  <div id="newChartWrap"></div>
   <div id="list"></div>
 </div>
 <footer class="notice">Saved locally in this browser only — not shared with any other device or user.</footer>
@@ -78,7 +85,7 @@ footer.notice{font-size:11px;color:var(--ink-soft);text-align:center;padding:20p
 function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function sourceLabel(src){
-  return {processing:'Processing', 'sick-injured':'Sick & Injured', surgery:'Surgery'}[src] || src;
+  return {processing:'Processing', 'sick-injured':'Sick & Injured', surgery:'Surgery', manual:'Manual'}[src] || src;
 }
 
 function renderList(){
@@ -123,6 +130,165 @@ function renderList(){
   });
   document.getElementById('selectAll').checked = false;
 }
+
+/* ---------- New chart — create a chart directly on this page, without
+   routing through Processing/Sick & Injured/Surgery. Same parse-and-review
+   flow as those tools' "+ Register medication chart" (MedChart.parseMedPlan,
+   never silently guessing — every line stays editable before Save), just
+   standalone: there's no linked exam animal, so sourceAnimalId is a fresh
+   uid and sourceTool is 'manual'. ---------- */
+let newChartOpen = false;
+let newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
+let newChartDraft = null;
+
+function blankMedRow(){
+  return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
+    startSlot:'AM', drugWarning:'', matched:false, warnings:[]};
+}
+function resetNewChartForm(){
+  newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
+  newChartDraft = null;
+}
+
+function renderNewChartForm(){
+  const wrap = document.getElementById('newChartWrap');
+  if(!newChartOpen){ wrap.innerHTML=''; return; }
+  let h = `<div class="card">
+    <div class="card-hdr"><div class="patient">New medication chart</div></div>
+    <div class="two-col">
+      <div class="field"><label>Animal ID</label><input class="plain" id="nc_animalId" value="${esc(newChartMeta.animalId)}"></div>
+      <div class="field"><label>Species</label><select class="plain" id="nc_species"><option value="cat" ${newChartMeta.species==='cat'?'selected':''}>Cat</option><option value="dog" ${newChartMeta.species==='dog'?'selected':''}>Dog</option></select></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Weight</label><input class="plain" id="nc_weight" value="${esc(newChartMeta.weight)}" placeholder="e.g. 3.85 kg"></div>
+      <div class="field"><label>Location</label><input class="plain" id="nc_location" value="${esc(newChartMeta.location)}"></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Microchip</label><input class="plain" id="nc_microchip" value="${esc(newChartMeta.microchip)}"></div>
+      <div class="field"><label>Vet in charge</label><input class="plain" id="nc_vet" value="${esc(newChartMeta.vetInCharge)}"></div>
+    </div>
+    <div class="field"><label>Plan (medication instruction — e.g. "Amoxyclav 250mg: give 1 tablet orally BID for 5 days")</label>
+      <textarea class="plain" id="nc_plan" style="min-height:60px">${esc(newChartMeta.planText)}</textarea>
+      <button type="button" class="btn small secondary" id="nc_parseBtn" style="margin-top:8px">Parse plan</button>
+    </div>`;
+  if(newChartDraft){
+    h += `<div class="field"><label>Vet Plan (printed on the chart)</label><textarea class="plain" id="nc_vetplan" style="min-height:50px">${esc(newChartMeta.vetPlanText)}</textarea></div>`;
+    newChartDraft.forEach((m,i)=>{
+      h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:2;min-width:140px"><label style="font-size:11px">Drug${m.matched?'':' (not recognised — check spelling)'}</label>
+            <input type="text" class="plain" data-mfield="drugLabel" data-mi="${i}" value="${esc(m.drugLabel)}"></div>
+          <div style="flex:1;min-width:100px"><label style="font-size:11px">Dose</label>
+            <input type="text" class="plain" data-mfield="doseText" data-mi="${i}" value="${esc(m.doseText)}" placeholder="e.g. 1 tablet"></div>
+          <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
+            <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}"></div>
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+          <div><label style="font-size:11px">Frequency</label><br>
+            <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
+            <label style="font-size:12px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+          <div><label style="font-size:11px">Days</label><br>
+            <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px"></div>
+          <div><label style="font-size:11px">If once-daily, start</label><br>
+            <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
+            <label style="font-size:12px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+          <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
+        </div>
+        ${m.drugWarning ? `<div class="warn" style="margin-top:6px">⚠ ${esc(m.drugWarning)}</div>` : ''}
+        ${m.warnings && m.warnings.length ? `<div style="color:#b5730a;font-size:11.5px;margin-top:4px">⚠ ${esc(m.warnings.join(' · '))}</div>` : ''}
+      </div>`;
+    });
+    h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn small secondary" id="nc_addRowBtn">+ Add another line</button>
+      <button type="button" class="btn" id="nc_saveBtn">Save chart</button>
+      <button type="button" class="btn secondary" id="nc_cancelBtn">Cancel</button>
+    </div>`;
+  } else {
+    h += `<div style="margin-top:10px"><button type="button" class="btn secondary" id="nc_cancelBtn">Cancel</button></div>`;
+  }
+  h += `</div>`;
+  wrap.innerHTML = h;
+  bindNewChartForm();
+}
+
+function bindNewChartForm(){
+  const map = {animalId:'nc_animalId', location:'nc_location', microchip:'nc_microchip', vetInCharge:'nc_vet'};
+  Object.keys(map).forEach(k=>{
+    const el = document.getElementById(map[k]);
+    if(el) el.addEventListener('change', ()=>{ newChartMeta[k]=el.value; });
+  });
+  const speciesEl = document.getElementById('nc_species');
+  if(speciesEl) speciesEl.addEventListener('change', ()=>{ newChartMeta.species = speciesEl.value; });
+  const weightEl = document.getElementById('nc_weight');
+  if(weightEl) weightEl.addEventListener('change', ()=>{ newChartMeta.weight = weightEl.value; });
+
+  const planEl = document.getElementById('nc_plan');
+  if(planEl){
+    planEl.addEventListener('input', ()=>{ newChartMeta.planText = planEl.value; });
+    // Same passive mg/kg annotation as the shift tools — only fires on
+    // blur, never guesses, and re-running on already-annotated text
+    // replaces the figure rather than stacking a second one.
+    planEl.addEventListener('change', ()=>{
+      newChartMeta.planText = MedChart.annotateMgPerKg(planEl.value, newChartMeta.weight);
+      renderNewChartForm();
+    });
+  }
+  const vetPlanEl = document.getElementById('nc_vetplan');
+  if(vetPlanEl) vetPlanEl.addEventListener('change', ()=>{ newChartMeta.vetPlanText = vetPlanEl.value; });
+
+  const parseBtn = document.getElementById('nc_parseBtn');
+  if(parseBtn) parseBtn.addEventListener('click', ()=>{
+    const parsed = MedChart.parseMedPlan(newChartMeta.planText||'');
+    if(!parsed.length){ alert('Type a medication instruction in the Plan box first.'); return; }
+    newChartDraft = parsed;
+    renderNewChartForm();
+  });
+
+  document.querySelectorAll('[data-mfield]').forEach(el=>{
+    const evt = el.type==='radio' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{
+      const i = parseInt(el.dataset.mi,10);
+      const field = el.dataset.mfield;
+      if(el.type==='radio'){ if(el.checked) newChartDraft[i][field]=el.value; }
+      else newChartDraft[i][field] = el.value;
+    });
+  });
+  document.querySelectorAll('[data-delmedrow]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      newChartDraft.splice(parseInt(btn.dataset.delmedrow,10),1);
+      if(!newChartDraft.length) newChartDraft = null;
+      renderNewChartForm();
+    });
+  });
+  const addRowBtn = document.getElementById('nc_addRowBtn');
+  if(addRowBtn) addRowBtn.addEventListener('click', ()=>{ newChartDraft.push(blankMedRow()); renderNewChartForm(); });
+
+  const cancelBtn = document.getElementById('nc_cancelBtn');
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ newChartOpen=false; resetNewChartForm(); renderNewChartForm(); });
+
+  const saveBtn = document.getElementById('nc_saveBtn');
+  if(saveBtn) saveBtn.addEventListener('click', ()=>{
+    if(!newChartMeta.animalId.trim()){ alert('Type an Animal ID first.'); return; }
+    const chart = {
+      id: MedChart.uid(), sourceAnimalId: MedChart.uid(), sourceTool: 'manual', createdAt: new Date().toISOString(),
+      animalId: newChartMeta.animalId.trim(), species: newChartMeta.species, weight: newChartMeta.weight,
+      location: newChartMeta.location, microchip: newChartMeta.microchip, vetInCharge: newChartMeta.vetInCharge,
+      problemList: (newChartMeta.vetPlanText||'').trim(), meds: newChartDraft.map(m=>Object.assign({},m))
+    };
+    MedChart.addChart(chart);
+    alert(MedChart.saveConfirmationMessage(chart));
+    newChartOpen = false;
+    resetNewChartForm();
+    renderNewChartForm();
+    renderList();
+  });
+}
+
+document.getElementById('newChartBtn').addEventListener('click', ()=>{
+  newChartOpen = !newChartOpen;
+  if(newChartOpen) resetNewChartForm();
+  renderNewChartForm();
+});
 
 document.getElementById('selectAll').addEventListener('change', (e)=>{
   document.querySelectorAll('.pickChart').forEach(cb=> cb.checked = e.target.checked);
