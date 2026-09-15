@@ -23,7 +23,7 @@
     { key: 'amoxyclav', label: 'Amoxyclav', aliases: ['amoxyclav', 'amoxi-clav', 'amoxiclav', 'clavulox', 'amoxicillin clavulanate'], route: 'PO' },
     { key: 'doxycycline-paste', label: 'Doxycycline paste', aliases: ['doxycycline paste', 'doxy paste'], route: 'PO' },
     { key: 'doxycycline', label: 'Doxycycline', aliases: ['doxycycline', 'doxy'], route: 'PO' },
-    { key: 'doxybrome', label: 'Doxybrome', aliases: ['doxybrome', 'doxybrom'], route: 'PO' },
+    { key: 'doxybrome', label: 'Doxybrom', aliases: ['doxybrome', 'doxybrom'], route: 'PO' },
     { key: 'meloxicam', label: 'Meloxicam', aliases: ['meloxicam', 'metacam'], route: 'PO', warning: 'MUST BE GIVEN WITH FOOD. STOP if vomiting, diarrhoea, or not eating.' },
     { key: 'panacur', label: 'Panacur (Fenbendazole)', aliases: ['panacur', 'fenbendazole'], route: 'PO' },
     { key: 'drontal', label: 'Drontal', aliases: ['drontal'], route: 'PO' },
