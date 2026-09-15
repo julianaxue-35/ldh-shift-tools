@@ -607,16 +607,23 @@ const WAIVER_CATEGORIES = [
    (cat innocent murmur, confirmed FIV) — never removes one she's ticked, so
    unchecking a box is always the way to undo it, same as any other item.
    Also auto-reveals the whole Waivers section (waiversRequired: 'NO' -> 'YES')
-   the moment ANY finding would open a category below — otherwise the
-   auto-open-category logic is invisible, since the categories only render
-   once Waivers required is already YES. Same one-way rule: never flips it
-   back to NO on its own, so unticking stays her manual call. */
+   the moment a finding opens a category below for the FIRST time — otherwise
+   the auto-open-category logic is invisible, since the categories only
+   render once Waivers required is already YES. Only fires once per category
+   (tracked in a.waiversAutoRevealedCats): if she manually flips back to No,
+   that same still-open category won't re-force it back to Yes on the next
+   render — her "No" sticks. A genuinely new category opening later (a
+   different finding) still triggers a fresh auto-reveal. */
 function ensureAutoWaivers(a){
   if(!Array.isArray(a.waiversSelected)) a.waiversSelected = [];
+  if(!Array.isArray(a.waiversAutoRevealedCats)) a.waiversAutoRevealedCats = [];
   const add = label => { if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); };
   if(heartMurmurTier(a)==='waiver') add('Innocent Heart Murmur');
   if(a.species==='cat' && a.fivTest!=='NO' && a.fivResult==='POSITIVE') add('Feline Immunodeficiency Virus');
-  if(a.waiversRequired==='NO' && waiverOpenCategories(a).size) a.waiversRequired = 'YES';
+  const openCats = waiverOpenCategories(a);
+  const newCats = [...openCats].filter(k=>!a.waiversAutoRevealedCats.includes(k));
+  if(a.waiversRequired==='NO' && newCats.length) a.waiversRequired = 'YES';
+  openCats.forEach(k=>{ if(!a.waiversAutoRevealedCats.includes(k)) a.waiversAutoRevealedCats.push(k); });
 }
 /* Which categories to auto-expand (not auto-select) based on flagged findings
    elsewhere in the exam, per her rule: abdomen abnormal -> GI causes, skin
@@ -655,6 +662,7 @@ function normalizeAnimal(a){
     a.waiversSelected = migrated;
   }
   if(a.waiversRequired==null) a.waiversRequired = '';
+  if(!Array.isArray(a.waiversAutoRevealedCats)) a.waiversAutoRevealedCats = [];
   if(!Array.isArray(a.nextStepsExtra)) a.nextStepsExtra = [];
   // The separate "Next step" Notes box was merged into Plan (her ask — one
   // place instead of two overlapping free-text boxes). Fold across any text
@@ -1010,7 +1018,7 @@ function makeAnimal(r){
     notExamined: false, notExaminedPlan: '',
     currentMed: '', currentMedDetail: '', medPlan: '',
     customProblems: [],       // [{id, title, ddx}]
-    pathway:'', waiversRequired:'NO', waiversSelected:[], vetChat:'',
+    pathway:'', waiversRequired:'NO', waiversSelected:[], waiversAutoRevealedCats:[], vetChat:'',
     treatments:'Physical exam and wormer',
     vaccineGiven:false, vaccineKcRoute:'',
     nextStep:'', nextStepsExtra:[], nextStepNotes:'', chillRequired:'',
@@ -1395,8 +1403,11 @@ function examFormHtml(a){
   </div>`;
   if(a.notExamined){
     h += `<div style="margin-top:10px"><label style="font-size:12px">Assessment</label><br><textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:60px" placeholder="e.g. start on gabapentin">${esc(a.assessmentNotes||'')}</textarea></div>
-    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea></div>
-    <div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Marked Incomplete ✓ — click to undo':'Register as Incomplete'}</button></div>`;
+    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+    </div>`;
+    if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
+    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Marked Incomplete ✓ — click to undo':'Register as Incomplete'}</button></div>`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
@@ -2061,11 +2072,12 @@ function bindExamForm(a){
   }
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(a.medPlan||'');
+    const planSource = a.notExamined ? (a.notExaminedPlan||'') : (a.medPlan||'');
+    const parsed = MedChart.parseMedPlan(planSource);
     if(!parsed.length){ alert('Type a medication instruction in the Plan box above first.'); return; }
     chartDrafts[a.id] = parsed;
     if(chartDraftPlans[a.id] == null){
-      chartDraftPlans[a.id] = computeProblemList(a).map(p=>p.title).join('; ');
+      chartDraftPlans[a.id] = a.notExamined ? (a.assessmentNotes||'') : computeProblemList(a).map(p=>p.title).join('; ');
     }
     openExam(a.id);
   });
