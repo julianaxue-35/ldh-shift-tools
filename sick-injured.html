@@ -1814,7 +1814,7 @@ function bindExamForm(a){
   if(treatmentEl){
     treatmentEl.addEventListener('input', ()=>{ a.treatment = treatmentEl.value; refreshNote(a); });
     treatmentEl.addEventListener('change', ()=>{
-      a.treatment = MedChart.annotateMgPerKg(treatmentEl.value, a.weight);
+      a.treatment = MedChart.annotateMgPerKg(treatmentEl.value, a.weight, a.species);
       refreshNote(a); saveShift(); openExam(a.id);
     });
   }

@@ -2081,7 +2081,7 @@ function bindExamForm(a){
     // e.g. "Gabapentin 200mg/mL: give 0.3ml" at 3kg becomes "...200mg/mL
     // (20mg/kg): give 0.3ml". Re-running this on an already-annotated value
     // (editing then blurring again) replaces the old figure, never stacks.
-    a.currentMedDetail = MedChart.annotateMgPerKg(curMedDetailEl.value, a.weight);
+    a.currentMedDetail = MedChart.annotateMgPerKg(curMedDetailEl.value, a.weight, a.species);
     // Copy into Plan as a starting draft, so she edits rather than retypes —
     // but only while Plan is still blank so it never clobbers her own edits.
     if(!a.medPlan || !a.medPlan.trim()) a.medPlan = a.currentMedDetail;

@@ -229,7 +229,7 @@ function bindNewChartForm(){
     // blur, never guesses, and re-running on already-annotated text
     // replaces the figure rather than stacking a second one.
     planEl.addEventListener('change', ()=>{
-      newChartMeta.planText = MedChart.annotateMgPerKg(planEl.value, newChartMeta.weight);
+      newChartMeta.planText = MedChart.annotateMgPerKg(planEl.value, newChartMeta.weight, newChartMeta.species);
       renderNewChartForm();
     });
   }

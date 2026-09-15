@@ -415,14 +415,43 @@
   // a second one next to it.
   var EXISTING_ANNOTATION_RE = /^ \(\d+(?:\.\d+)?mg\/kg\)/;
 
+  // A handful of drugs are dispensed as a liquid at ONE known standard
+  // concentration she never varies from, for one species — so "give 1ml"
+  // with no strength/concentration stated at all can still be computed,
+  // rather than skipped for lack of a number to multiply from. Species-
+  // scoped deliberately: e.g. her Gabapentin liquid for cats is always
+  // 200mg/mL, but the dog liquid varies, so no dog default exists here —
+  // dog instructions still need the concentration typed out. An explicit
+  // strength/concentration she DOES type always wins over this table; it's
+  // only consulted when computeMgPerKg finds nothing else to go on.
+  var DEFAULT_LIQUID_CONCENTRATIONS = {
+    gabapentin: { cat: 200 } // mg/mL
+  };
+
+  function tryDefaultConcentration(line, wNum, species) {
+    if (!species) return null;
+    var drug = findDrug(line);
+    if (!drug) return null;
+    var bySpecies = DEFAULT_LIQUID_CONCENTRATIONS[drug.key];
+    var concVal = bySpecies && bySpecies[species];
+    if (!(concVal > 0)) return null;
+    var volM = VOLUME_ML_RE.exec(line);
+    if (!volM) return null;
+    var volMl = parseFloat(volM[1]);
+    if (!(volMl >= 0)) return null;
+    return { mgPerKg: (concVal * volMl) / wNum, insertAt: volM.index + volM[0].length };
+  }
+
   function formatMgPerKg(n) {
     return String(Math.round(n * 10) / 10);
   }
 
   // Returns { mgPerKg, insertAt } for one instruction line, or null if it
   // can't be confidently computed (missing strength, mcg-based, a mg/mL
-  // concentration with no stated volume, or no usable weight).
-  function computeMgPerKg(line, weight) {
+  // concentration with no stated volume, or no usable weight). `species`
+  // is optional — only needed for the DEFAULT_LIQUID_CONCENTRATIONS
+  // fallback below, and never affects the two explicit-number paths.
+  function computeMgPerKg(line, weight, species) {
     var wNum = parseFloat(weight);
     if (!(wNum > 0)) return null;
     var parts = splitInstruction(line);
@@ -438,7 +467,7 @@
     }
 
     var m = STRENGTH_TOKEN_RE.exec(parts.head);
-    if (!m) return null;
+    if (!m) return tryDefaultConcentration(line, wNum, species);
     var mgVal = parseFloat(m[1]);
     if (!(mgVal > 0)) return null;
     var qtyM = QTY_TOKEN_RE.exec(parts.tail) || QTY_TOKEN_RE.exec(line);
@@ -449,10 +478,12 @@
 
   // Annotates every line of a multi-line Treatment/Plan block. Lines that
   // can't be confidently computed are returned unchanged (never a guess).
-  function annotateMgPerKg(text, weight) {
+  // `species` is optional (existing call sites that don't pass it just
+  // never trigger the default-concentration fallback, unchanged behaviour).
+  function annotateMgPerKg(text, weight, species) {
     return String(text || '').split('\n').map(function (line) {
       if (!line.trim()) return line;
-      var r = computeMgPerKg(line, weight);
+      var r = computeMgPerKg(line, weight, species);
       if (!r) return line;
       var rest = line.slice(r.insertAt);
       var existing = EXISTING_ANNOTATION_RE.exec(rest);
