@@ -445,6 +445,12 @@
     gabapentin: { cat: 200 } // mg/mL
   };
 
+  // Drugs she doses as a flat per-animal amount rather than by weight (e.g.
+  // Mirtazapine 1.88mg/cat, regardless of the individual cat's actual
+  // weight) — a computed mg/kg figure would be misleading here, so these
+  // are skipped entirely rather than annotated.
+  var FLAT_DOSE_DRUGS = { mirtazapine: true };
+
   function tryDefaultConcentration(line, wNum, species) {
     if (!species) return null;
     var drug = findDrug(line);
@@ -471,6 +477,8 @@
   function computeMgPerKg(line, weight, species) {
     var wNum = parseFloat(weight);
     if (!(wNum > 0)) return null;
+    var flatDrug = findDrug(line);
+    if (flatDrug && FLAT_DOSE_DRUGS[flatDrug.key]) return null;
     var parts = splitInstruction(line);
 
     var concM = CONCENTRATION_TOKEN_RE.exec(parts.head);
