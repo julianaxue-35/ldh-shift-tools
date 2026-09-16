@@ -2118,7 +2118,13 @@ function wordParagraph(text, opts){
 const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 async function buildWordFile(){
   const toExport = sortedAnimals().filter(a=>a.registered);
-  if(!toExport.length) return null;
+  // Animals still sitting in the Shift List, never registered at all —
+  // distinct from the Incomplete bucket (those WERE opened). Matches the
+  // Excel export's "Not Completed" sheet — a trailer list here too, so
+  // whoever picks up the shift next can see what's outstanding without
+  // opening the app.
+  const pending = sortedAnimals().filter(a=>!a.registered);
+  if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Sick & Injured Notes — ${todayStr()}`, {bold:true, size:32, after:200});
   toExport.forEach((a,i)=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
@@ -2129,6 +2135,13 @@ async function buildWordFile(){
       paras += wordParagraph(line, NOTE_SECTION_HEADERS.has(line.trim()) ? {bold:true, before:80, after:40} : {});
     });
   });
+  if(pending.length){
+    if(toExport.length) paras += WORD_PAGE_BREAK;
+    paras += wordParagraph('STILL IN SHIFT LIST — NOT YET STARTED', {bold:true, size:26, before:toExport.length?0:120, after:120});
+    pending.forEach(a=>{
+      paras += wordParagraph(`${a.animalId||'(no ID)'} — ${a.location||'no location'}`, {});
+    });
+  }
   const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paras}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>`;
   const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -2179,7 +2192,7 @@ async function runShareFlow(files, title, text){
 }
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   const file = await buildWordFile();
-  if(!file){ alert('No animals have been registered to Word & Excel yet — click "Register to Word & Excel" on an animal\'s exam first.'); return; }
+  if(!file){ alert('There are no animals in this shift yet — add some first.'); return; }
   downloadFile(file);
   showClearReminder();
 });
