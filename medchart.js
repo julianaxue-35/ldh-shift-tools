@@ -422,8 +422,8 @@
   // concentration (e.g. "Gabapentin 200mg/mL: give 0.3ml") instead needs an
   // EXPLICIT volume given — unlike the tablet-count default, a missing
   // volume here is never assumed, since guessing one could be wildly wrong.
-  var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*\/\s*m[lL])/i;
-  var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*\/\s*m[lL]\b/i;
+  var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per)\s*m[lL])/i;
+  var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*(?:\/|per)\s*m[lL]\b/i;
   var QTY_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(?:tablets?|tabs?|capsules?|caps?)\b/i;
   var VOLUME_ML_RE = /(\d+(?:\.\d+)?)\s*m[lL]\b/i;
   // Matches an annotation this function itself inserted on an earlier pass,
