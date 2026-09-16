@@ -184,9 +184,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </div>
   </div>
   <div class="tabbar" id="mainTabbar">
-    <button type="button" class="on" data-tab="shift">Shift List</button>
+    <button type="button" class="on" data-tab="shift">Incomplete</button>
     <button type="button" data-tab="completed">Completed</button>
-    <button type="button" data-tab="incomplete">Incomplete</button>
     <button type="button" data-tab="exam">Exam<span class="dot" id="examTabDot" style="display:none"></span></button>
     <button type="button" data-tab="export">Export</button>
     <button type="button" data-tab="faq">FAQ</button>
@@ -208,7 +207,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">Not yet registered (<span id="shiftCount">0</span>)</h2>
+      <h2 style="margin:0">Incomplete — not yet registered (<span id="shiftCount">0</span>)</h2>
       <div class="row-actions" style="margin-top:0">
         <button class="btn small" id="registerAllBtn">Register all</button>
         <button class="btn small secondary" id="clearRegisteredBtn">Clear exported</button>
@@ -230,15 +229,6 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
     <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="completedTabList"></div>
-  </div>
-</div>
-
-<div class="wrap tab-panel hidden" id="tabIncomplete">
-  <div class="card" id="incompleteCard">
-    <h2>Not able to be examined (<span id="incompleteTabCount">0</span>)</h2>
-    <p id="incompleteTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No incomplete exams yet.</p>
-    <input class="plain" id="incompleteSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
-    <div id="incompleteTabList"></div>
   </div>
 </div>
 
@@ -309,7 +299,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <details class="faq-item">
       <summary>Step 3 — examining and exporting</summary>
-      <div class="a">Work through each animal's exam as normal. Once you've finished an animal, use <b>Register to Word &amp; Excel</b> so it's counted. If you go back and change notes on an animal you've already registered, click <b>Refresh</b> on its note, then register it again — otherwise the export still holds your earlier version. The Shift List tab shows a running completed/incomplete count all day.</div>
+      <div class="a">Work through each animal's exam as normal. Once you've finished an animal, use <b>Register to Word &amp; Excel</b> so it's counted. If you go back and change notes on an animal you've already registered, click <b>Refresh</b> on its note, then register it again — otherwise the export still holds your earlier version. The Incomplete tab shows a running count of what's still not registered, and the Completed tab everything that is — including "not able to examine" ones, since you did reach and register those.</div>
     </details>
 
     <details class="faq-item">
@@ -1137,7 +1127,6 @@ function showTab(name){
   document.querySelectorAll('#mainTabbar button[data-tab]').forEach(b=> b.classList.toggle('on', b.dataset.tab===name));
   document.getElementById('tabShift').classList.toggle('hidden', name!=='shift');
   document.getElementById('tabCompleted').classList.toggle('hidden', name!=='completed');
-  document.getElementById('tabIncomplete').classList.toggle('hidden', name!=='incomplete');
   document.getElementById('tabExam').classList.toggle('hidden', name!=='exam');
   document.getElementById('tabExport').classList.toggle('hidden', name!=='export');
   document.getElementById('tabFaq').classList.toggle('hidden', name!=='faq');
@@ -1154,8 +1143,8 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
 });
 document.getElementById('registerAllBtn').addEventListener('click', ()=>{
   const pending = state.animals.filter(a=>!a.registered);
-  if(!pending.length){ alert('Nothing to register — the Shift List is empty.'); return; }
-  if(confirm(`Register all ${pending.length} animal(s) currently in the Shift List to Word & Excel? Only do this once you've finished with everyone shown — each one still routes to Completed or Incomplete based on its own "Examined this shift?" answer.`)){
+  if(!pending.length){ alert('Nothing to register — the Incomplete list is empty.'); return; }
+  if(confirm(`Register all ${pending.length} animal(s) currently in the Incomplete list to Word & Excel? Only do this once you've finished with everyone shown — each one moves to Completed, including any marked "Not able to examine".`)){
     pending.forEach(a=>{ a.registered = true; });
     saveShift(); renderShiftList();
   }
@@ -1165,7 +1154,7 @@ if(clearCompletedTabBtn) clearCompletedTabBtn.addEventListener('click', ()=> doc
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
-  if(confirm(`Remove all ${registeredCount} registered (Completed + Incomplete) animal(s) from the list? Only do this once you've actually exported/emailed them \u2014 animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
+  if(confirm(`Remove all ${registeredCount} registered (Completed) animal(s) from the list? Only do this once you've actually exported/emailed them \u2014 animals still pending in the Incomplete list are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
     maybeBackupShift(true);
     state.animals = state.animals.filter(a=>!a.registered);
     saveShift(); renderShiftList();
@@ -1188,7 +1177,6 @@ function matchesIdSearch(a, q){
 function renderShiftList(){
   const list = document.getElementById('animalList');
   const completedList = document.getElementById('completedTabList');
-  const incompleteList = document.getElementById('incompleteTabList');
   const hasAnimals = state.animals.length>0;
   document.getElementById('exportCard').classList.toggle('hidden', !hasAnimals);
   document.getElementById('exportEmptyMsg').classList.toggle('hidden', hasAnimals);
@@ -1203,14 +1191,17 @@ function renderShiftList(){
   const openAnimal = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
   document.getElementById('examTabDot').style.display = (openAnimal && !openAnimal.registered) ? 'inline-block' : 'none';
 
+  // Incomplete = not yet registered at all (what she didn't get to this
+  // shift). Completed = every registered animal, INCLUDING ones marked
+  // "Not able to examine" — she did reach and register those, just
+  // couldn't physically examine them, so they're done as far as this
+  // shift's tracking goes. There is no separate registered-but-incomplete
+  // bucket any more (her explicit call, 2026-09-16).
   const pending = sorted.filter(a=>!a.registered);
-  const completed = sorted.filter(a=>a.registered && !a.notExamined);
-  const incomplete = sorted.filter(a=>a.registered && a.notExamined);
+  const completed = sorted.filter(a=>a.registered);
   document.getElementById('shiftCount').textContent = pending.length;
   document.getElementById('completedTabCount').textContent = completed.length;
   document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
-  document.getElementById('incompleteTabCount').textContent = incomplete.length;
-  document.getElementById('incompleteTabEmpty').classList.toggle('hidden', incomplete.length>0);
 
   const completedQ = (document.getElementById('completedSearchBox').value||'').trim().toLowerCase();
   const completedMatches = completed.filter(a=>matchesIdSearch(a, completedQ));
@@ -1218,17 +1209,11 @@ function renderShiftList(){
     ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
     : groupedListHtml(completedMatches);
 
-  const incompleteQ = (document.getElementById('incompleteSearchBox').value||'').trim().toLowerCase();
-  const incompleteMatches = incomplete.filter(a=>matchesIdSearch(a, incompleteQ));
-  incompleteList.innerHTML = incomplete.length && !incompleteMatches.length
-    ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
-    : groupedListHtml(incompleteMatches);
-
   const shiftQ = (document.getElementById('shiftSearchBox').value||'').trim().toLowerCase();
   const pendingMatches = pending.filter(a=>matchesIdSearch(a, shiftQ));
   list.innerHTML = pendingMatches.length ? groupedListHtml(pendingMatches)
     : (pending.length ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
-      : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed/Incomplete tabs.</p>'
+      : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed tab.</p>'
                     : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>'));
   bindListButtons();
   renderBackupList();
@@ -1266,7 +1251,6 @@ function renderBackupList(){
 }
 document.getElementById('shiftSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
-document.getElementById('incompleteSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('examSearchBox').addEventListener('input', renderShiftList);
 renderShiftList();
 
@@ -1444,7 +1428,7 @@ function examFormHtml(a){
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
-    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Marked Incomplete ✓ — click to undo':'Register as Incomplete'}</button></div>`;
+    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
@@ -2410,13 +2394,11 @@ function wordParagraph(text, opts){
 }
 const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
 async function buildWordFile(){
+  // Completed = every registered animal, including "Not able to examine"
+  // ones (she reached and registered those, just couldn't physically
+  // examine them). Incomplete = not registered at all \u2014 what she didn't
+  // get to this shift. Her explicit redefinition, 2026-09-16.
   const toExport = sortedAnimals().filter(a=>a.registered);
-  // Animals still sitting in the Shift List, never registered at all \u2014
-  // distinct from the Incomplete bucket (those WERE opened and marked
-  // "Not able to examine"; this is animals nobody has touched yet). Her
-  // ask: a trailer list on the Word doc too, matching what the Excel
-  // export's "Not Registered" sheet already carries, so whoever picks up
-  // the shift next can see what's outstanding without opening the app.
   const pending = sortedAnimals().filter(a=>!a.registered);
   if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Processing Notes \u2014 ${todayStr()}`, {bold:true, size:32, after:200});
@@ -2431,7 +2413,7 @@ async function buildWordFile(){
   });
   if(pending.length){
     if(toExport.length) paras += WORD_PAGE_BREAK;
-    paras += wordParagraph('STILL IN SHIFT LIST \u2014 NOT YET STARTED', {bold:true, size:26, before:toExport.length?0:120, after:120});
+    paras += wordParagraph('INCOMPLETE \u2014 NOT YET REGISTERED', {bold:true, size:26, before:toExport.length?0:120, after:120});
     pending.forEach(a=>{
       paras += wordParagraph(`${a.animalId||'(no ID)'} \u2014 ${a.location||'no location'}`, {});
     });
@@ -2491,7 +2473,7 @@ document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   showClearReminder();
 });
 
-/* ---------- export: real .xlsx (Completed / Incomplete / Not Registered tabs) ---------- */
+/* ---------- export: real .xlsx (Completed / Incomplete tabs) ---------- */
 /* Inserts a "ROOM NAME" row (just one cell filled, rest blank) before each
    room's group of animals, in the same room order sortedAnimals() already
    produces \u2014 so the export reads grouped by location the same way the
@@ -2518,29 +2500,31 @@ function styledSheet(aoa, colWidths){
 function buildExcelFile(){
   if(!state.animals.length) return null;
   const sorted = sortedAnimals();
-  const completed = sorted.filter(a=>a.registered && !a.notExamined);
-  const incomplete = sorted.filter(a=>a.registered && a.notExamined);
-  const pending = sorted.filter(a=>!a.registered);
+  // Completed = every registered animal, including "Not able to examine"
+  // ones (she reached and registered those, just couldn't physically
+  // examine them — still done as far as this shift's tracking goes).
+  // Incomplete = not registered at all, what she didn't get to.
+  // Her explicit redefinition, 2026-09-16 — see processing.html's
+  // renderShiftList for the same split.
+  const completed = sorted.filter(a=>a.registered);
+  const incomplete = sorted.filter(a=>!a.registered);
 
   const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway']];
-  pushGroupedRows(completedAoa, completed, 8, a=>
-    [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
-      (a.medPlan && a.medPlan.trim()) || '-', nextStepFullText(a)]);
+  pushGroupedRows(completedAoa, completed, 8, a=> a.notExamined
+    ? [a.animalId, a.location, a.weight||'-', a.microchip||'-', 'NOT ABLE TO BE EXAMINED', '-',
+        [
+          (a.assessmentNotes && a.assessmentNotes.trim()) ? 'Assessment: '+a.assessmentNotes.trim() : '',
+          (a.notExaminedPlan && a.notExaminedPlan.trim()) ? 'Plan: '+a.notExaminedPlan.trim() : ''
+        ].filter(Boolean).join(' | ') || '-', '-']
+    : [a.animalId, a.location, a.weight||'-', a.microchip||'-', a.pathway||'-', a.treatments||'-',
+        (a.medPlan && a.medPlan.trim()) || '-', nextStepFullText(a)]);
 
-  const incompleteAoa = [['Patient ID','Location','Weight','Assessment','Plan']];
-  pushGroupedRows(incompleteAoa, incomplete, 5, a=>[
-    a.animalId, a.location, a.weight||'-',
-    (a.assessmentNotes && a.assessmentNotes.trim()) || '-',
-    (a.notExaminedPlan && a.notExaminedPlan.trim()) || '-'
-  ]);
-
-  const pendingAoa = [['Patient ID','Location','Weight','Microchip']];
-  pushGroupedRows(pendingAoa, pending, 4, a=>[a.animalId, a.location, a.weight||'-', a.microchip||'-']);
+  const incompleteAoa = [['Patient ID','Location','Weight','Microchip']];
+  pushGroupedRows(incompleteAoa, incomplete, 4, a=>[a.animalId, a.location, a.weight||'-', a.microchip||'-']);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,12,16,30,30,35,25,30,25]), 'Completed');
-  XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,12,45,45]), 'Incomplete');
-  XLSX.utils.book_append_sheet(wb, styledSheet(pendingAoa, [12,20,12,16]), 'Not Registered');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,20,12,16,30,30,35,25]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(incompleteAoa, [12,20,12,16]), 'Incomplete');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
   const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   return new File([blob], `Processing_Shift_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
