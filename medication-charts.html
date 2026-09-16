@@ -97,6 +97,7 @@ function renderList(){
     return;
   }
   list.innerHTML = charts.map(c=>{
+    if(c.id === editingChartId) return editCardHtml(c);
     const rows = c.meds.map(m=>`<tr>
       <td>${esc(m.drugLabel)||'<em>(unspecified)</em>'}</td>
       <td>${esc(m.doseText)}</td>
@@ -108,7 +109,7 @@ function renderList(){
       <div class="card-hdr">
         <div>
           <div class="patient">${esc(c.animalId)||'(no ID)'} <span class="src-badge">${esc(sourceLabel(c.sourceTool))}</span></div>
-          <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
+          <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${c.startOption==='today'?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
           ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
@@ -117,7 +118,10 @@ function renderList(){
         <thead><tr><th>Drug</th><th>Dose</th><th>Freq</th><th>Route</th><th>Duration</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <div style="margin-top:8px"><button type="button" class="btn secondary small" data-del="${esc(c.id)}">Delete this chart</button></div>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button type="button" class="btn secondary small" data-edit="${esc(c.id)}">Edit</button>
+        <button type="button" class="btn secondary small" data-del="${esc(c.id)}">Delete this chart</button>
+      </div>
     </div>`;
   }).join('');
 
@@ -128,7 +132,138 @@ function renderList(){
       renderList();
     });
   });
+  list.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const c = MedChart.loadCharts().find(x=>x.id===btn.dataset.edit);
+      if(c) startEditChart(c);
+    });
+  });
+  if(editingChartId) bindEditCard();
   document.getElementById('selectAll').checked = false;
+}
+
+/* ---------- Edit an already-saved chart ----------
+   Reuses the same editable drug/dose/route/frequency/duration row markup
+   as the New Chart flow, pre-filled from the existing chart, plus Day 1
+   starts and the meta fields — her ask: change medication type, duration,
+   or administration route on a chart after it was registered, not just at
+   creation. Only one of New chart / Edit can be open at a time (both use
+   unscoped [data-mfield] rows, so having both open together would multiplex
+   edits across two different drafts) — opening one closes the other. */
+let editingChartId = null;
+let editMeta = null;
+let editDraft = null;
+
+function startEditChart(c){
+  newChartOpen = false; renderNewChartForm();
+  editingChartId = c.id;
+  editMeta = {
+    animalId: c.animalId||'', species: c.species||'cat', weight: c.weight||'',
+    location: c.location||'', microchip: c.microchip||'', vetInCharge: c.vetInCharge||'',
+    problemList: c.problemList||'', startOption: c.startOption || 'tomorrow'
+  };
+  editDraft = (c.meds||[]).map(m=>Object.assign({}, m));
+  renderList();
+}
+function cancelEditChart(){
+  editingChartId = null; editMeta = null; editDraft = null;
+  renderList();
+}
+function saveEditChart(){
+  if(!editMeta.animalId.trim()){ alert('Type an Animal ID first.'); return; }
+  MedChart.updateChart(editingChartId, {
+    animalId: editMeta.animalId.trim(), species: editMeta.species, weight: editMeta.weight,
+    location: editMeta.location, microchip: editMeta.microchip, vetInCharge: editMeta.vetInCharge,
+    problemList: (editMeta.problemList||'').trim(), startOption: editMeta.startOption,
+    meds: editDraft.map(m=>Object.assign({}, m))
+  });
+  editingChartId = null; editMeta = null; editDraft = null;
+  renderList();
+}
+
+function editCardHtml(c){
+  let h = `<div class="card" data-chartid="${esc(c.id)}" style="border-color:var(--teal);border-width:2px">
+    <div class="card-hdr"><div class="patient">Editing chart <span class="src-badge">${esc(sourceLabel(c.sourceTool))}</span></div></div>
+    <div class="two-col">
+      <div class="field"><label>Animal ID</label><input class="plain" id="ec_animalId" value="${esc(editMeta.animalId)}"></div>
+      <div class="field"><label>Species</label><select class="plain" id="ec_species"><option value="cat" ${editMeta.species==='cat'?'selected':''}>Cat</option><option value="dog" ${editMeta.species==='dog'?'selected':''}>Dog</option></select></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Weight</label><input class="plain" id="ec_weight" value="${esc(editMeta.weight)}" placeholder="e.g. 3.85 kg"></div>
+      <div class="field"><label>Location</label><input class="plain" id="ec_location" value="${esc(editMeta.location)}"></div>
+    </div>
+    <div class="two-col">
+      <div class="field"><label>Microchip</label><input class="plain" id="ec_microchip" value="${esc(editMeta.microchip)}"></div>
+      <div class="field"><label>Vet in charge</label><input class="plain" id="ec_vet" value="${esc(editMeta.vetInCharge)}"></div>
+    </div>
+    <div class="field"><label>Vet Plan (printed on the chart)</label><textarea class="plain" id="ec_vetplan" style="min-height:50px">${esc(editMeta.problemList)}</textarea></div>
+    <div class="field"><label>Day 1 starts</label><br>
+      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="ec_startopt" data-startopt value="today" ${editMeta.startOption==='today'?'checked':''}> Today</label>
+      <label style="font-size:12.5px"><input type="radio" name="ec_startopt" data-startopt value="tomorrow" ${editMeta.startOption==='tomorrow'?'checked':''}> Tomorrow</label>
+    </div>`;
+  editDraft.forEach((m,i)=>{
+    h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div style="flex:2;min-width:140px"><label style="font-size:11px">Drug</label>
+          <input type="text" class="plain" data-mfield="drugLabel" data-mi="${i}" value="${esc(m.drugLabel)}"></div>
+        <div style="flex:1;min-width:100px"><label style="font-size:11px">Dose</label>
+          <input type="text" class="plain" data-mfield="doseText" data-mi="${i}" value="${esc(m.doseText)}" placeholder="e.g. 1 tablet"></div>
+        <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
+          <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}"></div>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
+        <div><label style="font-size:11px">Frequency</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
+          <label style="font-size:12px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+        <div><label style="font-size:11px">Days</label><br>
+          <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px"></div>
+        <div><label style="font-size:11px">If once-daily, start</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
+          <label style="font-size:12px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+        <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
+      </div>
+    </div>`;
+  });
+  h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" class="btn small secondary" id="ec_addRowBtn">+ Add another line</button>
+    <button type="button" class="btn small" id="ec_saveBtn">Save changes</button>
+    <button type="button" class="btn secondary small" id="ec_cancelBtn">Cancel</button>
+  </div></div>`;
+  return h;
+}
+
+function bindEditCard(){
+  const map = {animalId:'ec_animalId', weight:'ec_weight', location:'ec_location', microchip:'ec_microchip', vetInCharge:'ec_vet', problemList:'ec_vetplan'};
+  Object.keys(map).forEach(k=>{
+    const el = document.getElementById(map[k]);
+    if(el) el.addEventListener('change', ()=>{ editMeta[k] = el.value; });
+  });
+  const speciesEl = document.getElementById('ec_species');
+  if(speciesEl) speciesEl.addEventListener('change', ()=>{ editMeta.species = speciesEl.value; });
+  document.querySelectorAll('[data-startopt]').forEach(el=>{
+    el.addEventListener('change', ()=>{ if(el.checked) editMeta.startOption = el.value; });
+  });
+  document.querySelectorAll('[data-mfield]').forEach(el=>{
+    const evt = el.type==='radio' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{
+      const i = parseInt(el.dataset.mi,10);
+      const field = el.dataset.mfield;
+      if(el.type==='radio'){ if(el.checked) editDraft[i][field]=el.value; }
+      else editDraft[i][field] = el.value;
+    });
+  });
+  document.querySelectorAll('[data-delmedrow]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      editDraft.splice(parseInt(btn.dataset.delmedrow,10),1);
+      renderList();
+    });
+  });
+  const addRowBtn = document.getElementById('ec_addRowBtn');
+  if(addRowBtn) addRowBtn.addEventListener('click', ()=>{ editDraft.push(blankMedRow()); renderList(); });
+  const saveBtn = document.getElementById('ec_saveBtn');
+  if(saveBtn) saveBtn.addEventListener('click', saveEditChart);
+  const cancelBtn = document.getElementById('ec_cancelBtn');
+  if(cancelBtn) cancelBtn.addEventListener('click', cancelEditChart);
 }
 
 /* ---------- New chart — create a chart directly on this page, without
@@ -138,7 +273,7 @@ function renderList(){
    standalone: there's no linked exam animal, so sourceAnimalId is a fresh
    uid and sourceTool is 'manual'. ---------- */
 let newChartOpen = false;
-let newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
+let newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:'', startOption:'tomorrow'};
 let newChartDraft = null;
 
 function blankMedRow(){
@@ -146,7 +281,7 @@ function blankMedRow(){
     startSlot:'AM', drugWarning:'', matched:false, warnings:[]};
 }
 function resetNewChartForm(){
-  newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
+  newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:'', startOption:'tomorrow'};
   newChartDraft = null;
 }
 
@@ -166,6 +301,10 @@ function renderNewChartForm(){
     <div class="two-col">
       <div class="field"><label>Microchip</label><input class="plain" id="nc_microchip" value="${esc(newChartMeta.microchip)}"></div>
       <div class="field"><label>Vet in charge</label><input class="plain" id="nc_vet" value="${esc(newChartMeta.vetInCharge)}"></div>
+    </div>
+    <div class="field"><label>Day 1 starts</label><br>
+      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="nc_startopt" data-startopt value="today" ${newChartMeta.startOption==='today'?'checked':''}> Today</label>
+      <label style="font-size:12.5px"><input type="radio" name="nc_startopt" data-startopt value="tomorrow" ${newChartMeta.startOption==='tomorrow'?'checked':''}> Tomorrow</label>
     </div>
     <div class="field"><label>Plan (medication instruction — e.g. "Amoxyclav 250mg: give 1 tablet orally BID for 5 days")</label>
       <textarea class="plain" id="nc_plan" style="min-height:60px">${esc(newChartMeta.planText)}</textarea>
@@ -221,6 +360,9 @@ function bindNewChartForm(){
   if(speciesEl) speciesEl.addEventListener('change', ()=>{ newChartMeta.species = speciesEl.value; });
   const weightEl = document.getElementById('nc_weight');
   if(weightEl) weightEl.addEventListener('change', ()=>{ newChartMeta.weight = weightEl.value; });
+  document.querySelectorAll('[data-startopt]').forEach(el=>{
+    el.addEventListener('change', ()=>{ if(el.checked) newChartMeta.startOption = el.value; });
+  });
 
   const planEl = document.getElementById('nc_plan');
   if(planEl){
@@ -273,7 +415,8 @@ function bindNewChartForm(){
       id: MedChart.uid(), sourceAnimalId: MedChart.uid(), sourceTool: 'manual', createdAt: new Date().toISOString(),
       animalId: newChartMeta.animalId.trim(), species: newChartMeta.species, weight: newChartMeta.weight,
       location: newChartMeta.location, microchip: newChartMeta.microchip, vetInCharge: newChartMeta.vetInCharge,
-      problemList: (newChartMeta.vetPlanText||'').trim(), meds: newChartDraft.map(m=>Object.assign({},m))
+      problemList: (newChartMeta.vetPlanText||'').trim(), startOption: newChartMeta.startOption,
+      meds: newChartDraft.map(m=>Object.assign({},m))
     };
     MedChart.addChart(chart);
     alert(MedChart.saveConfirmationMessage(chart));
@@ -286,7 +429,10 @@ function bindNewChartForm(){
 
 document.getElementById('newChartBtn').addEventListener('click', ()=>{
   newChartOpen = !newChartOpen;
-  if(newChartOpen) resetNewChartForm();
+  if(newChartOpen){
+    resetNewChartForm();
+    if(editingChartId){ editingChartId = null; editMeta = null; editDraft = null; renderList(); }
+  }
   renderNewChartForm();
 });
 

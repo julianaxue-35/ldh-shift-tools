@@ -342,12 +342,15 @@
     if (chart.weight) xml = setCellXml(xml, 'B8', parseFloat(chart.weight) || chart.weight);
     if (chart.vetInCharge) xml = setCellXml(xml, HEADER_CELLS.vetInCharge, 'Vet in Charge: ' + chart.vetInCharge);
     if (chart.problemList) xml = setCellXml(xml, HEADER_CELLS.vetPlan, 'Vet Plan:   ' + chart.problemList);
-    // Day 1 starts one day ahead of the registration date (her house rule —
-    // matches the template's own original "=TODAY()+1" intent), Day 2 is
-    // +2, etc., one date per AM/PM row pair.
+    // Day 1 starts either the registration date itself or one day ahead of
+    // it, per her choice at Save (`chart.startOption`, default 'tomorrow' —
+    // matches the template's own original "=TODAY()+1" intent, and keeps
+    // every chart saved before this option existed rendering exactly as
+    // before). Day 2 is +1 from Day 1, etc., one date per AM/PM row pair.
     var startSerial = excelDateSerial(new Date(chart.createdAt || Date.now()));
+    var dayOffset = chart.startOption === 'today' ? 0 : 1;
     GRID_ROWS.forEach(function (row, i) {
-      xml = setCellXml(xml, 'A' + row, startSerial + i + 1);
+      xml = setCellXml(xml, 'A' + row, startSerial + dayOffset + i);
     });
     var meds = chart.meds.slice(0, MAX_MEDS_PER_SHEET);
     meds.forEach(function (m, i) {
@@ -383,6 +386,20 @@
   }
   function deleteChart(id) {
     saveCharts(loadCharts().filter(function (c) { return c.id !== id; }));
+  }
+  // Replaces an already-saved chart's editable fields in place (the
+  // Medication Charts page's Edit flow — changing drug/dose/route/duration/
+  // start date on a chart after it was registered, without deleting and
+  // re-creating it). `patch` is shallow-merged onto the existing record, so
+  // callers only need to pass the fields they're changing (id/createdAt/
+  // sourceTool/sourceAnimalId stay untouched unless explicitly overridden).
+  function updateChart(id, patch) {
+    var list = loadCharts();
+    var idx = list.findIndex(function (c) { return c.id === id; });
+    if (idx === -1) return null;
+    list[idx] = Object.assign({}, list[idx], patch);
+    saveCharts(list);
+    return list[idx];
   }
   // Finds a previously-saved chart for the same underlying animal
   // record (matched by the shift tool's own internal id, not the
@@ -556,6 +573,7 @@
     loadCharts: loadCharts,
     saveCharts: saveCharts,
     addChart: addChart,
+    updateChart: updateChart,
     deleteChart: deleteChart,
     findChartBySourceAnimal: findChartBySourceAnimal,
     upsertAutoMed: upsertAutoMed,

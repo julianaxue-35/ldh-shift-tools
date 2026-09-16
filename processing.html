@@ -223,7 +223,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <div class="wrap tab-panel hidden" id="tabCompleted">
   <div class="card" id="completedCard">
-    <h2>Registered to Word &amp; Excel (<span id="completedTabCount">0</span>)</h2>
+    <div class="row-actions" style="justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Registered to Word &amp; Excel (<span id="completedTabCount">0</span>)</h2>
+      <button class="btn small secondary" id="clearCompletedTabBtn">Clear exported</button>
+    </div>
     <p id="completedTabEmpty" style="font-size:12.5px;color:var(--ink-soft)">No animals registered yet.</p>
     <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="completedTabList"></div>
@@ -383,6 +386,7 @@ const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
 // the Plan box. Cleared once saved into MedChart's own shared store.
 const chartDrafts = {};
 const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart currently being drafted
+const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 start date), defaults 'tomorrow'
 const BACKUP_MIN_INTERVAL_MS = 3 * 60 * 1000; // don't snapshot more than once per 3min
 const BACKUP_MAX_COUNT = 6;
 
@@ -1156,6 +1160,8 @@ document.getElementById('registerAllBtn').addEventListener('click', ()=>{
     saveShift(); renderShiftList();
   }
 });
+const clearCompletedTabBtn = document.getElementById('clearCompletedTabBtn');
+if(clearCompletedTabBtn) clearCompletedTabBtn.addEventListener('click', ()=> document.getElementById('clearRegisteredBtn').click());
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
@@ -1267,8 +1273,12 @@ renderShiftList();
 /* ---------- exam modal ---------- */
 /* ---------- medication chart draft preview ---------- */
 function chartDraftHtml(a, draft, planText){
+  const startOption = chartDraftStartOption[a.id] || 'tomorrow';
   let h = `<div class="pe-field" style="border:2px solid var(--teal);border-radius:8px;padding:12px;margin-top:8px;background:#f4fbf8">
     <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>
+    <div style="margin-bottom:10px"><label style="font-size:11px">Day 1 starts</label><br>
+      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="chartStartOpt_${esc(a.id)}" data-startopt value="today" ${startOption==='today'?'checked':''}> Today</label>
+      <label style="font-size:12.5px"><input type="radio" name="chartStartOpt_${esc(a.id)}" data-startopt value="tomorrow" ${startOption==='tomorrow'?'checked':''}> Tomorrow</label></div>
     <div style="margin-bottom:10px"><label style="font-size:11px">Vet Plan (printed on the chart — pre-filled from Assessment, add anything else the attendants need, e.g. "Chlorhex wipe: use over the wound BID for 5 days. Location: left flank")</label><br>
       <textarea class="plain" id="chartVetPlan_${esc(a.id)}" style="width:100%;min-height:60px">${esc(planText||'')}</textarea></div>`;
   draft.forEach((m, i)=>{
@@ -1312,6 +1322,9 @@ function bindChartDraft(a, body){
   if(!draft) return;
   const planEl = document.getElementById('chartVetPlan_'+a.id);
   if(planEl) planEl.addEventListener('input', ()=>{ chartDraftPlans[a.id] = planEl.value; });
+  body.querySelectorAll('[data-startopt]').forEach(el=>{
+    el.addEventListener('change', ()=>{ if(el.checked) chartDraftStartOption[a.id] = el.value; });
+  });
   body.querySelectorAll('[data-mfield]').forEach(el=>{
     const evt = (el.type==='radio') ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
@@ -1338,17 +1351,19 @@ function bindChartDraft(a, body){
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'processing', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: a.weight, location: a.location, microchip: a.microchip,
       vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
+      startOption: chartDraftStartOption[a.id] || 'tomorrow',
       meds: draft.map(m=>Object.assign({}, m))
     };
     if(existing) MedChart.deleteChart(existing.id);
     MedChart.addChart(chart);
     delete chartDrafts[a.id];
     delete chartDraftPlans[a.id];
+    delete chartDraftStartOption[a.id];
     alert(MedChart.saveConfirmationMessage(chart));
     openExam(a.id);
   });
   const cancelBtn = document.getElementById('cancelChartBtn');
-  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; openExam(a.id); });
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; delete chartDraftStartOption[a.id]; openExam(a.id); });
 }
 
 function openExam(id){

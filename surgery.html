@@ -524,6 +524,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // In-memory only — a parsed-but-not-yet-saved medication chart, keyed
 // by animal id, shown as an editable preview. Cleared once saved.
 const chartDrafts = {};
+const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 start date), defaults 'tomorrow'
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_surgery_shift_v1';
@@ -1729,8 +1730,12 @@ window.addEventListener('storage', (e)=>{
 /* ---------- exam modal ---------- */
 /* ---------- medication chart draft preview ---------- */
 function chartDraftHtml(a, draft){
+  const startOption = chartDraftStartOption[a.id] || 'tomorrow';
   let h = `<div class="pe-field" style="border:2px solid var(--teal, #1f7a4d);border-radius:8px;padding:12px;margin-top:8px;background:#f4fbf8">
-    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>`;
+    <div class="lbl" style="margin-bottom:8px">Medication chart preview — review every line before saving. Nothing here is guessed silently; check anything flagged below.</div>
+    <div style="margin-bottom:10px"><label style="font-size:11px">Day 1 starts</label><br>
+      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="chartStartOpt_${esc(a.id)}" data-startopt value="today" ${startOption==='today'?'checked':''}> Today</label>
+      <label style="font-size:12.5px"><input type="radio" name="chartStartOpt_${esc(a.id)}" data-startopt value="tomorrow" ${startOption==='tomorrow'?'checked':''}> Tomorrow</label></div>`;
   draft.forEach((m, i)=>{
     h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1770,6 +1775,9 @@ function blankMedRow(){
 function bindChartDraft(a, body){
   const draft = chartDrafts[a.id];
   if(!draft) return;
+  body.querySelectorAll('[data-startopt]').forEach(el=>{
+    el.addEventListener('change', ()=>{ if(el.checked) chartDraftStartOption[a.id] = el.value; });
+  });
   body.querySelectorAll('[data-mfield]').forEach(el=>{
     const evt = (el.type==='radio') ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
@@ -1796,18 +1804,20 @@ function bindChartDraft(a, body){
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'surgery', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: a.weight, location: a.location,
       vetInCharge: vetInitEl.value || '',
+      startOption: chartDraftStartOption[a.id] || 'tomorrow',
       meds: draft.map(m=>Object.assign({}, m))
     };
     if(existing) MedChart.deleteChart(existing.id);
     MedChart.addChart(chart);
     delete chartDrafts[a.id];
+    delete chartDraftStartOption[a.id];
     a.newMedChartText = '';
     saveShift();
     alert(MedChart.saveConfirmationMessage(chart));
     openExam(a.id);
   });
   const cancelBtn = document.getElementById('cancelChartBtn');
-  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; openExam(a.id); });
+  if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftStartOption[a.id]; openExam(a.id); });
 }
 
 function openExam(id){
