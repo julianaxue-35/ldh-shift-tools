@@ -111,8 +111,8 @@
     var low = text.toLowerCase();
     if (/\bpo\b|orally|by mouth|\boral\b/.test(low)) return 'PO';
     if (/\beye\b|ophthalmic/.test(low)) return 'Ophthalmic (eye)';
-    if (/\bear\b|otic/.test(low)) return 'Otic (ear)';
     if (/transdermal/.test(low)) return 'Transdermal';
+    if (/\bear\b|otic/.test(low)) return 'Otic (ear)';
     if (/\bsc\b|subcut|injection/.test(low)) return 'Subcutaneous';
     if (drug && drug.route) return drug.route;
     return null;
@@ -371,11 +371,59 @@
     return xml;
   }
 
+  var CHARTS_BACKUP_KEY = STORAGE_KEY + '_backup';
+  var CHARTS_BACKUP_MAX = 5;
+
+  function loadChartBackups() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(CHARTS_BACKUP_KEY) || '[]');
+      return Array.isArray(raw) ? raw : [];
+    } catch (e) { return []; }
+  }
+
+  // A corrupted ldh_medcharts_v1 value (bad JSON, or valid JSON that isn't
+  // an array) used to be silently treated as "no charts" — wiping every
+  // saved 14-day chart across all four tools with no warning. Recover from
+  // the newest pre-save snapshot instead, and say so loudly.
   function loadCharts() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-    catch (e) { return []; }
+    var raw = localStorage.getItem(STORAGE_KEY);
+    if (raw == null) return [];
+    try {
+      var parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) throw new Error('saved chart data was not a list');
+      return parsed;
+    } catch (e) {
+      var backups = loadChartBackups();
+      if (backups.length) {
+        var latest = backups[backups.length - 1];
+        if (latest && Array.isArray(latest.data)) {
+          if (typeof alert === 'function') {
+            alert('Your saved medication charts looked corrupted, so they\'ve been restored from an automatic backup taken ' + new Date(latest.ts).toLocaleString() + '. Please double-check everything below.');
+          }
+          return latest.data;
+        }
+      }
+      if (typeof alert === 'function') {
+        alert('Your saved medication charts looked corrupted and no automatic backup could be recovered — starting with an empty list. Sorry about this.');
+      }
+      return [];
+    }
   }
   function saveCharts(list) {
+    // Snapshot whatever was there immediately before overwriting it, so a
+    // future corrupted read can be recovered from.
+    var prevRaw = localStorage.getItem(STORAGE_KEY);
+    if (prevRaw) {
+      try {
+        var prevParsed = JSON.parse(prevRaw);
+        if (Array.isArray(prevParsed)) {
+          var backups = loadChartBackups();
+          backups.push({ ts: Date.now(), data: prevParsed });
+          if (backups.length > CHARTS_BACKUP_MAX) backups = backups.slice(backups.length - CHARTS_BACKUP_MAX);
+          localStorage.setItem(CHARTS_BACKUP_KEY, JSON.stringify(backups));
+        }
+      } catch (e) { /* don't block the real save over a backup failure */ }
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   }
   function addChart(chart) {
@@ -422,10 +470,10 @@
   // concentration (e.g. "Gabapentin 200mg/mL: give 0.3ml") instead needs an
   // EXPLICIT volume given — unlike the tablet-count default, a missing
   // volume here is never assumed, since guessing one could be wildly wrong.
-  var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per)\s*m[lL])/i;
-  var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*(?:\/|per)\s*m[lL]\b/i;
+  var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b)/i;
+  var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b/i;
   var QTY_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(?:tablets?|tabs?|capsules?|caps?)\b/i;
-  var VOLUME_ML_RE = /(\d+(?:\.\d+)?)\s*m[lL]\b/i;
+  var VOLUME_ML_RE = /(\d+(?:\.\d+)?)\s*m[lL]s?\b/i;
   // Matches an annotation this function itself inserted on an earlier pass,
   // so re-running it on already-annotated text (e.g. re-editing the same
   // field and blurring again) replaces the old figure instead of stacking
@@ -481,10 +529,19 @@
     if (flatDrug && FLAT_DOSE_DRUGS[flatDrug.key]) return null;
     var parts = splitInstruction(line);
 
-    var concM = CONCENTRATION_TOKEN_RE.exec(parts.head);
+    // Matched against the whole line, not just `parts.head` — a colon used
+    // as the concentration's own separator (e.g. "200mg:1mL give 0.25ml...")
+    // would otherwise get cut in half by splitInstruction's colon-based
+    // head/tail split before this regex ever saw it.
+    var concM = CONCENTRATION_TOKEN_RE.exec(line);
     if (concM) {
       var concVal = parseFloat(concM[0]);
-      var volM = VOLUME_ML_RE.exec(parts.tail) || VOLUME_ML_RE.exec(line);
+      // The administered volume always comes AFTER the concentration
+      // expression in her phrasing — searching only the remainder avoids
+      // re-matching the concentration's own "1mL" denominator as if it
+      // were the dose volume.
+      var afterConc = line.slice(concM.index + concM[0].length);
+      var volM = VOLUME_ML_RE.exec(afterConc) || VOLUME_ML_RE.exec(parts.tail) || VOLUME_ML_RE.exec(line);
       if (!volM || !(concVal > 0)) return null;
       var volMl = parseFloat(volM[1]);
       if (!(volMl >= 0)) return null;
