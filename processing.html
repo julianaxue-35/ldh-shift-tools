@@ -1696,7 +1696,6 @@ function bindExamForm(a){
   const body = document.getElementById('examBody');
   const map = {
     vhc:'fld_vhc',
-    weight:'fld_weight',
     pathway:'fld_pathway',
     treatments:'fld_treatments',chillRequired:'fld_chill',
     bloodworkType:'fld_bwtype'};
@@ -1706,6 +1705,19 @@ function bindExamForm(a){
     el.addEventListener('change', ()=>{ a[k]=el.value; refreshNote(a); saveShift(); });
     el.addEventListener('input', ()=>{ a[k]=el.value; });
   });
+  const weightEl = document.getElementById('fld_weight');
+  if(weightEl){
+    weightEl.addEventListener('change', ()=>{
+      a.weight = weightEl.value;
+      // Weight is often filled in after the medication text (or vice
+      // versa) — re-run the mg/kg annotation on whatever's already typed
+      // so it's never left silently un-annotated just because of fill order.
+      if(a.currentMedDetail) a.currentMedDetail = MedChart.annotateMgPerKg(a.currentMedDetail, a.weight, a.species);
+      if(a.medPlan) a.medPlan = MedChart.annotateMgPerKg(a.medPlan, a.weight, a.species);
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+    weightEl.addEventListener('input', ()=>{ a.weight = weightEl.value; });
+  }
   const animalIdEl = document.getElementById('fld_animalid');
   if(animalIdEl) animalIdEl.addEventListener('change', ()=>{
     a.animalId = animalIdEl.value.trim(); saveShift(); openExam(a.id);
@@ -2088,7 +2100,15 @@ function bindExamForm(a){
   });
   const medPlanEl = document.getElementById('fld_medplan');
   if(medPlanEl){
-    medPlanEl.addEventListener('change', ()=>{ a.medPlan = medPlanEl.value; refreshNote(a); saveShift(); });
+    medPlanEl.addEventListener('change', ()=>{
+      // Same passive mg/kg annotation as Current medication — Plan doesn't
+      // always start as a copy of it (she may type straight into Plan, or
+      // have already edited it once the copy-while-blank guard stopped
+      // applying), so it needs its own independent check rather than
+      // relying solely on the one-time copy above.
+      a.medPlan = MedChart.annotateMgPerKg(medPlanEl.value, a.weight, a.species);
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
     medPlanEl.addEventListener('input', ()=>{ a.medPlan = medPlanEl.value; });
   }
   const regChartBtn = body.querySelector('[data-regchart]');
@@ -2215,6 +2235,10 @@ function assembleNote(a){
   if(a.notExamined){
     L.push('');
     L.push('NOT ABLE TO BE EXAMINED THIS SHIFT');
+    if(a.species==='cat' && a.fasScore) L.push(`FAS score: ${FAS_OPTIONS.find(o=>o.v===a.fasScore)?.label || a.fasScore}`);
+    L.push(`Handling: ${a.handling||'-'}`);
+    L.push(`Current medication: ${a.currentMed==='YES' ? (a.currentMedDetail && a.currentMedDetail.trim() ? a.currentMedDetail.trim() : 'Already on medication') : (a.currentMed==='NA' ? 'N/A' : '-')}`);
+    L.push('');
     L.push(`Assessment: ${a.assessmentNotes && a.assessmentNotes.trim() ? a.assessmentNotes.trim() : '-'}`);
     L.push(`Plan: ${a.notExaminedPlan && a.notExaminedPlan.trim() ? a.notExaminedPlan.trim() : '-'}`);
     return L.join('\n');
