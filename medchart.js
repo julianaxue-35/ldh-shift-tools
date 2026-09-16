@@ -449,7 +449,7 @@
   // Mirtazapine 1.88mg/cat, regardless of the individual cat's actual
   // weight) — a computed mg/kg figure would be misleading here, so these
   // are skipped entirely rather than annotated.
-  var FLAT_DOSE_DRUGS = { mirtazapine: true };
+  var FLAT_DOSE_DRUGS = { mirtazapine: true, 'mirtazapine-transdermal': true };
 
   function tryDefaultConcentration(line, wNum, species) {
     if (!species) return null;
