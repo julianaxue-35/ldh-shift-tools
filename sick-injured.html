@@ -1725,7 +1725,9 @@ function examFormHtml(a){
           <button type="button" class="btn small rust" data-delassess="${esc(p.id)}">Remove</button>
         </span>
       </div>
+      ${p.ddx ? `<div class="ddx-problem-body" id="ddxview_${esc(p.id)}">DDx: ${esc(p.ddx)}</div>` : ''}
       <textarea class="free-input hidden" id="probedit_${esc(p.id)}">${esc(p.text)}</textarea>
+      <textarea class="free-input hidden" id="ddxedit_${esc(p.id)}" placeholder="DDx (differential diagnosis)...">${esc(p.ddx||'')}</textarea>
       ${p.matched ? `<div class="opts" style="margin-top:6px">
         <button type="button" class="opt-btn ${p.resolved===false?'selected':''}" data-resolveflag="${esc(p.id)}" data-val="ongoing">Ongoing</button>
         <button type="button" class="opt-btn ${p.resolved===true?'selected abn':''}" data-resolveflag="${esc(p.id)}" data-val="resolved">Resolved</button>
@@ -1886,11 +1888,16 @@ function bindExamForm(a){
       const id = btn.dataset.editassess;
       const view = document.getElementById('probview_'+id);
       const edit = document.getElementById('probedit_'+id);
+      const ddxView = document.getElementById('ddxview_'+id);
+      const ddxEdit = document.getElementById('ddxedit_'+id);
       if(edit.classList.contains('hidden')){
-        view.classList.add('hidden'); edit.classList.remove('hidden'); btn.textContent = 'Save';
+        view.classList.add('hidden'); edit.classList.remove('hidden');
+        if(ddxView) ddxView.classList.add('hidden');
+        ddxEdit.classList.remove('hidden');
+        btn.textContent = 'Save';
       } else {
         const item = a.assessment.find(p=>p.id===id);
-        if(item) item.text = edit.value;
+        if(item){ item.text = edit.value; item.ddx = ddxEdit.value.trim(); }
         saveShift(); openExam(a.id);
       }
     });
@@ -1899,8 +1906,9 @@ function bindExamForm(a){
   if(addAssessBtn) addAssessBtn.addEventListener('click', ()=>{
     const title = window.prompt('New problem (e.g. "Dental grade 2/4"):');
     if(!title) return;
+    const ddx = window.prompt('Differential diagnosis (DDx) — optional, e.g. "viral vs bacterial":');
     const m = matchResolvable(title);
-    a.assessment.push({id:uid(), text:title.trim(), matched: m?m.key:null, resolved:null});
+    a.assessment.push({id:uid(), text:title.trim(), ddx:(ddx||'').trim(), matched: m?m.key:null, resolved:null});
     saveShift(); openExam(a.id);
   });
 
@@ -1985,9 +1993,13 @@ function assembleNote(a){
     assessLines.push('-');
   } else if(a.assessment.length===1){
     const p = a.assessment[0];
-    assessLines.push(p.resolved===true ? `${p.text} — resolved this visit` : p.text);
+    const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
+    assessLines.push(p.resolved===true ? `${line} — resolved this visit` : line);
   } else {
-    a.assessment.forEach(p=> assessLines.push(`${p.text}${p.resolved===true ? ' — resolved this visit' : ''}`));
+    a.assessment.forEach(p=>{
+      const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
+      assessLines.push(`${line}${p.resolved===true ? ' — resolved this visit' : ''}`);
+    });
   }
   if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(reflowFreeText(a.assessmentNotes.trim()));
   L.push(assessLines.join('\n'));
@@ -2129,7 +2141,7 @@ async function buildWordFile(){
   toExport.forEach((a,i)=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
     if(i>0) paras += WORD_PAGE_BREAK;
-    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${a.location||''}`, {bold:true, size:26, before:i>0?0:120, after:120});
+    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${a.location||''}${a.weight ? ' — '+a.weight : ''}`, {bold:true, size:26, before:i>0?0:120, after:120});
     String(noteText).split('\n').forEach(line=>{
       if(!line.trim()){ paras += '<w:p/>'; return; }
       paras += wordParagraph(line, NOTE_SECTION_HEADERS.has(line.trim()) ? {bold:true, before:80, after:40} : {});
@@ -2223,7 +2235,7 @@ function nearestRecheckDate(a){
   return dates.sort((x,y)=>x-y)[0];
 }
 function problemSummary(a){
-  const active = a.assessment.filter(p=>p.resolved!==true).map(p=>p.text);
+  const active = a.assessment.filter(p=>p.resolved!==true).map(p=> p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text);
   if(active.length) return active.join('; ');
   return a.assessmentNotes && a.assessmentNotes.trim() ? a.assessmentNotes.trim() : '-';
 }
