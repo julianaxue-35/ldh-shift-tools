@@ -1025,7 +1025,7 @@ function makeAnimal(r){
     microchip: '',
     bcs:'', vhc:'',
     uvLamp:'', fivTest:'', fivResult:'',
-    testes:'', pregnant:'',
+    testes:'', pregnant:'', urogenitalNotes:'',
     approxAge: r.ageYears||'',
     assessmentOverrides: {}, // key -> edited DDx text
     titleOverrides: {},      // key -> edited presenting-condition title text
@@ -1517,7 +1517,8 @@ function examFormHtml(a){
       h += `<div class="opts">
         <button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button>
         <button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button>
-      </div>`;
+      </div>
+      <textarea class="free-input" id="fld_urogenitalNotes" placeholder="e.g. in season, discharge from vulva...">${esc(a.urogenitalNotes||'')}</textarea>`;
     }
   } else {
     h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
@@ -2079,6 +2080,10 @@ function bindExamForm(a){
   if(assessNotesEl) assessNotesEl.addEventListener('change', ()=>{
     a.assessmentNotes = assessNotesEl.value; refreshNote(a); saveShift();
   });
+  const urogenitalNotesEl = document.getElementById('fld_urogenitalNotes');
+  if(urogenitalNotesEl) urogenitalNotesEl.addEventListener('change', ()=>{
+    a.urogenitalNotes = urogenitalNotesEl.value; refreshNote(a); saveShift();
+  });
 
   body.querySelectorAll('[data-curmed]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -2289,7 +2294,7 @@ function assembleNote(a){
   }
   L.push(`VHC: ${a.vhc||'-'}/6`);
   if(a.sex==='M') L.push(`Testes: ${a.desex==='DESEXED' ? 'Desexed' : (a.testes||'-')}`);
-  else if(a.sex==='F') L.push(`Urogenital: ${a.desex==='DESEXED' ? 'Clean and dry vulva' : `Pregnant: ${a.pregnant||'-'}`}`);
+  else if(a.sex==='F') L.push(`Urogenital: ${a.desex==='DESEXED' ? 'Clean and dry vulva' : `Pregnant: ${a.pregnant||'-'}${a.urogenitalNotes && a.urogenitalNotes.trim() ? ' — '+a.urogenitalNotes.trim() : ''}`}`);
   L.push('');
   const problems = computeProblemList(a);
   L.push('ASSESSMENT:');
