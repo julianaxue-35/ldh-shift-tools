@@ -370,7 +370,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-18.1';
+const APP_VERSION = '2026-09-18.2';
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_processing_shift_v1';
@@ -511,11 +511,25 @@ function notExaminedFollowupText(a){
 /* Single source of truth for "what does Next step in pathway actually say"
    — used by both the note text and the Excel export, so the two can never
    drift apart. Free-text notes live in Plan, not folded into this one. */
+/* The "Awaiting spay/neuter" family already spells out a missing chip in its
+   own wording (see resolveSnPathway below) — but any other pathway (Awaiting
+   triage, Vet minor procedure, etc.) would otherwise let a missing chip slip
+   through unflagged until the animal's actually due out. Derived straight
+   from the microchip field so it can't drift out of sync with it; skipped
+   whenever the current step(s) already mention "microchip" themselves. */
+function chipDueOutFollowupText(a){
+  if(!snChipMissing(a)) return '';
+  if(allNextSteps(a).some(s=>/microchip/i.test(s))) return '';
+  return '; microchip needed when due out';
+}
 function nextStepFullText(a){
   const steps = allNextSteps(a);
   const followup = notExaminedFollowupText(a);
-  if(steps.length) return steps.join('; ') + followup;
-  return followup ? followup.replace(/^, then /, 'Then ') : '-';
+  const chipFollowup = chipDueOutFollowupText(a);
+  if(steps.length) return steps.join('; ') + followup + chipFollowup;
+  if(followup) return followup.replace(/^, then /, 'Then ');
+  if(chipFollowup) return chipFollowup.replace(/^; /, '');
+  return '-';
 }
 
 /* "Treatments provided" defaults to a free-text base ("Physical exam and
