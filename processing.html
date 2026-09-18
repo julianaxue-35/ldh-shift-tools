@@ -668,6 +668,7 @@ function normalizeAnimal(a){
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
+  if(a.behaviour == null) a.behaviour = '';
   return a;
 }
 
@@ -1415,6 +1416,8 @@ function examFormHtml(a){
   if(isUnsafeHandling(a)){
     h += `<div class="warn" style="margin-top:8px">Not safely handleable — do a visual exam only (rest, if needed, under sedation/surgery). Flagged for behavioural assessment below.</div>`;
   }
+  h += `<label style="font-size:12px;display:block;margin-top:8px">Behaviour findings</label>
+    <textarea class="free-input" id="fld_behaviour" placeholder="e.g. hides at back of cage, growls when approached, settles quickly once out">${esc(a.behaviour||'')}</textarea>`;
   h += `</div>`;
   h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">Examined this shift?</div>
     <div class="opts">
@@ -1766,6 +1769,10 @@ function bindExamForm(a){
   const fasEl = document.getElementById('fld_fasscore');
   if(fasEl) fasEl.addEventListener('change', ()=>{
     a.fasScore = fasEl.value; refreshNote(a); saveShift();
+  });
+  const behaviourEl = document.getElementById('fld_behaviour');
+  if(behaviourEl) behaviourEl.addEventListener('change', ()=>{
+    a.behaviour = behaviourEl.value; refreshNote(a); saveShift();
   });
   const handlingEl = document.getElementById('fld_handling');
   if(handlingEl) handlingEl.addEventListener('change', ()=>{
@@ -2242,6 +2249,7 @@ function assembleNote(a){
     L.push('NOT ABLE TO BE EXAMINED THIS SHIFT');
     if(a.species==='cat' && a.fasScore) L.push(`FAS score: ${FAS_OPTIONS.find(o=>o.v===a.fasScore)?.label || a.fasScore}`);
     L.push(`Handling: ${a.handling||'-'}`);
+    L.push(`Behaviour findings: ${a.behaviour && a.behaviour.trim() ? a.behaviour.trim() : '-'}`);
     L.push(`Current medication: ${a.currentMed==='YES' ? (a.currentMedDetail && a.currentMedDetail.trim() ? a.currentMedDetail.trim() : 'Already on medication') : (a.currentMed==='NA' ? 'N/A' : '-')}`);
     L.push('');
     L.push(`Assessment: ${a.assessmentNotes && a.assessmentNotes.trim() ? a.assessmentNotes.trim() : '-'}`);
@@ -2258,6 +2266,7 @@ function assembleNote(a){
   L.push('');
   if(a.species==='cat' && a.fasScore) L.push(`FAS score: ${FAS_OPTIONS.find(o=>o.v===a.fasScore)?.label || a.fasScore}`);
   L.push(`Handling: ${a.handling||'-'}`);
+  L.push(`Behaviour findings: ${a.behaviour && a.behaviour.trim() ? a.behaviour.trim() : '-'}`);
   L.push(`Current medication: ${a.currentMed==='YES' ? (a.currentMedDetail && a.currentMedDetail.trim() ? a.currentMedDetail.trim() : 'Already on medication') : (a.currentMed==='NA' ? 'N/A' : '-')}`);
   L.push('');
   L.push('Physical Exam:');
