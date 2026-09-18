@@ -530,7 +530,23 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-18.1';
+const APP_VERSION = '2026-09-18.2';
+/* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
+   push of exactly {title, location, shift} to the LDH Shift Ops dashboard
+   whenever an animal is registered here, so the live board reflects it
+   without anyone re-entering it. Never blocks the local save: a network
+   failure or the dashboard being unreachable must never stop this tool's
+   own record from completing. */
+const SYNC_ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
+const SYNC_APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
+const SYNC_SECRET = '0150e5d82a61630d053ce71513eb80f35524504de454adbe374a0d7e79662103';
+function syncCompletionToDashboard(a, shift) {
+  fetch(SYNC_ENDPOINT, {
+    method: 'POST',
+    headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: a.animalId, location: a.location, shift }),
+  }).catch(() => {});
+}
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_surgery_shift_v1';
@@ -2670,7 +2686,7 @@ function bindExamForm(a){
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
     saveShift();
-    if(a.registered) alert('Saved to register.');
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); }
     openExam(a.id);
     renderShiftList();
   });
