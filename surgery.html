@@ -526,9 +526,15 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 const chartDrafts = {};
 const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart currently being drafted
 const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 start date), defaults 'tomorrow'
+// Bump this string on every edit to this file — it's how the update-check
+// below (bottom of this script) tells a stale cached/open copy apart from
+// the version actually live on GitHub Pages. Format is free-form, just
+// needs to change each time.
+const APP_VERSION = '2026-09-18.1';
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_surgery_shift_v1';
+const LS_SHIFT_DATE = LS_SHIFT + '_date'; // the day this shift list was started — flags a list left over from a previous day
 const LS_BACKUP = LS_SHIFT + '_backups';
 const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
 const BACKUP_MIN_INTERVAL_MS = 3 * 60 * 1000; // don't snapshot more than once per 3min
@@ -731,7 +737,34 @@ function loadShift(){
 }
 function saveShift(){
   localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+  // Stamps the date this list was started (first animal added since it was
+  // last empty), so a later export can tell if the list is a leftover from
+  // a previous shift day rather than today's. Cleared automatically once
+  // the list is empty again, so the next animal added restamps fresh.
+  if(state.animals.length){
+    if(!localStorage.getItem(LS_SHIFT_DATE)) localStorage.setItem(LS_SHIFT_DATE, todayStr());
+  } else {
+    localStorage.removeItem(LS_SHIFT_DATE);
+  }
   maybeBackupShift(false);
+}
+// Gate for the export/share buttons — offers to clear a shift list still
+// holding animals from a previous day before exporting, so someone picking
+// up the tool the next morning doesn't accidentally send/attach yesterday's
+// stale list. Returns true if the caller should proceed with the export as
+// normal (nothing stale, or the old data was kept on purpose); false means
+// the list was just cleared and the export should be aborted — today's
+// animals need to be added first.
+function checkStaleShiftBeforeExport(){
+  const shiftDate = localStorage.getItem(LS_SHIFT_DATE);
+  if(!state.animals.length || !shiftDate || shiftDate === todayStr()) return true;
+  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now (re-add today's animals after)\nCancel = export anyway, including that old data`);
+  if(!wipe) return true;
+  maybeBackupShift(true);
+  state.animals = [];
+  saveShift(); renderShiftList();
+  alert('Old list cleared. Add today\'s animals, then export again.');
+  return false;
 }
 const state = { animals: loadShift(), openId: null };
 
@@ -2976,6 +3009,7 @@ async function runShareFlow(files, title, text){
   alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
 }
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
+  if(!checkStaleShiftBeforeExport()) return;
   const file = await buildWordFile();
   if(!file){ alert('There are no animals in this shift yet — add some first.'); return; }
   downloadFile(file);
@@ -3047,12 +3081,14 @@ function buildExcelFile(){
   return new File([blob], `Surgery_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  if(!checkStaleShiftBeforeExport()) return;
   const file = buildExcelFile();
   if(!file){ alert('No animals in the shift list.'); return; }
   downloadFile(file);
   showClearReminder();
 });
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
+  if(!checkStaleShiftBeforeExport()) return;
   const files = [await buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
   await runShareFlow(files, `Surgery Notes — ${todayStr()}`, `Surgery shift export — ${todayStr()}`);
@@ -3126,6 +3162,43 @@ document.getElementById('captureChipBtn').addEventListener('click', async ()=>{
     document.getElementById('scanStatus').textContent = 'OCR failed: ' + err.message;
   }
 });
+
+/* ---------- new-version banner ----------
+   Multiple people open this same GitHub Pages URL on their own devices, and
+   browsers (plus GitHub's/Fastly's CDN) cache the page — so after a fix is
+   pushed, anyone who already has a tab open, or whose browser served a
+   cached copy, silently keeps using the old version until they happen to
+   hard-refresh. This re-fetches the page itself with cache bypassed, reads
+   the APP_VERSION the live file currently declares, and — if it's newer
+   than what's actually running — shows a dismiss-free banner with a Reload
+   button rather than forcing a reload (a vet mid-note shouldn't lose typed
+   text to a surprise refresh). Fails silently if offline; this is a
+   nice-to-have; the tool must keep working without it. */
+(function(){
+  function checkForUpdate(){
+    fetch(location.pathname + '?_vcheck=' + Date.now(), {cache:'no-store'})
+      .then(function(r){ return r.text(); })
+      .then(function(text){
+        const m = text.match(/const APP_VERSION\s*=\s*'([^']+)'/);
+        if(m && m[1] && m[1] !== APP_VERSION) showUpdateBanner();
+      })
+      .catch(function(){});
+  }
+  function showUpdateBanner(){
+    if(document.getElementById('updateBanner')) return;
+    const bar = document.createElement('div');
+    bar.id = 'updateBanner';
+    bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#b5730a;color:#fff;padding:10px 14px;font-size:13px;text-align:center;font-family:system-ui,-apple-system,Roboto,Arial,sans-serif';
+    bar.innerHTML = 'A newer version of this tool is available. <button id="updateReloadBtn" style="margin-left:10px;background:#fff;color:#b5730a;border:none;border-radius:4px;padding:4px 10px;font-weight:600;cursor:pointer">Reload now</button>';
+    document.body.prepend(bar);
+    document.getElementById('updateReloadBtn').addEventListener('click', function(){
+      location.href = location.pathname + '?_r=' + Date.now();
+    });
+  }
+  checkForUpdate();
+  setInterval(checkForUpdate, 10 * 60 * 1000);
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) checkForUpdate(); });
+})();
 </script>
 <!-- ip-notice-footer -->
 <footer style="margin:2rem 0 0;padding:14px 16px;border-top:1px solid rgba(128,128,128,.35);text-align:center;font-size:12px;line-height:1.55;color:#888;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
