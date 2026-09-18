@@ -1676,7 +1676,7 @@ function examFormHtml(a){
     <textarea class="free-input" id="fld_history" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
 
   h += `<div class="pe-field"><div class="lbl">Current medication</div>
-    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Updated automatically from Treatment — a medication added there today shows up here too, alongside what's already on it.</p>
+    <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">What this animal is already on — filled in from the last vet reminder import, or type/edit directly. Starting something new today goes in Treatment below, not here.</p>
     <textarea class="free-input" id="fld_currentMed" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.currentMed||'')}</textarea></div>`;
 
   if(a.template==='28day'){
@@ -1950,6 +1950,8 @@ function assembleNote(a){
   L.push('');
   L.push('Reason / History:');
   L.push(a.history && a.history.trim() ? reflowFreeText(a.history.trim()) : '-');
+  L.push('');
+  L.push(`Current medication: ${a.currentMed && a.currentMed.trim() ? reflowFreeText(a.currentMed.trim()) : '-'}`);
   L.push('');
   L.push('Examination:');
   if(a.template==='28day'){
