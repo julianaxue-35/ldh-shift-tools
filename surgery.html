@@ -258,6 +258,20 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <div class="wrap tab-panel" id="tabShift">
 
+  <div class="card" id="shareCard">
+    <h2>Share this shift (multi-station)</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Off by default. Turn on so Prep, Surgery and Recovery devices see the same animals live. Microchip numbers never leave the device they were typed on — other stations only see "implanted". Sign in with the surgery-stations login.</p>
+    <div id="shareOffWrap">
+      <input class="plain" id="shareEmail" type="email" autocomplete="username" placeholder="Surgery stations email" style="width:100%;margin-bottom:6px">
+      <input class="plain" id="sharePass" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;margin-bottom:6px">
+      <div class="row-actions"><button class="btn" id="shareConnectBtn">Turn on sharing</button></div>
+    </div>
+    <div id="shareOnWrap" class="hidden">
+      <span id="shareStatus" style="font-size:13px"></span>
+      <div class="row-actions"><button class="btn small secondary" id="shareOffBtn">Turn off sharing</button></div>
+    </div>
+  </div>
+
   <div class="card" id="intakeCard">
     <h2>Add animals to today's surgery list</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Desexing only (castration / cryptorchid / spey / pregnant spey / pyometra). Optionally upload a ShelterMate export to prefill ID/location/weight/desexing status/flea-worming/vaccination due/procedure — column headers are matched loosely since the exact export format hasn't been tested yet, so check the preview before adding.</p>
@@ -530,7 +544,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.3';
+const APP_VERSION = '2026-09-19.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -778,6 +792,7 @@ function loadShift(){
     return [];
   }
 }
+var shareReady = false; // set true once the sharing module (bottom of script) has initialised
 function saveShift(){
   localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
   // Stamps the date this list was started (first animal added since it was
@@ -790,6 +805,7 @@ function saveShift(){
     localStorage.removeItem(LS_SHIFT_DATE);
   }
   maybeBackupShift(false);
+  if(shareReady) shareSchedulePush();
 }
 // Gate for the export/share buttons — offers to clear a shift list still
 // holding animals from a previous day before exporting, so someone picking
@@ -2809,7 +2825,9 @@ function assembleNote(a){
   (a.customTicks||[]).forEach(ct=>{ if(ct.done) L.push(`- ${ct.label} (${ct.time})`); });
   if(a.assistComments && a.assistComments.trim()) L.push(`  Comment: ${a.assistComments.trim()}`);
   if(a.microchipDue && !(a.ticks['microchip'] && a.ticks['microchip'].done)) L.push('  ⚠ Microchip due — not yet implanted');
-  if(a.microchipNum) L.push(`  Microchip: ${a.microchipNum}`);
+  if(chipHasFullNumber(a)) L.push(`  Microchip: ${a.microchipNum}`);
+  else if(a.ticks['microchip'] && a.ticks['microchip'].done) L.push('  Microchip: implanted (number not recorded on this device)');
+  else if(a.microchipNum) L.push(`  Microchip: ${a.microchipNum}`);
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);
   if(a.ticks['intubation'] && a.ticks['intubation'].done) L.push(`  ET tube size: ${a.etTubeSize||'-'}`);
   if(a.alfaxPreMl) L.push(`  Alfaxalone pre-op given: ${a.alfaxPreMl}mL`);
@@ -3065,9 +3083,11 @@ async function runShareFlow(files, title, text){
 }
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
   if(!checkStaleShiftBeforeExport()) return;
+  if(!confirmChipNumbersPresent()) return;
   const file = await buildWordFile();
   if(!file){ alert('There are no animals in this shift yet — add some first.'); return; }
   downloadFile(file);
+  shareScrubExported();
   showClearReminder();
 });
 
@@ -3144,9 +3164,11 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
 });
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   if(!checkStaleShiftBeforeExport()) return;
+  if(!confirmChipNumbersPresent()) return;
   const files = [await buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
   await runShareFlow(files, `Surgery Notes — ${todayStr()}`, `Surgery shift export — ${todayStr()}`);
+  shareScrubExported();
 });
 
 /* ---------- microchip camera scan (offline OCR via vendored Tesseract.js) ----------
@@ -3217,6 +3239,211 @@ document.getElementById('captureChipBtn').addEventListener('click', async ()=>{
     document.getElementById('scanStatus').textContent = 'OCR failed: ' + err.message;
   }
 });
+
+
+/* ---------- multi-station sharing ("Share this shift") ----------
+   Opt-in per shift. Local-first: localStorage stays the source of truth and
+   nothing here ever blocks a local save. The cloud copy has the microchip
+   NUMBER stripped (only an "implanted" flag goes up). Pushes send only the
+   fields that changed since the last sync (server deep-merges them), so two
+   stations editing different parts of one animal don't overwrite each other. */
+const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
+const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
+const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed'];
+const share = { client:null, on:false, base:{}, dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null };
+function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
+function confirmChipNumbersPresent(){
+  const missing = state.animals.filter(a=>a.registered && a.ticks['microchip'] && a.ticks['microchip'].done && !chipHasFullNumber(a));
+  if(!missing.length) return true;
+  return confirm(`${missing.length} animal(s) (${missing.map(a=>a.animalId||'no ID').join(', ')}) show a microchip as implanted but have no number on THIS device — the Word file will say "implanted (number not recorded on this device)" for them.\n\nMicrochip numbers never leave the device they were typed on, so export from the device that scanned them if you need the number in the document.\n\nOK = export anyway, Cancel = go back.`);
+}
+function shareIsObj(v){ return v && typeof v==='object' && !Array.isArray(v); }
+function shareClone(v){ return JSON.parse(JSON.stringify(v)); }
+function shareDate(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function stripForSync(a){
+  const c = shareClone(a);
+  SHARE_LOCAL_ONLY_KEYS.forEach(k=>{ delete c[k]; });
+  c.microchipImplanted = !!(a.ticks && a.ticks.microchip && a.ticks.microchip.done);
+  return c;
+}
+// Returns only what differs between base and cur (removed keys -> null), or undefined if identical.
+function shareDiff(b, c){
+  if(shareIsObj(b) && shareIsObj(c)){
+    const p = {}; let any = false;
+    Object.keys(c).forEach(k=>{
+      if(!(k in b)){ p[k]=c[k]; any=true; }
+      else { const d = shareDiff(b[k], c[k]); if(d!==undefined){ p[k]=d; any=true; } }
+    });
+    Object.keys(b).forEach(k=>{ if(!(k in c)){ p[k]=null; any=true; } });
+    return any ? p : undefined;
+  }
+  return JSON.stringify(b)===JSON.stringify(c) ? undefined : c;
+}
+function shareApply(target, patch){
+  Object.keys(patch).forEach(k=>{
+    if(SHARE_LOCAL_ONLY_KEYS.includes(k)) return;
+    const v = patch[k];
+    if(v===null) delete target[k];
+    else if(shareIsObj(v) && shareIsObj(target[k])) shareApply(target[k], v);
+    else target[k] = shareClone(v);
+  });
+}
+function shareSetStatus(text, ok){
+  const el = document.getElementById('shareStatus'); if(!el) return;
+  el.textContent = text; el.style.color = ok===false ? '#b5730a' : '';
+}
+function shareSchedulePush(){
+  if(!share.on) return;
+  clearTimeout(share.pushTimer);
+  share.pushTimer = setTimeout(sharePush, 800);
+}
+async function sharePush(){
+  if(!share.on || !share.client) return;
+  if(share.pushing){ share.dirty = true; return; }
+  share.pushing = true; share.dirty = false;
+  try{
+    const liveIds = new Set();
+    for(const a of state.animals){
+      liveIds.add(a.id);
+      if(a.cloudScrubbed) continue;
+      const cur = stripForSync(a), base = share.base[a.id];
+      const patch = base ? shareDiff(base, cur) : cur;
+      if(patch===undefined) continue;
+      const { error } = await share.client.rpc('merge_surgery_animal', {
+        p_id: a.id, p_shift_date: shareDate(), p_patch: patch,
+        p_surg_type: cur.surgType || null, p_done: !!cur.registered
+      });
+      if(error) throw error;
+      share.base[a.id] = cur;
+    }
+    // animals removed locally (mistaken add, Clear list) leave the cloud too
+    for(const id of Object.keys(share.base)){
+      if(liveIds.has(id)) continue;
+      const { error } = await share.client.from('surgery_shift').delete().eq('id', id);
+      if(error) throw error;
+      delete share.base[id];
+    }
+    shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
+  }catch(e){
+    shareSetStatus('Sharing on — offline, will retry (your work is saved on this device)', false);
+    share.dirty = true;
+  }finally{
+    share.pushing = false;
+    if(share.dirty) shareSchedulePush();
+  }
+}
+async function sharePull(){
+  if(!share.on || !share.client) return;
+  try{
+    const { data, error } = await share.client.from('surgery_shift').select('id,data').eq('shift_date', shareDate());
+    if(error) throw error;
+    const changed = new Set();
+    (data||[]).forEach(row=>{
+      const remote = row.data;
+      if(!remote || !Object.keys(remote).length) return; // scrubbed after export
+      const local = state.animals.find(x=>x.id===row.id);
+      if(!local){
+        const n = normalizeAnimal(Object.assign(shareClone(remote), { id: row.id, microchipNum: '' }));
+        state.animals.push(n); share.base[row.id] = shareClone(remote); changed.add(row.id);
+      } else if(!local.cloudScrubbed){
+        const patch = shareDiff(share.base[row.id] || {}, remote);
+        if(patch!==undefined){ shareApply(local, patch); normalizeAnimal(local); changed.add(row.id); }
+        share.base[row.id] = shareClone(remote);
+      }
+    });
+    if(changed.size){
+      localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+      renderShiftList();
+      if(state.openId && changed.has(state.openId)){
+        const ae = document.activeElement;
+        const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && document.getElementById('examBody').contains(ae);
+        const editingNote = !document.getElementById('noteEditArea').classList.contains('hidden');
+        if(!typing && !editingNote){
+          const m = document.getElementById('examModal'), st = m.scrollTop, wy = window.scrollY;
+          openExam(state.openId); m.scrollTop = st; window.scrollTo(0, wy);
+        }
+      }
+    }
+    shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
+  }catch(e){
+    shareSetStatus('Sharing on — offline, will retry (your work is saved on this device)', false);
+  }
+}
+// After an export, blank the clinical data in the cloud row (dashboard keeps only procedure type + done for its counts).
+async function shareScrubExported(){
+  if(!share.on || !share.client) return;
+  for(const a of state.animals.filter(x=>x.registered && !x.cloudScrubbed)){
+    try{
+      const { error } = await share.client.from('surgery_shift').update({ data: {} }).eq('id', a.id);
+      if(error) throw error;
+      a.cloudScrubbed = true; delete share.base[a.id];
+    }catch(e){ /* stays in cloud until the 24h purge; retried on next export */ }
+  }
+  localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+}
+function loadSupabaseLib(){
+  return new Promise((res, rej)=>{
+    if(window.supabase) return res();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
+    s.onload = res; s.onerror = ()=> rej(new Error('Could not load the sharing library — are you online?'));
+    document.head.appendChild(s);
+  });
+}
+function shareShowUi(on){
+  document.getElementById('shareOffWrap').classList.toggle('hidden', on);
+  document.getElementById('shareOnWrap').classList.toggle('hidden', !on);
+}
+async function shareStart(email, password){
+  await loadSupabaseLib();
+  if(!share.client) share.client = window.supabase.createClient(SHARE_URL, SYNC_APIKEY);
+  let { data:{ session } } = await share.client.auth.getSession();
+  if(!session){
+    if(!email || !password) return false;
+    const { error } = await share.client.auth.signInWithPassword({ email, password });
+    if(error) throw error;
+  }
+  share.on = true;
+  try{ localStorage.setItem(LS_SHARE_ON, '1'); }catch(e){}
+  shareShowUi(true); shareSetStatus('Sharing on — connecting…', true);
+  // retention: clear anything older than 24h (the server also purges on a schedule)
+  share.client.from('surgery_shift').delete().lt('updated_at', new Date(Date.now()-24*3600*1000).toISOString()).then(()=>{}, ()=>{});
+  share.channel = share.client.channel('surgery_shift_live')
+    .on('postgres_changes', { event:'*', schema:'public', table:'surgery_shift' }, ()=>{ clearTimeout(share.pullTimer); share.pullTimer = setTimeout(sharePull, 300); })
+    .subscribe();
+  share.pollTimer = setInterval(sharePull, 8000);
+  await sharePull();
+  await sharePush();
+  return true;
+}
+async function shareStop(){
+  share.on = false;
+  clearInterval(share.pollTimer); clearTimeout(share.pushTimer); clearTimeout(share.pullTimer);
+  try{ if(share.channel && share.client) share.client.removeChannel(share.channel); }catch(e){}
+  share.channel = null; share.base = {};
+  try{ if(share.client) await share.client.auth.signOut(); }catch(e){}
+  try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
+  shareShowUi(false);
+}
+document.getElementById('shareConnectBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('shareConnectBtn');
+  const email = document.getElementById('shareEmail').value.trim(), password = document.getElementById('sharePass').value;
+  if(!email || !password){ alert('Enter the surgery-stations email and password.'); return; }
+  btn.disabled = true;
+  try{
+    await shareStart(email, password);
+    document.getElementById('sharePass').value = '';
+  }catch(e){ alert('Could not turn on sharing: ' + (e.message||e)); }
+  btn.disabled = false;
+});
+document.getElementById('shareOffBtn').addEventListener('click', ()=>{
+  if(confirm('Turn off sharing on this device? Your list stays here; other stations keep theirs.')) shareStop();
+});
+shareReady = true;
+// resume after a reload if it was on and a saved session still exists
+try{
+  if(localStorage.getItem(LS_SHARE_ON)) shareStart().then(ok=>{ if(!ok) shareShowUi(false); }).catch(()=>{ shareShowUi(false); });
+}catch(e){}
 
 /* ---------- new-version banner ----------
    Multiple people open this same GitHub Pages URL on their own devices, and
