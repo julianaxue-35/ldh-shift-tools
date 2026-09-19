@@ -370,7 +370,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.2';
+const APP_VERSION = '2026-09-19.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -778,17 +778,23 @@ function saveShift(){
 // normal (nothing stale, or the old data was kept on purpose); false means
 // the list was just cleared and the export should be aborted — today's
 // animals need to be added first.
-function checkStaleShiftBeforeExport(){
+/* Generalized 2026-09-19 (matches sick-injured.html) — was export-only,
+   now also gates every way an animal gets ADDED, since a vet opening the
+   tool the next day with yesterday's list still there should be warned
+   before piling today's animals on top of it, not only at export time. */
+function checkStaleShiftBeforeChange(actionLabel){
   const shiftDate = localStorage.getItem(LS_SHIFT_DATE);
   if(!state.animals.length || !shiftDate || shiftDate === todayStr()) return true;
-  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now (re-add today's animals after)\nCancel = export anyway, including that old data`);
+  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now (you'll re-add today's animals after)\nCancel = ${actionLabel} anyway, including that old data`);
   if(!wipe) return true;
   maybeBackupShift(true);
   state.animals = [];
   saveShift(); renderShiftList();
-  alert('Old list cleared. Add today\'s animals, then export again.');
+  alert('Old list cleared. Add today\'s animals, then continue.');
   return false;
 }
+function checkStaleShiftBeforeExport(){ return checkStaleShiftBeforeChange('export'); }
+function checkStaleShiftBeforeAdd(){ return checkStaleShiftBeforeChange('add'); }
 
 const state = {
   species: 'cat',
@@ -1073,6 +1079,7 @@ function renderParsedTable(rows){
   if(selectNoneBtn) selectNoneBtn.addEventListener('click', ()=>{ rows.forEach(r=>r._checked=false); renderParsedTable(rows); });
 
   function confirmAdd(){
+    if(!checkStaleShiftBeforeAdd()) return;
     const selected = rows.filter(r=>r._checked!==false);
     if(!selected.length){ alert('Select at least one animal to add.'); return; }
     const added = selected.map(r=>{
@@ -1091,6 +1098,7 @@ function renderParsedTable(rows){
 }
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
+  if(!checkStaleShiftBeforeAdd()) return;
   const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:'', sex:''};
   state.animals.push(makeAnimal(r));
   saveShift();
