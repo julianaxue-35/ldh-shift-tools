@@ -544,7 +544,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.7';
+const APP_VERSION = '2026-09-19.8';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -659,10 +659,10 @@ function normalizeAnimal(a){
     hcNotes:{}, hcDental:{grade:'0', desc:''},
     waiversRequired:'', waiversSelected:[],
     premedType:'standard', premedOther:'', dogPremedMl:'', dogPremedRoute:'IM',
-    surgType:'spey', surgStart:'', surgEnd:'', surgNotes:'',
+    surgType:'spey', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'',
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
     scLayer:false, isoNotes:'',
-    buprenorphineRoute:'IV', bupPlanned:true, recoveryNotes:'',
+    buprenorphineRoute:'IV', bupRequired:false, recoveryNotes:'',
     vaccGiven:false, fivDone:false, fivResult:'', dogPremedRate:'',
     meloxOral:false, meloxTiming:'AM',
     microchipNum:'9560000', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
@@ -1048,7 +1048,14 @@ const NEED_ITEMS = [
   {key:'hc', label:'Health check under GA'}
 ];
 function needsSummary(a){ return NEED_ITEMS.filter(n=>a.needs && a.needs[n.key]).map(n=>n.label); }
-const ET_TUBE_SIZES = ['2.0','2.5','3.0','3.5','4.0','4.5','5.0','5.5','6.0','6.5','7.0','7.5','8.0','9.0','10.0'];
+const range05 = (lo, hi)=>{ const o=[]; for(let v=lo; v<=hi+1e-9; v+=0.5) o.push(v.toFixed(1)); return o; };
+const ET_SIZES_CAT = range05(2, 5.5);   // cats 2.0–5.5 mm
+const ET_SIZES_DOG = range05(3, 13);    // dogs 3.0–13.0 mm
+function etSizesFor(a){ return a.species==='cat' ? ET_SIZES_CAT : a.species==='dog' ? ET_SIZES_DOG : range05(2, 13); }
+function ivcOptionsFor(a){
+  const opts = [['22G','22G (blue)'],['24G','24G (yellow)']];
+  return a.species==='dog' ? [['20G','20G (pink)']].concat(opts) : opts;
+}
 // Booking-sheet "Tasks" shorthand -> structured needs + extra checks
 function parseTasks(text){
   const t = (text||'').toLowerCase();
@@ -2223,28 +2230,9 @@ function examFormHtml(a){
         </select>
       </div></div>
   </div>`;
-  h += needsBlockHtml(a);
-
   h += `<div class="sechdr">Physical Examination</div>`;
-  h += `<div class="two-col">
-    <div><label style="font-size:12px">HR (bpm)</label><br><input class="plain" id="fld_hr" type="text" value="${esc(a.hr||'')}" style="width:100%" placeholder="e.g. 180"></div>
-    <div><label style="font-size:12px">Respiratory sounds</label><br>
-      <select class="plain" id="fld_rr" style="width:100%">
-        <option ${a.rr==='Normal bronchovesicular sounds'?'selected':''}>Normal bronchovesicular sounds</option>
-        <option ${a.rr==='Tachypnoea'?'selected':''}>Tachypnoea</option>
-        <option ${a.rr==='Increased respiratory effort'?'selected':''}>Increased respiratory effort</option>
-        <option ${a.rr==='Purring'?'selected':''}>Purring</option>
-        <option ${a.rr==='Not able to be examined'?'selected':''}>Not able to be examined</option>
-      </select></div>
-  </div>`;
-  h += `<div class="two-col" style="margin-top:8px">
-    <div><label style="font-size:12px">MM colour</label><br>
-      <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic','Not able to be examined'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
-    <div><label style="font-size:12px">CRT</label><br>
-      <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s','Not able to be examined'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
-  </div>`;
-
-  h += `<div class="pe-field" style="margin-top:12px"><div class="lbl">Cardiac auscultation</div>
+  h += `<div><label style="font-size:12px">HR (bpm)</label><br><input class="plain" id="fld_hr" type="text" value="${esc(a.hr||'')}" style="width:100%" placeholder="e.g. 180"></div>`;
+  h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">Cardiac auscultation</div>
     <div class="opts">
       <button type="button" class="opt-btn ${a.caMurmur?'selected abn':''}" data-caflag="caMurmur">Heart murmur</button>
       <button type="button" class="opt-btn ${a.caGallop?'selected abn':''}" data-caflag="caGallop">Gallop rhythm</button>
@@ -2255,6 +2243,24 @@ function examFormHtml(a){
       <select class="plain" id="fld_murmurGrade" style="width:100%">${['1','2','3','4','5','6'].map(v=>`<option value="${v}" ${a.caMurmurGrade===v?'selected':''}>Grade ${v}/6</option>`).join('')}</select></div>` : ''}
     ${!a.caMurmur && !a.caGallop && !a.caArrhythmia && !a.caPurring ? `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Nothing selected yet — the note will record this as "No abnormalities detected". Tap Purring if the heart couldn't be assessed because the cat was purring.</p>` : ''}
   </div>`;
+  h += `<div style="margin-top:8px"><label style="font-size:12px">Respiratory sounds</label><br>
+      <select class="plain" id="fld_rr" style="width:100%">
+        <option ${a.rr==='Normal bronchovesicular sounds'?'selected':''}>Normal bronchovesicular sounds</option>
+        <option ${a.rr==='Tachypnoea'?'selected':''}>Tachypnoea</option>
+        <option ${a.rr==='Increased respiratory effort'?'selected':''}>Increased respiratory effort</option>
+        <option ${a.rr==='Purring'?'selected':''}>Purring</option>
+        <option ${a.rr==='Not able to be examined'?'selected':''}>Not able to be examined</option>
+      </select></div>`;
+  h += `<div class="two-col" style="margin-top:8px">
+    <div><label style="font-size:12px">MM colour</label><br>
+      <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic','Not able to be examined'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
+    <div><label style="font-size:12px">CRT</label><br>
+      <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s','Not able to be examined'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
+  </div>`;
+
+  h += needsBlockHtml(a);
+
+
 
   const doses = calcDoses(a.weight);
   h += `<div class="sechdr">Drug Dose Reference</div>`;
@@ -2284,7 +2290,8 @@ function examFormHtml(a){
       <button type="button" class="opt-btn ${a.premedType==='standard'?'selected':''}" data-premed="standard">Standard (${a.species==='dog'?'Methadone + Medetomidine':'ZMD'})</button>
       <button type="button" class="opt-btn ${a.premedType==='other'?'selected':''}" data-premed="other">Other (vet-selected)</button>
     </div>
-    ${a.premedType==='other' ? `<textarea class="free-input" id="fld_premedOther" placeholder="e.g. Methadone + medetomidine + midazolam...">${esc(a.premedOther||'')}</textarea>` : ''}
+    ${a.premedType==='other' ? `<textarea class="free-input" id="fld_premedOther" placeholder="e.g. Methadone + medetomidine + midazolam...">${esc(a.premedOther||'')}</textarea>
+      <div style="margin-top:8px">${tickHtml(a, {key:'premed-other', label:'Other premed given'})}</div>` : ''}
     ${a.premedType==='standard' && a.species==='dog' ? (()=>{
       const range = dogPremedRange(a.weight);
       const given = dogPremedGivenMl(a);
@@ -2315,12 +2322,11 @@ function examFormHtml(a){
     if(def.key==='ivc' && a.ticks['ivc'] && a.ticks['ivc'].done){
       h += `<div class="pe-field"><label style="font-size:12px">IV catheter gauge</label><br>
         <select class="plain" id="fld_ivcGauge" style="width:100%">
-          <option value="22G" ${a.ivcGauge==='22G'?'selected':''}>22G (blue)</option>
-          <option value="24G" ${a.ivcGauge==='24G'?'selected':''}>24G (yellow)</option>
+          ${ivcOptionsFor(a).map(([v,l])=>`<option value="${v}" ${a.ivcGauge===v?'selected':''}>${l}</option>`).join('')}
         </select></div>`;
     }
     if(def.key==='intubation' && a.ticks['intubation'] && a.ticks['intubation'].done){
-      const sizes = ET_TUBE_SIZES.slice();
+      const sizes = etSizesFor(a).slice();
       if(a.etTubeSize && !sizes.includes(a.etTubeSize)) sizes.push(a.etTubeSize); // keep older free-typed values
       h += `<div class="pe-field"><label style="font-size:12px">ET tube size (mm)</label><br>
         <select class="plain" id="fld_etTubeSize" style="width:100%"><option value="">Select…</option>${sizes.map(v=>`<option value="${esc(v)}" ${a.etTubeSize===v?'selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
@@ -2331,7 +2337,7 @@ function examFormHtml(a){
   });
   h += `</div></details>`;
 
-  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Surgery — health check, notes, monitoring, waivers</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Surgery — health check, notes, monitoring, waivers, tattoo / atipamezole / meloxicam</summary><div class="exam-section-body">`;
   if(a.needs.hc){
     h += `<div class="sechdr">Health check — do this as the patient goes into surgery</div>`;
     h += healthCheckHtml(a);
@@ -2443,12 +2449,17 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
-  h += `<div class="sechdr">Waivers (ticked here, listed at the end of the surgery notes)</div>`;
+  h += `<div class="sechdr">Waivers</div>`;
   h += waiversBlockHtml(a, 'intra');
+  h += `<div class="sechdr">End of surgery</div><div class="pe-field">`;
+  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
+  h += `</div>`;
+  h += `<div class="pe-field"><div class="lbl">Surgery comment</div>
+    <textarea class="free-input" id="fld_surgComment" placeholder="Anything else worth noting about the surgery...">${esc(a.surgComment||'')}</textarea></div>`;
 
   h += `</div></details>`;
 
-  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Recovery — worming, buprenorphine, vitals, then atipamezole &amp; meloxicam</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Recovery — worming, buprenorphine, vitals, notes</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
   if(a.needs.worm){
     h += `<div class="pe-field">
@@ -2457,18 +2468,17 @@ function examFormHtml(a){
     </div>`;
   }
   const bupDoses = calcDoses(a.weight);
-  h += `<div class="pe-field"><div class="lbl">Buprenorphine</div>`;
-  if(a.bupPlanned!==false){
-    h += `<p style="font-size:13px;margin:0 0 8px">To be given ~4 hours post-surgery via <b>${esc(a.buprenorphineRoute||'IV')}</b>${bupDoses?` — ${bupDoses.bupren} mL (0.02mg/kg, 300mcg/mL)`:''}.</p>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:12px">Route</label>
-        <select class="plain" id="fld_buprenorphineRoute">${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}</select>
-        <button type="button" class="opt-btn" id="bupPlannedToggle">Not required</button>
-      </div>`;
+  h += `<div class="pe-field"><div class="lbl">Buprenorphine</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.bupRequired?'selected abn':''}" data-bupreq="1">Required</button>
+      <button type="button" class="opt-btn ${!a.bupRequired?'selected':''}" data-bupreq="0">Not required</button>
+    </div>`;
+  if(a.bupRequired){
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
+      <select class="plain" id="fld_buprenorphineRoute" style="width:100%">${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <p style="font-size:13px;margin:8px 0 0">To be given ~4 hours post-surgery via <b>${esc(a.buprenorphineRoute||'IV')}</b>${bupDoses?` — ${bupDoses.bupren} mL (0.02mg/kg, 300mcg/mL)`:''}.</p>`;
     const bupRepeat = bupRepeatDose(a.weight);
     if(bupRepeat!=null) h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = <b>${bupRepeat}mg</b>, given ~4 hours post-surgery.</p>`;
-  } else {
-    h += `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px">Not planned for this animal.</p><button type="button" class="opt-btn" id="bupPlannedToggle">Add buprenorphine note back</button>`;
   }
   h += `</div>`;
 
@@ -2485,10 +2495,6 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Recovery notes</div>
     <textarea class="free-input" id="fld_recoveryNotes">${esc(a.recoveryNotes||'')}</textarea></div>`;
 
-  h += `<div class="sechdr">End of recovery</div>`;
-  h += `<div class="pe-field">`;
-  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
-  h += `</div>`;
   h += `</div></details>`;
 
   h += `<details class="exam-section" id="sec-paper" ${a.examSectionsOpen.paper?'open':''}><summary>Paperwork — pathway, rechecks</summary><div class="exam-section-body">`;
@@ -2569,8 +2575,9 @@ function bindExamForm(a){
   });
   const fivResultEl = document.getElementById('fld_fivResult');
   if(fivResultEl) fivResultEl.addEventListener('change', ()=>{ a.fivResult = fivResultEl.value; if(a.fivResult) a.fivDone = true; saveShift(); openExam(a.id); });
-  const bupPlannedToggle = document.getElementById('bupPlannedToggle');
-  if(bupPlannedToggle) bupPlannedToggle.addEventListener('click', ()=>{ a.bupPlanned = a.bupPlanned===false; saveShift(); openExam(a.id); });
+  body.querySelectorAll('[data-bupreq]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.bupRequired = btn.dataset.bupreq==='1'; saveShift(); openExam(a.id); });
+  });
   bindChange('fld_hr','hr'); bindChange('fld_rr','rr'); bindChange('fld_mm','mm'); bindChange('fld_crt','crt');
   bindChange('fld_age','age'); bindChange('fld_ageUnit','ageUnit');
   bindChange('fld_murmurGrade','caMurmurGrade');
@@ -2616,7 +2623,7 @@ function bindExamForm(a){
   });
   bindChange('fld_microchipNum','microchipNum');
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
-  bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes');
+  bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes'); bindChange('fld_surgComment','surgComment');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
   bindChange('fld_recoveryNotes','recoveryNotes');
   bindChange('fld_notSuitableReason','notSuitableReason'); bindChange('fld_paperworkBy','paperworkBy');
@@ -2886,6 +2893,7 @@ function assembleNote(a){
     L.push(doses ? `Standard ZMD — ${doses.zml}mL IM (Zoletil + Methadone + Medetomidine, 0.045mL/kg)` : 'Standard ZMD (enter weight to calculate dose)');
   } else {
     L.push(`Other (vet-selected): ${a.premedOther && a.premedOther.trim() ? a.premedOther.trim() : '-'}`);
+    { const pt = a.ticks['premed-other']; L.push(pt && pt.done ? `- Other premed given (${pt.time})` : '- Other premed: not marked given'); }
   }
   L.push('');
   L.push('Pre-op:');
@@ -2977,9 +2985,18 @@ function assembleNote(a){
   L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
   L.push(`Waivers: ${a.waiversSelected.length ? a.waiversSelected.join(', ') : '-'}`);
   L.push('');
+  L.push('End of surgery:');
+  let anyEnd = false;
+  POSTOP_TICKS.forEach(def=>{
+    const t = a.ticks[def.key];
+    if(t && t.done){ anyEnd = true; L.push(`- ${def.label} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
+  });
+  if(!anyEnd) L.push('-');
+  if(a.surgComment && a.surgComment.trim()) L.push(`Surgery comment: ${a.surgComment.trim()}`);
+  L.push('');
   L.push('Post-op:');
   if(a.needs.worm) L.push(`- Worming treatment: ${a.wormGiven ? 'given' : 'REQUIRED — not marked given'}`);
-  if(a.bupPlanned!==false){
+  if(a.bupRequired){
     const bd = calcDoses(a.weight);
     L.push(`- Buprenorphine: to be given ~4 hours post-surgery via ${a.buprenorphineRoute||'IV'}${bd?` — ${bd.bupren}mL (0.02mg/kg, 300mcg/mL)`:''}`);
     const bupRepeat = bupRepeatDose(a.weight);
@@ -3004,13 +3021,6 @@ function assembleNote(a){
   }
   if(a.recoveryNotes && a.recoveryNotes.trim()) L.push(`Recovery notes: ${a.recoveryNotes.trim()}`);
   L.push('');
-  L.push('End of recovery:');
-  let anyEnd = false;
-  POSTOP_TICKS.forEach(def=>{
-    const t = a.ticks[def.key];
-    if(t && t.done){ anyEnd = true; L.push(`- ${def.label} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
-  });
-  if(!anyEnd) L.push('-');
   L.push('');
   L.push('Pathway (CHOOSE ONE):');
   if(a.rehomingPathway==='suitable') L.push('- Suitable for rehoming');
@@ -3124,7 +3134,7 @@ document.getElementById('refreshNoteBtn').addEventListener('click', ()=>{
    instruction, not a hint a filter can ignore. */
 const NOTE_SECTION_HEADERS = new Set([
   'Physical Examination:', 'Premed:', 'Pre-op:', 'Surgery:', 'Intraoperative:',
-  'Post-op:', 'End of recovery:', 'Pathway (CHOOSE ONE):'
+  'Post-op:', 'End of surgery:', 'Pathway (CHOOSE ONE):'
 ]);
 function wordParagraph(text, opts){
   opts = opts || {};
