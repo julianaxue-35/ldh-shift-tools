@@ -544,7 +544,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.5';
+const APP_VERSION = '2026-09-19.6';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2205,7 +2205,11 @@ function examFormHtml(a){
     if(def.key==='zmd' && a.species==='dog') return;
     h += tickHtml(a, def);
   });
-  if(a.ticks['microchip'] && a.ticks['microchip'].done){
+  if(a.ticks['microchip'] && a.ticks['microchip'].done && chipEntryLocked(a)){
+    h += `<div class="pe-field"><label style="font-size:12px">Microchip</label><br>
+      <div style="font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">✓ Implanted — the number is held only on the device that implanted it (not shared, for privacy). Nothing to enter here.</div>
+    </div>`;
+  } else if(a.ticks['microchip'] && a.ticks['microchip'].done){
     h += `<div class="pe-field"><label style="font-size:12px">Microchip number</label><br>
       <div style="display:flex;gap:6px">
         <input class="plain" id="fld_microchipNum" value="${esc(a.microchipNum||'')}" placeholder="15-digit number" style="width:100%">
@@ -2612,6 +2616,7 @@ function bindExamForm(a){
       if(!a.ticks[key]) a.ticks[key] = {done:false, time:''};
       a.ticks[key].done = !a.ticks[key].done;
       a.ticks[key].time = a.ticks[key].done ? nowTime() : '';
+      if(key==='microchip') a.chipTickRemote = false; // this device made the change, so it owns the number entry
       saveShift(); openExam(a.id);
     });
   });
@@ -3249,8 +3254,10 @@ document.getElementById('captureChipBtn').addEventListener('click', async ()=>{
    stations editing different parts of one animal don't overwrite each other. */
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
-const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed'];
+const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed','chipTickRemote'];
 const share = { client:null, on:false, base:{}, dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null };
+// Number entry is closed off on stations that only RECEIVED the implanted tick from another device
+function chipEntryLocked(a){ return shareReady && share.on && !!a.chipTickRemote && !chipHasFullNumber(a); }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
 function confirmChipNumbersPresent(){
   const missing = state.animals.filter(a=>a.registered && a.ticks['microchip'] && a.ticks['microchip'].done && !chipHasFullNumber(a));
@@ -3344,17 +3351,22 @@ async function sharePull(){
       const local = state.animals.find(x=>x.id===row.id);
       if(!local){
         const n = normalizeAnimal(Object.assign(shareClone(remote), { id: row.id, microchipNum: '' }));
+        if(n.ticks.microchip && n.ticks.microchip.done) n.chipTickRemote = true;
         state.animals.push(n); share.base[row.id] = shareClone(remote); changed.add(row.id);
       } else if(!local.cloudScrubbed){
         const patch = shareDiff(share.base[row.id] || {}, remote);
-        if(patch!==undefined){ shareApply(local, patch); normalizeAnimal(local); changed.add(row.id); }
+        if(patch!==undefined){
+          const wasChipped = !!(local.ticks.microchip && local.ticks.microchip.done);
+          shareApply(local, patch); normalizeAnimal(local); changed.add(row.id);
+          if(!wasChipped && local.ticks.microchip && local.ticks.microchip.done) local.chipTickRemote = true;
+        }
         share.base[row.id] = shareClone(remote);
       }
     });
     if(changed.size){
       localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
       renderShiftList();
-      if(state.openId && changed.has(state.openId)){
+      if(state.openId && changed.has(state.openId) && !document.getElementById('examModal').classList.contains('hidden')){
         const ae = document.activeElement;
         const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && document.getElementById('examBody').contains(ae);
         const editingNote = !document.getElementById('noteEditArea').classList.contains('hidden');
