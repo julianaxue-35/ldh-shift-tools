@@ -530,7 +530,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-18.2';
+const APP_VERSION = '2026-09-19.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -545,6 +545,21 @@ function syncCompletionToDashboard(a, shift) {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift }),
+  }).catch(() => {});
+}
+/* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
+   loaded, not just completions — insert-only server-side, so this can
+   never un-complete something already registered. Lets the dashboard show
+   "X of Y" instead of just "X done, total unknown". */
+function syncListToDashboard(animals, shift) {
+  const items = animals
+    .map(a => ({ title: a.animalId, location: a.location, shift }))
+    .filter(it => it.title && it.location);
+  if (!items.length) return;
+  fetch(SYNC_ENDPOINT, {
+    method: 'POST',
+    headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
   }).catch(() => {});
 }
 /* ---------- storage ---------- */
@@ -1531,6 +1546,7 @@ function renderParsedBookingTable(rows){
       a.surgNotes = buildTemplate(a);
       state.animals.push(a);
     });
+    syncListToDashboard(rows, 'surgery');
     saveShift(); renderShiftList();
     document.getElementById('bookingXlsxInput').value = '';
     wrap.innerHTML = '';
@@ -1591,6 +1607,7 @@ function renderParsedSmTable(rows){
       a.surgNotes = buildTemplate(a);
       state.animals.push(a);
     });
+    syncListToDashboard(rows, 'surgery');
     saveShift(); renderShiftList();
     document.getElementById('smXlsxInput').value = '';
     wrap.innerHTML = '';

@@ -370,7 +370,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-18.3';
+const APP_VERSION = '2026-09-19.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -385,6 +385,21 @@ function syncCompletionToDashboard(a, shift) {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift }),
+  }).catch(() => {});
+}
+/* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
+   loaded, not just completions — insert-only server-side, so this can
+   never un-complete something already registered. Lets the dashboard show
+   "X of Y" instead of just "X done, total unknown". */
+function syncListToDashboard(animals, shift) {
+  const items = animals
+    .map(a => ({ title: a.animalId, location: a.location, shift }))
+    .filter(it => it.title && it.location);
+  if (!items.length) return;
+  fetch(SYNC_ENDPOINT, {
+    method: 'POST',
+    headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
   }).catch(() => {});
 }
 /* ---------- storage ---------- */
@@ -1049,9 +1064,12 @@ function renderParsedTable(rows){
   function confirmAdd(){
     const selected = rows.filter(r=>r._checked!==false);
     if(!selected.length){ alert('Select at least one animal to add.'); return; }
-    selected.forEach(r=>{
-      state.animals.push(makeAnimal(r));
+    const added = selected.map(r=>{
+      const a = makeAnimal(r);
+      state.animals.push(a);
+      return a;
     });
+    syncListToDashboard(added, 'processing');
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
