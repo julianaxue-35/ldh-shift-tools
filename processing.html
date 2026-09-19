@@ -370,7 +370,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.1';
+const APP_VERSION = '2026-09-19.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -380,11 +380,22 @@ const APP_VERSION = '2026-09-19.1';
 const SYNC_ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
 const SYNC_APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
 const SYNC_SECRET = '0150e5d82a61630d053ce71513eb80f35524504de454adbe374a0d7e79662103';
-function syncCompletionToDashboard(a, shift) {
+/* 2026-09-19 amendment: also sends a short excerpt of the medication/
+   treatment plan, so the dashboard can show what's actually being done for
+   the animal. Truncated client-side (the Edge Function also hard-caps it)
+   since this is meant to stay a coordination glimpse, not the real
+   clinical record — that stays here, in the Plan field and the Word/Excel
+   export. */
+function planExcerpt(text, maxLen) {
+  if (!text) return '';
+  const clean = String(text).replace(/\s+/g, ' ').trim();
+  return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
+}
+function syncCompletionToDashboard(a, shift, note) {
   fetch(SYNC_ENDPOINT, {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: a.animalId, location: a.location, shift }),
+    body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
   }).catch(() => {});
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
@@ -2220,7 +2231,7 @@ function bindExamForm(a){
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
-    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing', planExcerpt(a.medPlan, 140)); }
     saveShift(); openExam(a.id);
   });
 }
