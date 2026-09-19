@@ -544,7 +544,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.4';
+const APP_VERSION = '2026-09-19.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3325,7 +3325,7 @@ async function sharePush(){
     }
     shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
   }catch(e){
-    shareSetStatus('Sharing on — offline, will retry (your work is saved on this device)', false);
+    shareSetStatus('Sharing on — could not sync: ' + ((e && (e.message||e.code)) || 'unknown') + ' (your work is saved on this device; will retry)', false);
     share.dirty = true;
   }finally{
     share.pushing = false;
@@ -3366,7 +3366,7 @@ async function sharePull(){
     }
     shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
   }catch(e){
-    shareSetStatus('Sharing on — offline, will retry (your work is saved on this device)', false);
+    shareSetStatus('Sharing on — could not read: ' + ((e && (e.message||e.code)) || 'unknown') + ' (will retry)', false);
   }
 }
 // After an export, blank the clinical data in the cloud row (dashboard keeps only procedure type + done for its counts).
