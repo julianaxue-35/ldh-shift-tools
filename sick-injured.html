@@ -393,7 +393,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.1';
+const APP_VERSION = '2026-09-19.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1384,6 +1384,38 @@ document.getElementById('shiftSearchBox').addEventListener('input', renderShiftL
 document.getElementById('completedSearchBox').addEventListener('input', renderShiftList);
 document.getElementById('examSearchBox').addEventListener('input', renderShiftList);
 renderShiftList();
+
+/* Dashboard "Pick up" hand-off (2026-09-19) — a vet clicking "Pick up" (one
+   animal, or several at once) on the live LDH Shift Ops dashboard's Cases
+   Flagged board opens this page with a JSON batch of {id, location,
+   problem} in the URL, so nothing needs re-typing. Reuses
+   addOrMergeFromFlag() — the exact same path the AA Flag Log import
+   already uses — for identical behaviour either way. Deliberately doesn't
+   auto-open a specific exam afterward, even for a batch of one: the shift
+   list already groups by location regardless of add order (see
+   sortedAnimals()/groupedListHtml() above), so showing that grouped list
+   is what actually saves a vet the walking the dashboard promised — a
+   single auto-opened exam would skip past that. URL is cleared immediately
+   after so a page refresh doesn't re-add the same batch again. */
+(function handleDashboardHandoff(){
+  const params = new URLSearchParams(location.search);
+  const itemsRaw = params.get('items');
+  if(!itemsRaw) return;
+  let items;
+  try { items = JSON.parse(itemsRaw); } catch(e) { return; }
+  if(!Array.isArray(items) || !items.length) return;
+  items.forEach(it=>{
+    if(!it || !it.id) return;
+    addOrMergeFromFlag({
+      animalId: String(it.id).trim(),
+      location: String(it.location||'').trim(),
+      problem: String(it.problem||'').trim(),
+    });
+  });
+  saveShift();
+  renderShiftList();
+  history.replaceState(null, '', location.pathname);
+})();
 
 /* If this tool is open in more than one browser tab (easy to do by accident —
    e.g. a tab left open from earlier), each tab only knows about the shift
