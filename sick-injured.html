@@ -393,7 +393,7 @@ const chartDraftStartOption = {}; // animalId -> 'today' | 'tomorrow' (Day 1 sta
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-19.5';
+const APP_VERSION = '2026-09-21.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -909,18 +909,25 @@ function addOrMergeFromRecheck(r){
    one is already in the shift — e.g. from the Vet Reminder Report. Per house
    rule: a merge must keep BOTH the recheck history and the flagged problem
    explicitly, not silently overwrite one with the other. */
+/* 2026-09-21: everything an attendant flagged (presenting problem, red flags,
+   suspected condition) belongs in History only. It used to ALSO be pushed into
+   the Assessment list — Juliana does not want a flag's wording landing in the
+   Assessment, which is the vet's own diagnosis/DDx. */
+function flagHistoryLabel(r){
+  const redFlags = Array.isArray(r.redFlags) ? r.redFlags.filter(Boolean).join(', ') : String(r.redFlags||'').trim();
+  let label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
+  if(redFlags) label += `\nRed flags: ${redFlags}`;
+  if(r.condition && String(r.condition).trim()) label += `\nSuspected condition: ${String(r.condition).trim()}`;
+  return label;
+}
 function addOrMergeFromFlag(r){
-  const label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
+  const label = flagHistoryLabel(r);
   const existing = findExistingAnimal(r.animalId);
   if(!existing){
     const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
     a.history = label;
     a.flagged = true;
     a.species = r.species || '';
-    if(r.problem){
-      const m = matchResolvable(r.problem);
-      a.assessment.push({id:uid(), text:r.problem, matched:m?m.key:null, resolved:null});
-    }
     state.animals.push(a);
     return;
   }
@@ -933,10 +940,6 @@ function addOrMergeFromFlag(r){
     existing.history = existing.history ? (existing.history + '\n\n' + label) : label;
   }
   existing.flagged = true;
-  if(r.problem && !existing.assessment.some(p=>p.text===r.problem)){
-    const m = matchResolvable(r.problem);
-    existing.assessment.push({id:uid(), text:r.problem, matched:m?m.key:null, resolved:null});
-  }
 }
 
 /* Groups report rows by Animal ID. Each animal can appear on several rows
@@ -1438,6 +1441,8 @@ renderShiftList();
       animalId: String(it.id).trim(),
       location: String(it.location||'').trim(),
       problem: String(it.problem||'').trim(),
+      redFlags: it.redFlags,
+      condition: it.condition,
     });
   });
   saveShift();
