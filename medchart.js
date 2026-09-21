@@ -236,16 +236,20 @@
   // time (no live formulas needed — the dose is already decided by
   // the time this chart is registered, unlike the weight-based
   // auto-calc columns on the Excel sheets).
-  function computeGrid(med) {
+  // `shift` = number of leading blank days before this med's Day 1 (a med
+  // starting tomorrow on a chart whose date column begins today has shift 1).
+  function computeGrid(med, shift) {
     var am = [], pm = [];
     var D = parseInt(med.days, 10) || 0;
+    shift = shift || 0;
     for (var day = 1; day <= 14; day++) {
       var a = '', p = '';
-      if (day <= D) {
+      var k = day - shift; // this med's own day number
+      if (k >= 1 && k <= D) {
         if (med.freq === 'BID') { a = '◯'; p = '◯'; }
         else if (med.startSlot === 'PM') { p = '◯'; }
         else { a = '◯'; }
-      } else if (day === D + 1) {
+      } else if (k === D + 1) {
         if (med.freq === 'BID') { a = 'R/C'; p = 'R/C'; }
         else if (med.startSlot === 'PM') { p = 'R/C'; }
         else { a = 'R/C'; }
@@ -253,6 +257,37 @@
       am.push(a); pm.push(p);
     }
     return { am: am, pm: pm };
+  }
+
+  // ---------- per-medication start day ----------
+  // Each med carries its own `startOption` ('today' | 'tomorrow'). A med
+  // saved before this existed has none, so it falls back to the chart-level
+  // `startOption` (and then to 'tomorrow') and renders exactly as before.
+  function medStartOffset(med, chart) {
+    var opt = (med && med.startOption) || (chart && chart.startOption);
+    return opt === 'today' ? 0 : 1;
+  }
+  // The shared date column begins on the earliest med's start day.
+  function chartBaseOffset(chart) {
+    var meds = (chart && chart.meds) || [];
+    if (!meds.length) return medStartOffset(null, chart);
+    return Math.min.apply(null, meds.map(function (m) { return medStartOffset(m, chart); }));
+  }
+  function gridShift(med, chart) {
+    return medStartOffset(med, chart) - chartBaseOffset(chart);
+  }
+  // The 14-row grid can't show a med whose shifted course runs past Day 14.
+  function gridOverflows(med, shift) {
+    return (parseInt(med.days, 10) || 0) + (shift || 0) > 14;
+  }
+  // Text for a confirm() at Save time; '' when nothing overflows.
+  function startOverflowMessage(meds, fallbackOption) {
+    var chart = { startOption: fallbackOption, meds: meds };
+    var bad = meds.filter(function (m) { return gridOverflows(m, gridShift(m, chart)); })
+      .map(function (m) { return m.drugLabel || 'a medication'; });
+    if (!bad.length) return '';
+    return 'These medications start tomorrow on a chart that also has medications starting today, so their course runs past the 14-day grid and the last day(s) will be cut off:\n\n' +
+      bad.join(', ') + '\n\nSave anyway?';
   }
 
   // ---------- exact-template export (raw OOXML surgery) ----------
@@ -347,8 +382,11 @@
     // matches the template's own original "=TODAY()+1" intent, and keeps
     // every chart saved before this option existed rendering exactly as
     // before). Day 2 is +1 from Day 1, etc., one date per AM/PM row pair.
+    // Per-med `startOption` overrides this; the date column starts on the
+    // earliest med's start day and later-starting meds are shifted down.
     var startSerial = excelDateSerial(new Date(chart.createdAt || Date.now()));
-    var dayOffset = chart.startOption === 'today' ? 0 : 1;
+    var exported = Object.assign({}, chart, { meds: chart.meds.slice(0, MAX_MEDS_PER_SHEET) });
+    var dayOffset = chartBaseOffset(exported);
     GRID_ROWS.forEach(function (row, i) {
       xml = setCellXml(xml, 'A' + row, startSerial + dayOffset + i);
     });
@@ -361,7 +399,7 @@
       xml = setCellXml(xml, box.dose, 'Dose: ' + (m.doseText || ''));
       xml = setCellXml(xml, box.freq, 'Freq: ' + m.freq);
       xml = setCellXml(xml, box.route, 'Route: ' + m.route);
-      var grid = computeGrid(m);
+      var grid = computeGrid(m, gridShift(m, exported));
       for (var d = 0; d < 14; d++) {
         var amRow = GRID_ROWS[d], pmRow = amRow + 1;
         xml = setCellXml(xml, box.grid + amRow, grid.am[d] || '');
@@ -582,7 +620,7 @@
   function upsertAutoMed(animalMeta, autoKey, medFields) {
     var list = loadCharts();
     var chart = list.find(function (c) { return c.sourceAnimalId === animalMeta.sourceAnimalId; });
-    var med = Object.assign({ autoKey: autoKey, matched: true, s8: false, warnings: [] }, medFields);
+    var med = Object.assign({ autoKey: autoKey, matched: true, s8: false, warnings: [], startOption: 'tomorrow' }, medFields);
     if (!chart) {
       chart = Object.assign({ id: uid(), createdAt: new Date().toISOString(), meds: [] }, animalMeta);
       list.push(chart);
@@ -593,6 +631,9 @@
     if (idx === -1) {
       if (chart.meds.length < MAX_MEDS_PER_SHEET) chart.meds.push(med);
     } else {
+      // keep whatever start day the row already had (incl. legacy "none")
+      if (chart.meds[idx].startOption) med.startOption = chart.meds[idx].startOption;
+      else if (medFields.startOption === undefined) delete med.startOption;
       chart.meds[idx] = med;
     }
     saveCharts(list);
@@ -633,6 +674,11 @@
     MAX_MEDS_PER_SHEET: MAX_MEDS_PER_SHEET,
     parseMedPlan: parseMedPlan,
     computeGrid: computeGrid,
+    medStartOffset: medStartOffset,
+    chartBaseOffset: chartBaseOffset,
+    gridShift: gridShift,
+    gridOverflows: gridOverflows,
+    startOverflowMessage: startOverflowMessage,
     patchSheetXml: patchSheetXml,
     safeSheetName: safeSheetName,
     loadCharts: loadCharts,

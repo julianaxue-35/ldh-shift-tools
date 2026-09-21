@@ -103,13 +103,13 @@ function renderList(){
       <td>${esc(m.doseText)}</td>
       <td>${esc(m.freq)}</td>
       <td>${esc(m.route)}</td>
-      <td>${esc(m.days)}d${m.freq==='SID' ? ' ('+esc(m.startSlot)+' start)' : ''}</td>
+      <td>${esc(m.days)}d${m.freq==='SID' ? ' ('+esc(m.startSlot)+' start)' : ''} &middot; from ${MedChart.medStartOffset(m,c)===0?'today':'tomorrow'}</td>
     </tr>${(m.drugWarning||(m.warnings&&m.warnings.length)) ? `<tr><td colspan="5" class="warn">${esc([m.drugWarning].concat(m.warnings||[]).filter(Boolean).join(' · '))}</td></tr>` : ''}`).join('');
     return `<div class="card" data-chartid="${esc(c.id)}">
       <div class="card-hdr">
         <div>
           <div class="patient">${esc(c.animalId)||'(no ID)'} <span class="src-badge">${esc(sourceLabel(c.sourceTool))}</span></div>
-          <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${c.startOption==='today'?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
+          <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${MedChart.chartBaseOffset(c)===0?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
           ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
@@ -160,9 +160,10 @@ function startEditChart(c){
   editMeta = {
     animalId: c.animalId||'', species: c.species||'cat', weight: c.weight||'',
     location: c.location||'', microchip: c.microchip||'', vetInCharge: c.vetInCharge||'',
-    problemList: c.problemList||'', startOption: c.startOption || 'tomorrow'
+    problemList: c.problemList||''
   };
-  editDraft = (c.meds||[]).map(m=>Object.assign({}, m));
+  // Normalise: charts saved before per-med start days inherit the chart-level option.
+  editDraft = (c.meds||[]).map(m=>Object.assign({}, m, {startOption: m.startOption || c.startOption || 'tomorrow'}));
   renderList();
 }
 function cancelEditChart(){
@@ -174,8 +175,9 @@ function saveEditChart(){
   MedChart.updateChart(editingChartId, {
     animalId: editMeta.animalId.trim(), species: editMeta.species, weight: editMeta.weight,
     location: editMeta.location, microchip: editMeta.microchip, vetInCharge: editMeta.vetInCharge,
-    problemList: (editMeta.problemList||'').trim(), startOption: editMeta.startOption,
-    meds: editDraft.map(m=>Object.assign({}, m))
+    problemList: (editMeta.problemList||'').trim(),
+    startOption: editDraft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
+    meds: editDraft.map(m=>Object.assign({startOption:'tomorrow'}, m))
   });
   editingChartId = null; editMeta = null; editDraft = null;
   renderList();
@@ -197,9 +199,9 @@ function editCardHtml(c){
       <div class="field"><label>Vet in charge</label><input class="plain" id="ec_vet" value="${esc(editMeta.vetInCharge)}"></div>
     </div>
     <div class="field"><label>Vet Plan (printed on the chart)</label><textarea class="plain" id="ec_vetplan" style="min-height:50px">${esc(editMeta.problemList)}</textarea></div>
-    <div class="field"><label>Day 1 starts</label><br>
-      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="ec_startopt" data-startopt value="today" ${editMeta.startOption==='today'?'checked':''}> Today</label>
-      <label style="font-size:12.5px"><input type="radio" name="ec_startopt" data-startopt value="tomorrow" ${editMeta.startOption==='tomorrow'?'checked':''}> Tomorrow</label>
+    <div class="field"><label>Every medication below starts <b>tomorrow</b> unless you change it. Set all:</label><br>
+      <button type="button" class="btn small secondary" data-setallstart="tomorrow">All start tomorrow</button>
+      <button type="button" class="btn small secondary" data-setallstart="today">All start today</button>
     </div>`;
   editDraft.forEach((m,i)=>{
     h += `<div style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px" data-medrow="${i}">
@@ -220,6 +222,9 @@ function editCardHtml(c){
         <div><label style="font-size:11px">If once-daily, start</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
           <label style="font-size:12px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+        <div><label style="font-size:11px">Day 1 starts</label><br>
+          <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_start_${i}" data-mfield="startOption" data-mi="${i}" value="today" ${m.startOption==='today'?'checked':''}> Today</label>
+          <label style="font-size:12px"><input type="radio" name="ec_start_${i}" data-mfield="startOption" data-mi="${i}" value="tomorrow" ${m.startOption!=='today'?'checked':''}> Tomorrow</label></div>
         <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
       </div>
     </div>`;
@@ -240,8 +245,8 @@ function bindEditCard(){
   });
   const speciesEl = document.getElementById('ec_species');
   if(speciesEl) speciesEl.addEventListener('change', ()=>{ editMeta.species = speciesEl.value; });
-  document.querySelectorAll('[data-startopt]').forEach(el=>{
-    el.addEventListener('change', ()=>{ if(el.checked) editMeta.startOption = el.value; });
+  document.querySelectorAll('[data-setallstart]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editDraft.forEach(m=>{ m.startOption = btn.dataset.setallstart; }); renderList(); });
   });
   document.querySelectorAll('[data-mfield]').forEach(el=>{
     const evt = el.type==='radio' ? 'change' : 'input';
@@ -273,15 +278,15 @@ function bindEditCard(){
    standalone: there's no linked exam animal, so sourceAnimalId is a fresh
    uid and sourceTool is 'manual'. ---------- */
 let newChartOpen = false;
-let newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:'', startOption:'tomorrow'};
+let newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
 let newChartDraft = null;
 
 function blankMedRow(){
   return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
-    startSlot:'AM', drugWarning:'', matched:false, warnings:[]};
+    startSlot:'AM', startOption:'tomorrow', drugWarning:'', matched:false, warnings:[]};
 }
 function resetNewChartForm(){
-  newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:'', startOption:'tomorrow'};
+  newChartMeta = {animalId:'', species:'cat', weight:'', location:'', microchip:'', vetInCharge:'', planText:'', vetPlanText:''};
   newChartDraft = null;
 }
 
@@ -302,10 +307,7 @@ function renderNewChartForm(){
       <div class="field"><label>Microchip</label><input class="plain" id="nc_microchip" value="${esc(newChartMeta.microchip)}"></div>
       <div class="field"><label>Vet in charge</label><input class="plain" id="nc_vet" value="${esc(newChartMeta.vetInCharge)}"></div>
     </div>
-    <div class="field"><label>Day 1 starts</label><br>
-      <label style="font-size:12.5px;margin-right:10px"><input type="radio" name="nc_startopt" data-startopt value="today" ${newChartMeta.startOption==='today'?'checked':''}> Today</label>
-      <label style="font-size:12.5px"><input type="radio" name="nc_startopt" data-startopt value="tomorrow" ${newChartMeta.startOption==='tomorrow'?'checked':''}> Tomorrow</label>
-    </div>
+    
     <div class="field"><label>Plan (medication instruction — e.g. "Amoxyclav 250mg: give 1 tablet orally BID for 5 days")</label>
       <textarea class="plain" id="nc_plan" style="min-height:60px">${esc(newChartMeta.planText)}</textarea>
       <button type="button" class="btn small secondary" id="nc_parseBtn" style="margin-top:8px">Parse plan</button>
@@ -331,6 +333,9 @@ function renderNewChartForm(){
           <div><label style="font-size:11px">If once-daily, start</label><br>
             <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
             <label style="font-size:12px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
+          <div><label style="font-size:11px">Day 1 starts</label><br>
+            <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_start_${i}" data-mfield="startOption" data-mi="${i}" value="today" ${m.startOption==='today'?'checked':''}> Today</label>
+            <label style="font-size:12px"><input type="radio" name="nc_start_${i}" data-mfield="startOption" data-mi="${i}" value="tomorrow" ${m.startOption!=='today'?'checked':''}> Tomorrow</label></div>
           <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
         </div>
         ${m.drugWarning ? `<div class="warn" style="margin-top:6px">⚠ ${esc(m.drugWarning)}</div>` : ''}
@@ -338,6 +343,8 @@ function renderNewChartForm(){
       </div>`;
     });
     h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button type="button" class="btn small secondary" data-setallstart="tomorrow">All start tomorrow</button>
+      <button type="button" class="btn small secondary" data-setallstart="today">All start today</button>
       <button type="button" class="btn small secondary" id="nc_addRowBtn">+ Add another line</button>
       <button type="button" class="btn" id="nc_saveBtn">Save chart</button>
       <button type="button" class="btn secondary" id="nc_cancelBtn">Cancel</button>
@@ -360,8 +367,8 @@ function bindNewChartForm(){
   if(speciesEl) speciesEl.addEventListener('change', ()=>{ newChartMeta.species = speciesEl.value; });
   const weightEl = document.getElementById('nc_weight');
   if(weightEl) weightEl.addEventListener('change', ()=>{ newChartMeta.weight = weightEl.value; });
-  document.querySelectorAll('[data-startopt]').forEach(el=>{
-    el.addEventListener('change', ()=>{ if(el.checked) newChartMeta.startOption = el.value; });
+  document.querySelectorAll('[data-setallstart]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ (newChartDraft||[]).forEach(m=>{ m.startOption = btn.dataset.setallstart; }); renderNewChartForm(); });
   });
 
   const planEl = document.getElementById('nc_plan');
@@ -415,8 +422,9 @@ function bindNewChartForm(){
       id: MedChart.uid(), sourceAnimalId: MedChart.uid(), sourceTool: 'manual', createdAt: new Date().toISOString(),
       animalId: newChartMeta.animalId.trim(), species: newChartMeta.species, weight: newChartMeta.weight,
       location: newChartMeta.location, microchip: newChartMeta.microchip, vetInCharge: newChartMeta.vetInCharge,
-      problemList: (newChartMeta.vetPlanText||'').trim(), startOption: newChartMeta.startOption,
-      meds: newChartDraft.map(m=>Object.assign({},m))
+      problemList: (newChartMeta.vetPlanText||'').trim(),
+      startOption: newChartDraft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
+      meds: newChartDraft.map(m=>Object.assign({startOption:'tomorrow'},m))
     };
     MedChart.addChart(chart);
     alert(MedChart.saveConfirmationMessage(chart));
