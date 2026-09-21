@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-21.2';
+const APP_VERSION = '2026-09-21.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -659,7 +659,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Awaiting foster','Awaiting rescue'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
