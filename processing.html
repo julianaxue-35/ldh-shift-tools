@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.5';
+const APP_VERSION = '2026-09-25.6';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -613,13 +613,39 @@ function syncVaccineTreatment(a){
   if(a.vaccineGiven) parts.push(vaccineLabel(a));
   a.treatments = parts.join(', ');
 }
+/* If the sex the import said (M/F) differs from what she sets after the
+   physical exam, put a line at the top of Plan saying so. The line we added is
+   remembered (sexNoteLine) so changing the sex again replaces it, and setting
+   it back to the original removes it — without touching anything she typed. */
+function syncSexChangeNote(a){
+  const word = v => v==='M' ? 'male' : (v==='F' ? 'female' : '');
+  if(a.sexNoteLine){
+    a.medPlan = (a.medPlan||'').split('\n').filter(l=>l.trim()!==a.sexNoteLine).join('\n').trim();
+    a.sexNoteLine = '';
+  }
+  const from = word(a.importedSex), to = word(a.sex);
+  if(from && to && from!==to){
+    const line = `Patient marked as ${from} initially; after physical exam, patient is ${to}.`;
+    a.medPlan = a.medPlan ? line+'\n'+a.medPlan : line;
+    a.sexNoteLine = line;
+  }
+}
+const BLOODWORK_TYPES = ['PAB','Chem 17','Chem 17 + TT4'];
 function snChipMissing(a){
   const c = (a.microchip||'').trim();
   return c==='N/A' || !/^9560000\d{8}$/.test(c); // blank or an incomplete/invalid number both count as missing
 }
 function snFivGap(a){ return a.species==='cat' && a.fivTest==='YES' && !a.fivResult; }
+/* 2026-09-25: a blank or "N/A" microchip must NOT auto-select the "...and
+   microchip" pathway (she often just forgets to type the number in). Only a
+   number that was typed but is incomplete/invalid counts as a chip gap here. */
+function snChipGapForPathway(a){
+  const c = (a.microchip||'').trim();
+  if(c==='' || c==='N/A') return false;
+  return snChipMissing(a);
+}
 function resolveSnPathway(a){
-  const chipGap = snChipMissing(a), fivGap = snFivGap(a);
+  const chipGap = snChipGapForPathway(a), fivGap = snFivGap(a);
   if(chipGap && fivGap) return 'Awaiting spay/neuter, FIV test and microchip';
   if(fivGap) return 'Awaiting spay/neuter and FIV test';
   if(chipGap) return 'Awaiting spay/neuter and microchip';
@@ -743,6 +769,9 @@ function normalizeAnimal(a){
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
   if(a.behaviour == null) a.behaviour = '';
+  if(a.importedSex == null) a.importedSex = a.sex || ''; // records saved before this: treat current sex as the original (no note)
+  if(a.sexNoteLine == null) a.sexNoteLine = '';
+  if(a.bloodworkOtherSel == null) a.bloodworkOtherSel = false;
   if(a.dental){ if(a.dental.incisors == null) a.dental.incisors = ''; if(a.dental.molars == null) a.dental.molars = ''; }
   return a;
 }
@@ -1140,6 +1169,7 @@ function makeAnimal(r){
     dueDate: r.dueDate||'',
     species: r.species||'cat',
     sex: r.sex||'',
+    importedSex: r.sex||'', // what the import/booking said — used to note a change after the physical exam
     name: '',
     nsf: {eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true}, // NSF = normal, default on
     notExaminedFields: {}, // key -> true if that check couldn't be safely performed
@@ -1782,7 +1812,12 @@ function examFormHtml(a){
       h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
       WAIVER_CATEGORIES.forEach(cat=>{
         h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
-          <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
+          <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}${(()=>{
+            /* ticked items show as tags on the category line itself, so what's
+               been chosen stays visible even when the category is collapsed */
+            const ticked = cat.items.filter(it=>selected.includes(it));
+            return ticked.length ? `<span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:8px;vertical-align:middle">${ticked.map(it=>`<span style="background:var(--teal-dark);color:#fff;border-radius:12px;padding:1px 9px;font-size:11px;font-weight:600">\u2713 ${esc(it)}</span>`).join('')}</span>` : '';
+          })()}</summary>
           <div style="padding:4px 0 6px 4px">`;
         cat.items.forEach(item=>{
           h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
@@ -1828,7 +1863,13 @@ function examFormHtml(a){
   h += `<div class="two-col">
     <div><label style="font-size:12px">Bloodwork required${a.bloodworkAuto?' (auto: age \u226510)':''}</label><br>
       <select class="plain" id="fld_bw" style="width:100%"><option value="">-</option><option ${a.bloodwork==='YES'?'selected':''}>YES</option><option ${a.bloodwork==='NO'?'selected':''}>NO</option></select></div>
-    ${a.bloodwork==='YES' ? `<div><label style="font-size:12px">Type</label><br><input class="plain" id="fld_bwtype" style="width:100%" value="${esc(a.bloodworkType)}"></div>` : ''}
+    ${a.bloodwork==='YES' ? (()=>{
+      const isOther = a.bloodworkOtherSel || (a.bloodworkType && !BLOODWORK_TYPES.includes(a.bloodworkType));
+      const cur = isOther ? 'Other' : (a.bloodworkType||'');
+      return `<div><label style="font-size:12px">Type</label><br>
+        <select class="plain" id="fld_bwsel" style="width:100%"><option value="">-</option>${BLOODWORK_TYPES.concat(['Other']).map(t=>`<option ${cur===t?'selected':''}>${t}</option>`).join('')}</select>
+        ${isOther ? `<input class="plain" id="fld_bwtype" style="width:100%;margin-top:6px" placeholder="Type here (free fill)" value="${esc(a.bloodworkType)}">` : ''}</div>`;
+    })() : ''}
   </div>`;
 
   h += `<div class="pe-field"><div class="lbl">Vet / nurse</div>
@@ -1937,16 +1978,23 @@ function bindExamForm(a){
     refreshNote(a); saveShift(); openExam(a.id);
   });
 
+  const bwSelEl = document.getElementById('fld_bwsel');
+  if(bwSelEl) bwSelEl.addEventListener('change', ()=>{
+    const v = bwSelEl.value;
+    if(v==='Other'){ a.bloodworkOtherSel = true; if(BLOODWORK_TYPES.includes(a.bloodworkType)) a.bloodworkType = ''; }
+    else { a.bloodworkOtherSel = false; a.bloodworkType = v; }
+    refreshNote(a); saveShift(); openExam(a.id);
+  });
   const bwEl = document.getElementById('fld_bw');
   if(bwEl) bwEl.addEventListener('change', ()=>{
     a.bloodwork = bwEl.value; a.bloodworkAuto = false;
-    if(a.bloodwork!=='YES') a.bloodworkType = ''; // Type only matters once bloodwork is actually required
+    if(a.bloodwork!=='YES'){ a.bloodworkType = ''; a.bloodworkOtherSel = false; } // Type only matters once bloodwork is actually required
     refreshNote(a); saveShift(); openExam(a.id);
   });
 
   const sexEl = document.getElementById('fld_sex');
   if(sexEl) sexEl.addEventListener('change', ()=>{
-    a.sex = sexEl.value; saveShift(); openExam(a.id);
+    a.sex = sexEl.value; syncSexChangeNote(a); refreshNote(a); saveShift(); openExam(a.id);
   });
   const desexEl = document.getElementById('fld_desex');
   if(desexEl) desexEl.addEventListener('change', ()=>{
