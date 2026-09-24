@@ -540,6 +540,7 @@ document.getElementById('exportBtn').addEventListener('click', async ()=>{
     a.href = url; a.download = `Medication_Charts_${new Date().toISOString().slice(0,10)}.xlsx`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    showChartClearBanner(charts.map(c=>c.id));
   }catch(err){
     alert('Export failed: ' + err.message);
   }finally{
@@ -547,7 +548,36 @@ document.getElementById('exportBtn').addEventListener('click', async ()=>{
   }
 });
 
+/* After an export, offer to delete the charts just exported (they're printed,
+   not ticked off electronically) — a banner, not a pop-up, so the vet opens
+   and checks the file first. */
+function showChartClearBanner(ids){
+  let b = document.getElementById('chartClearBanner');
+  if(b) b.remove();
+  b = document.createElement('div');
+  b.id = 'chartClearBanner';
+  b.setAttribute('role','status');
+  b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#fff4d6;color:#3a2f00;border-bottom:2px solid #d9a400;padding:10px 14px;font-size:14px;line-height:1.4;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+  const msg = document.createElement('span');
+  msg.style.flex = '1 1 240px';
+  msg.textContent = `Exported ${ids.length} chart${ids.length===1?'':'s'}. Once you've opened the file and printed it, delete these ${ids.length} chart${ids.length===1?'':'s'} so they don't pile up.`;
+  const del = document.createElement('button');
+  del.type = 'button'; del.className = 'btn small'; del.textContent = 'Delete exported';
+  del.addEventListener('click', ()=>{
+    if(!confirm(`Delete the ${ids.length} exported chart(s)? An automatic backup is kept.`)) return;
+    const drop = new Set(ids);
+    MedChart.saveCharts(MedChart.loadCharts().filter(c=> !drop.has(c.id)));
+    b.remove(); renderList();
+  });
+  const later = document.createElement('button');
+  later.type = 'button'; later.className = 'btn small secondary'; later.textContent = 'Later';
+  later.addEventListener('click', ()=> b.remove());
+  b.append(msg, del, later);
+  document.body.appendChild(b);
+}
+
 renderList();
+MedChart.morningCleanupPrompt(renderList);
 </script>
 </body>
 </html>

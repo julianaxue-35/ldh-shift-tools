@@ -664,7 +664,57 @@
     return 'Medication chart saved. Open "Medication Charts" from the shift tools hub to review and export.';
   }
 
+  /* 2026-09-25: charts are printed, so they don't need to linger. The first
+     time any tool/page is opened on a new day, offer to delete every chart
+     saved before today (asked once per day; "Keep" waits until tomorrow).
+     Deletion goes through saveCharts, so the automatic backup still applies. */
+  function localDay(d) {
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function morningCleanupPrompt(onChange) {
+    var LAST_KEY = STORAGE_KEY + '_lastcleanup';
+    var today = localDay(new Date());
+    try { if (localStorage.getItem(LAST_KEY) === today) return; } catch (e) { return; }
+    var old = loadCharts().filter(function (c) {
+      return c.createdAt && localDay(new Date(c.createdAt)) < today;
+    });
+    if (!old.length) { try { localStorage.setItem(LAST_KEY, today); } catch (e) {} return; }
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;color:#222;max-width:420px;width:100%;border-radius:10px;padding:18px;font:14px/1.45 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+    var ids = old.map(function (c) { return (c.animalId || '(no ID)'); });
+    var shown = ids.slice(0, 12).join(', ') + (ids.length > 12 ? ' … +' + (ids.length - 12) + ' more' : '');
+    var p = document.createElement('p');
+    p.style.margin = '0 0 8px';
+    p.innerHTML = '<b>Good morning — ' + old.length + ' medication chart' + (old.length === 1 ? '' : 's') + ' from previous days ' + (old.length === 1 ? 'is' : 'are') + ' still saved.</b>';
+    var p2 = document.createElement('p');
+    p2.style.cssText = 'margin:0 0 14px;font-size:13px;color:#555';
+    p2.textContent = shown + '. Charts are printed, so these are usually old animals. Delete them so they don\'t end up on today\'s printouts? (An automatic backup is kept.)';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap';
+    function mk(label, primary, fn) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = label;
+      b.style.cssText = 'padding:9px 14px;border-radius:8px;border:1px solid #1f7a4d;font:inherit;cursor:pointer;' + (primary ? 'background:#1f7a4d;color:#fff' : 'background:#fff;color:#1f7a4d');
+      b.addEventListener('click', fn); return b;
+    }
+    row.appendChild(mk('Keep for now', false, function () {
+      try { localStorage.setItem(LAST_KEY, today); } catch (e) {}
+      wrap.remove();
+    }));
+    row.appendChild(mk('Delete ' + old.length + ' old chart' + (old.length === 1 ? '' : 's'), true, function () {
+      var drop = {}; old.forEach(function (c) { drop[c.id] = true; });
+      saveCharts(loadCharts().filter(function (c) { return !drop[c.id]; }));
+      try { localStorage.setItem(LAST_KEY, today); } catch (e) {}
+      wrap.remove();
+      if (typeof onChange === 'function') onChange();
+    }));
+    box.append(p, p2, row); wrap.appendChild(box); document.body.appendChild(wrap);
+  }
+
   global.MedChart = {
+    morningCleanupPrompt: morningCleanupPrompt,
     STORAGE_KEY: STORAGE_KEY,
     DRUG_VOCAB: DRUG_VOCAB,
     S8_DRUG_NAMES: S8_DRUG_NAMES,
