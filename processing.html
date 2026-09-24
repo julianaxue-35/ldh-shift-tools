@@ -176,6 +176,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="pill-toggle" id="speciesToggle">
       <button data-species="cat">Cat</button>
       <button data-species="dog">Dog</button>
+      <button data-species="exotic">Exotic</button>
     </div>
     <div class="spacer"></div>
     <div class="field-row">
@@ -370,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.2';
+const APP_VERSION = '2026-09-25.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -487,7 +488,13 @@ const DOG_HANDLING_OPTIONS = [
 /* The one handling option per species that means "can't be handled safely"
    — drives the visual-exam-only banner and the behavioural-assessment
    auto-flag (pathway/plan). */
-const UNSAFE_HANDLING = {cat:'Not able to be safely handled', dog:'Showing defensive/offensive aggression, cannot be checked safely'};
+const EXOTIC_HANDLING_OPTIONS = [
+  'Calm, easy to handle',
+  'Nervous but tolerated the exam with towel wrap',
+  'Not able to be safely handled'
+];
+const UNSAFE_HANDLING = {cat:'Not able to be safely handled', dog:'Showing defensive/offensive aggression, cannot be checked safely', exotic:'Not able to be safely handled'};
+function speciesLabel(a){ return a.species==='cat' ? 'Cat' : (a.species==='exotic' ? 'Exotic' : 'Dog'); }
 function isUnsafeHandling(a){ return !!a.handling && a.handling === UNSAFE_HANDLING[a.species]; }
 
 /* "Awaiting spay/neuter" family — she wants the pathway to flag outstanding
@@ -548,7 +555,11 @@ function allNextSteps(a){
 function pendingNotExaminedLabels(a){
   const labels = [];
   peFields(a.species).forEach(f=>{
-    if(f.special==='teeth'){ if(a.dental.grade==='NE') labels.push('teeth'); return; }
+    if(f.special==='teeth'){
+      if(a.species==='exotic'){ if(a.dental.incisors==='NE') labels.push('incisors'); if(a.dental.molars==='NE') labels.push('molars'); }
+      else if(a.dental.grade==='NE') labels.push('teeth');
+      return;
+    }
     if(f.special==='heart'){ if(a.heart.notExamined) labels.push('heart'); return; }
     if(a.notExaminedFields && a.notExaminedFields[f.key]) labels.push(f.label.toLowerCase());
   });
@@ -598,10 +609,11 @@ function toggleTreatmentItem(a, item){
   a.treatments = parts.join(', ');
 }
 /* Vaccine isn't a plain tick like Flea — the product depends on species:
-   cats always get Tricat F3; dogs always get DHP, plus KC whose route
+   cats always get Tricat F3; exotics (rabbits) get Filavac; dogs always get DHP, plus KC whose route
    (intranasal or injectable) she picks per animal. */
 function vaccineLabel(a){
   if(a.species==='cat') return 'Vaccinated (Tricat F3)';
+  if(a.species==='exotic') return 'Vaccinated (Filavac)';
   const kc = a.vaccineKcRoute==='INJ' ? 'KC injectable (booster required)' : 'KC IN (no booster required)';
   return `Vaccinated (DHP + ${kc})`;
 }
@@ -741,6 +753,7 @@ function normalizeAnimal(a){
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
   if(a.behaviour == null) a.behaviour = '';
+  if(a.dental){ if(a.dental.incisors == null) a.dental.incisors = ''; if(a.dental.molars == null) a.dental.molars = ''; }
   if(a.syncDash == null) a.syncDash = false; // records saved before opt-in sync: never sync
   return a;
 }
@@ -859,7 +872,18 @@ function heartMurmurTier(a){
   }
   return null;
 }
+/* Exotic (rabbit etc.) drafts — the cat/dog blurbs name species-specific
+   diseases (FHV-1, CIRDC, MMVD) that don't apply. Drafts for review. */
+const EXOTIC_DDX = {
+  eyes: 'DDx: conjunctivitis vs corneal disease vs nasolacrimal duct obstruction/dacryocystitis (often secondary to dental disease) vs foreign body; recommend ophthalmic exam.',
+  nose: 'DDx: upper respiratory disease (e.g. Pasteurella/Bordetella) vs dental disease vs foreign body; recommend further workup if chronic or unilateral.',
+  teeth: 'DDx: incisor/cheek-tooth overgrowth or malocclusion vs dental spurs vs tooth-root disease/abscess; recommend oral exam +/- skull radiographs and dental correction.',
+  lungs: 'DDx: pneumonia (e.g. Pasteurella/Bordetella) vs cardiac disease vs pleural effusion; recommend further respiratory workup +/- radiographs.',
+  heart: 'DDx: physiological/stress-related murmur vs cardiac disease; recommend vet review.',
+  gallop: 'DDx: gallop rhythm — cardiac disease vs severe systemic illness; recommend vet review.'
+};
 function ddxBlurb(key, species, grade, approxAge){
+  if(species==='exotic' && EXOTIC_DDX[key]) return EXOTIC_DDX[key];
   const cat = species==='cat';
   /* Her rule: a young patient (either species) with a murmur points to a
      congenital cause first, over the degenerative/HCM differentials that
@@ -1069,7 +1093,7 @@ function renderParsedTable(rows){
       <td data-label="Location"><input data-i="${i}" data-f="location" value="${esc(r.location)}"></td>
       <td data-label="Age (yrs)"><input data-i="${i}" data-f="ageYears" value="${esc(r.ageYears)}" placeholder="est. on exam"></td>
       <td data-label="Due date"><input data-i="${i}" data-f="dueDate" value="${esc(r.dueDate)}"></td>
-      <td data-label="Species"><select data-i="${i}" data-f="species"><option value="cat" ${r.species==='cat'?'selected':''}>Cat</option><option value="dog" ${r.species==='dog'?'selected':''}>Dog</option></select></td>
+      <td data-label="Species"><select data-i="${i}" data-f="species"><option value="cat" ${r.species==='cat'?'selected':''}>Cat</option><option value="dog" ${r.species==='dog'?'selected':''}>Dog</option><option value="exotic" ${r.species==='exotic'?'selected':''}>Exotic</option></select></td>
       <td data-label="Sex"><select data-i="${i}" data-f="sex"><option value="" ${!r.sex?'selected':''}>-</option><option value="M" ${r.sex==='M'?'selected':''}>M</option><option value="F" ${r.sex==='F'?'selected':''}>F</option><option value="U" ${r.sex==='U'?'selected':''}>U</option></select></td>
     </tr>`;
   });
@@ -1136,7 +1160,7 @@ function makeAnimal(r){
     notExaminedFields: {}, // key -> true if that check couldn't be safely performed
     notes: {},          // key -> free-text notes (used when NSF is off)
     behaviour: '', handling: '', fasScore: '',
-    dental: {grade:'0', desc:''},
+    dental: {grade:'0', desc:'', incisors:'', molars:''}, // incisors/molars (''|'N'|'ABN'|'NE') are used for exotics instead of grade
     heart: {murmur:false, grade:'', gallop:false, free:'', notExamined:false},
     microchip: '',
     bcs:'', vhc:'',
@@ -1477,7 +1501,7 @@ function openExam(id){
   showTab('exam');
   const a = state.animals.find(x=>x.id===id);
   document.getElementById('examTitle').textContent =
-    `${a.species==='cat'?'Cat':'Dog'} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
+    `${speciesLabel(a)} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
   {
     const total = state.animals.length;
     const remaining = state.animals.filter(x=>!x.registered).length;
@@ -1527,7 +1551,7 @@ function examFormHtml(a){
     </select>`;
   }
   {
-    const handlingOptions = a.species==='cat' ? CAT_HANDLING_OPTIONS : DOG_HANDLING_OPTIONS;
+    const handlingOptions = a.species==='cat' ? CAT_HANDLING_OPTIONS : (a.species==='exotic' ? EXOTIC_HANDLING_OPTIONS : DOG_HANDLING_OPTIONS);
     h += `<label style="font-size:12px">Handling</label><br>
       <select class="plain" id="fld_handling" style="width:100%">
         <option value="">-</option>
@@ -1577,6 +1601,22 @@ function examFormHtml(a){
   </div>`;
 
   fields.forEach(f=>{
+    if(f.special==='teeth' && a.species==='exotic'){
+      /* Exotics: incisors and molars checked separately (rather than the
+         single 0-4 dental grade used for cats/dogs). */
+      h += `<div class="pe-field"><div class="lbl">Teeth</div>`;
+      [['incisors','Incisors'],['molars','Molars']].forEach(([part,label])=>{
+        const v = a.dental[part] || '';
+        h += `<div style="margin-bottom:6px"><span style="font-size:12px;display:inline-block;min-width:64px">${label}</span>
+          <span class="opts" style="display:inline-flex">
+            <button type="button" class="opt-btn ${v==='N'?'selected':''}" data-dentalpart="${part}" data-val="N">Normal</button>
+            <button type="button" class="opt-btn ${v==='ABN'?'selected abn':''}" data-dentalpart="${part}" data-val="ABN">Abnormal</button>
+            <button type="button" class="opt-btn ${v==='NE'?'selected abn':''}" data-dentalpart="${part}" data-val="NE">Not able to examine</button>
+          </span></div>`;
+      });
+      h += `<textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea></div>`;
+      return;
+    }
     if(f.special==='teeth'){
       h += `<div class="pe-field">
         <div class="lbl">Teeth</div>
@@ -1906,7 +1946,7 @@ function bindExamForm(a){
       // did manage to safely perform can still be flipped back manually.
       if(!a.notExaminedFields) a.notExaminedFields = {};
       Object.keys(a.nsf).forEach(k=>{ a.notExaminedFields[k] = true; a.nsf[k] = false; });
-      a.dental.grade = 'NE';
+      a.dental.grade = 'NE'; a.dental.incisors = 'NE'; a.dental.molars = 'NE';
       a.heart.notExamined = true; a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = '';
     }
     refreshNote(a); saveShift(); openExam(a.id);
@@ -2083,6 +2123,14 @@ function bindExamForm(a){
   body.querySelectorAll('[data-dentalgrade]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       a.dental.grade = btn.dataset.dentalgrade;
+      saveShift();
+      openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-dentalpart]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const part = btn.dataset.dentalpart;
+      a.dental[part] = a.dental[part]===btn.dataset.val ? '' : btn.dataset.val; // tap again to unset
       saveShift();
       openExam(a.id);
     });
@@ -2278,6 +2326,15 @@ function computeProblemList(a){
   const fields = peFields(a.species);
   const problems = [];
   fields.forEach(f=>{
+    if(f.special==='teeth' && a.species==='exotic'){
+      const abn = ['incisors','molars'].filter(part=> a.dental[part]==='ABN');
+      if(abn.length && !a.assessmentDismissed['teeth']){
+        const title = overrideTitle(a, 'teeth', `Dental abnormality \u2014 ${abn.join(' and ')}${a.dental.desc ? ' \u2014 '+a.dental.desc : ''}`);
+        const ddx = (a.assessmentOverrides['teeth'] != null) ? a.assessmentOverrides['teeth'] : ddxBlurb('teeth', a.species);
+        problems.push({id:'teeth', title, ddx, custom:false});
+      }
+      return;
+    }
     if(f.special==='teeth'){
       if(a.dental.grade && a.dental.grade!=='0' && a.dental.grade!=='NE' && !a.assessmentDismissed['teeth']){
         const title = overrideTitle(a, 'teeth', `Dental grade ${a.dental.grade}/4${a.dental.desc ? ' \u2014 '+a.dental.desc : ''}`);
@@ -2362,7 +2419,7 @@ function computeProblemList(a){
 
 function assembleNote(a){
   const L = [];
-  L.push(`${a.species==='cat'?'CAT':'DOG'} PHYSICAL EXAM`);
+  L.push(`${speciesLabel(a).toUpperCase()} PHYSICAL EXAM`);
   L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
   L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
   if(a.notExamined){
@@ -2392,6 +2449,11 @@ function assembleNote(a){
   L.push('');
   L.push('Physical Exam:');
   fields.forEach(f=>{
+    if(f.special==='teeth' && a.species==='exotic'){
+      const lab = v=> v==='N' ? 'Normal' : (v==='ABN' ? 'Abnormal' : (v==='NE' ? 'Not able to examine' : '-'));
+      L.push(`Teeth: Incisors ${lab(a.dental.incisors)}; Molars ${lab(a.dental.molars)}${a.dental.desc ? ' — '+a.dental.desc : ''}`);
+      return;
+    }
     if(f.special==='teeth'){
       if(a.dental.grade==='NE'){
         L.push(`Teeth: Not able to examine${a.dental.desc ? ' — '+a.dental.desc : ''}`);
