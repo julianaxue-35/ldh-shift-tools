@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.4';
+const APP_VERSION = '2026-09-25.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -417,6 +417,18 @@ function syncCompletionToDashboard(a, shift, note) {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
+  }).catch(() => {});
+}
+/* 2026-09-25: removing an animal from the shift list also removes its case
+   from the dashboard (so the dashboard's counts don't keep a case that was
+   deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
+   Function reject with a 400 rather than mistaking it for a completion. */
+function removeFromDashboard(a, shift) {
+  if (!a || !a.animalId || !a.location) return;
+  fetch(SYNC_ENDPOINT, {
+    method: 'POST',
+    headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delete: { title: a.animalId, location: a.location, shift } }),
   }).catch(() => {});
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
@@ -1291,7 +1303,8 @@ function groupedListHtml(animals){
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
-    if(confirm('Remove this animal from the shift list?')){
+    if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
+      removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'sick_injured');
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
       saveShift(); renderShiftList();
     }
