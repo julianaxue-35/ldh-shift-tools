@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.3';
+const APP_VERSION = '2026-09-25.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -392,22 +392,12 @@ function planExcerpt(text, maxLen) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
 }
-/* 2026-09-25: syncing is opt-in per animal (a.syncDash). Asked each time
-   animals are added (spreadsheet import or by hand), so a vet finishing notes
-   the next day never pushes animals from a shift they aren't on. Animals that
-   arrive via the dashboard "Pick up" hand-off are always synced (they came
-   from the dashboard). Returns true if a completion was actually pushed. */
-function askSyncDashboard(count, what){
-  return confirm(`Sync ${count===1?'this animal':'these '+count+' animals'} with the dashboard?\n\nOK = yes: ${what} show on today's shift dashboard and completions sync too.\nCancel = keep local only, nothing goes to the dashboard.\n\nOnly choose OK if you're working this shift today.`);
-}
 function syncCompletionToDashboard(a, shift, note) {
-  if(!a.syncDash) return false;
   fetch(SYNC_ENDPOINT, {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
   }).catch(() => {});
-  return true;
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
    loaded, not just completions — insert-only server-side, so this can
@@ -754,7 +744,6 @@ function normalizeAnimal(a){
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
   if(a.behaviour == null) a.behaviour = '';
   if(a.dental){ if(a.dental.incisors == null) a.dental.incisors = ''; if(a.dental.molars == null) a.dental.molars = ''; }
-  if(a.syncDash == null) a.syncDash = false; // records saved before opt-in sync: never sync
   return a;
 }
 
@@ -1117,14 +1106,12 @@ function renderParsedTable(rows){
     if(!checkStaleShiftBeforeAdd()) return;
     const selected = rows.filter(r=>r._checked!==false);
     if(!selected.length){ alert('Select at least one animal to add.'); return; }
-    const sync = askSyncDashboard(selected.length, 'they');
     const added = selected.map(r=>{
       const a = makeAnimal(r);
-      a.syncDash = sync;
       state.animals.push(a);
       return a;
     });
-    if(sync) syncListToDashboard(added, 'processing');
+    syncListToDashboard(added, 'processing');
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -1137,9 +1124,7 @@ function renderParsedTable(rows){
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
   const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:'', sex:''};
-  const a = makeAnimal(r);
-  a.syncDash = askSyncDashboard(1, 'it will');
-  state.animals.push(a);
+  state.animals.push(makeAnimal(r));
   saveShift();
   renderShiftList();
 });
@@ -2308,7 +2293,7 @@ function bindExamForm(a){
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
-    if(a.registered){ const synced = syncCompletionToDashboard(a, 'processing', planExcerpt(a.medPlan, 140)); alert('Saved to register.' + (synced ? '' : ' (Not synced to dashboard.)')); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing', planExcerpt(a.medPlan, 140)); }
     saveShift(); openExam(a.id);
   });
 }

@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.2';
+const APP_VERSION = '2026-09-25.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -412,29 +412,12 @@ function planExcerpt(text, maxLen) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
 }
-/* 2026-09-25: syncing is opt-in per animal (a.syncDash). Asked each time
-   animals are added (spreadsheet import or by hand), so a vet finishing notes
-   the next day never pushes animals from a shift they aren't on. Animals that
-   arrive via the dashboard "Pick up" hand-off are always synced (they came
-   from the dashboard). importSync is what makeAnimal stamps on new animals;
-   returns true from syncCompletionToDashboard if a completion was pushed. */
-let importSync = false;
-function askSyncDashboard(count, what){
-  return confirm(`Sync ${count===1?'this animal':'these '+count+' animals'} with the dashboard?\n\nOK = yes: ${what} show on today's shift dashboard and completions sync too.\nCancel = keep local only, nothing goes to the dashboard.\n\nOnly choose OK if you're working this shift today.`);
-}
-/* Rows merged into animals that were already in the list (not newly created)
-   still need their flag raised when the vet said yes to syncing this batch. */
-function markRowsSynced(rows){
-  rows.forEach(r=>{ const a = findExistingAnimal(r.animalId); if(a) a.syncDash = true; });
-}
 function syncCompletionToDashboard(a, shift, note) {
-  if(!a.syncDash) return false;
   fetch(SYNC_ENDPOINT, {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
   }).catch(() => {});
-  return true;
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
    loaded, not just completions — insert-only server-side, so this can
@@ -528,7 +511,6 @@ function normalizeAnimal(a){
   a.currentMed = reflowFreeText(a.currentMed);
   a.exam.free = reflowFreeText(a.exam.free);
   a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
-  if(a.syncDash == null) a.syncDash = false; // records saved before opt-in sync: never sync
   return a;
 }
 function loadShift(){
@@ -1037,8 +1019,6 @@ function renderParsedTable(rows){
   });
   function confirmAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
-    const sync = askSyncDashboard(rows.length, 'they');
-    importSync = sync;
     /* Same Animal ID can legitimately appear more than once in this same
        batch (two distinct active reminders) — each becomes its own consult
        card rather than the second one merging into the first, which is
@@ -1057,8 +1037,7 @@ function renderParsedTable(rows){
         addOrMergeFromRecheck(r);
       }
     });
-    importSync = false;
-    if(sync){ markRowsSynced(rows); syncListToDashboard(rows, 'sick_injured'); }
+    syncListToDashboard(rows, 'sick_injured');
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -1071,17 +1050,13 @@ function renderParsedTable(rows){
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
   const r = {animalId:'', location:'', weight:'', noteText:'', otherReminders:[]};
-  importSync = askSyncDashboard(1, 'it will');
   state.animals.push(makeAnimal(r));
-  importSync = false;
   saveShift();
   renderShiftList();
 });
 document.getElementById('add28DayBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
-  importSync = askSyncDashboard(1, 'it will');
   const a = makeAnimal({animalId:'', location:'', weight:'', sex:'', noteText:'', otherReminders:[]});
-  importSync = false;
   a.template = '28day';
   state.animals.push(a);
   saveShift();
@@ -1192,11 +1167,8 @@ function renderParsedFlagTable(rows){
   });
   function confirmFlagAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
-    const sync = askSyncDashboard(rows.length, 'they');
-    importSync = sync;
     rows.forEach(r=> addOrMergeFromFlag(r));
-    importSync = false;
-    if(sync){ markRowsSynced(rows); syncListToDashboard(rows, 'sick_injured'); }
+    syncListToDashboard(rows, 'sick_injured');
     saveShift();
     renderShiftList();
     document.getElementById('flagXlsxInput').value = '';
@@ -1224,7 +1196,6 @@ function makeAnimal(r){
   const treatmentText = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   return {
     id: uid(),
-    syncDash: importSync,
     animalId: r.animalId || '',
     location: r.location || '',
     weight: r.weight || '',
@@ -1463,8 +1434,6 @@ renderShiftList();
   try { items = JSON.parse(itemsRaw); } catch(e) { return; }
   if(!Array.isArray(items) || !items.length) return;
   if(!checkStaleShiftBeforeAdd()){ history.replaceState(null, '', location.pathname); return; }
-  importSync = true; // came from the dashboard, so always synced both ways — no question
-  const handoffRows = [];
   items.forEach(it=>{
     if(!it || !it.id) return;
     addOrMergeFromFlag({
@@ -1474,10 +1443,7 @@ renderShiftList();
       redFlags: it.redFlags,
       condition: it.condition,
     });
-    handoffRows.push({animalId: String(it.id).trim()});
   });
-  importSync = false;
-  markRowsSynced(handoffRows);
   saveShift();
   renderShiftList();
   history.replaceState(null, '', location.pathname);
@@ -2106,7 +2072,7 @@ function bindExamForm(a){
       } else {
         alert('Saved to register.');
       }
-      if(!syncCompletionToDashboard(a, 'sick_injured', planExcerpt(a.plan, 140))) alert('Not synced to the dashboard (this animal was added without dashboard sync).');
+      syncCompletionToDashboard(a, 'sick_injured', planExcerpt(a.plan, 140));
     }
     openExam(a.id);
     renderShiftList();

@@ -543,7 +543,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.2';
+const APP_VERSION = '2026-09-25.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -565,21 +565,12 @@ function planExcerpt(text, maxLen) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
 }
-/* 2026-09-25: syncing is opt-in per animal (a.syncDash). Asked each time
-   animals are added (booking/SM import or by hand), so a vet finishing notes
-   the next day never pushes animals from a shift they aren't on. Returns
-   true from syncCompletionToDashboard if a completion was actually pushed. */
-function askSyncDashboard(count, what){
-  return confirm(`Sync ${count===1?'this animal':'these '+count+' animals'} with the dashboard?\n\nOK = yes: ${what} show on today's shift dashboard and completions sync too.\nCancel = keep local only, nothing goes to the dashboard.\n\nOnly choose OK if you're working this shift today.`);
-}
 function syncCompletionToDashboard(a, shift, note) {
-  if(!a.syncDash) return false;
   fetch(SYNC_ENDPOINT, {
     method: 'POST',
     headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
   }).catch(() => {});
-  return true;
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
    loaded, not just completions — insert-only server-side, so this can
@@ -712,7 +703,6 @@ function normalizeAnimal(a){
   if(a.emgScenario == null) a.emgScenario = null;
   if(a.emgWeight == null) a.emgWeight = '';
   if(!a.id) a.id = uid();
-  if(a.syncDash == null) a.syncDash = false; // records saved before opt-in sync: never sync
   return a;
 }
 /* Full body-system checklist for the "Health check under GA" exam — same
@@ -1406,7 +1396,7 @@ document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
   const animalId = window.prompt('Patient ID / Tag:');
   if(animalId==null) return;
-  state.animals.push(normalizeAnimal({animalId: animalId.trim(), syncDash: askSyncDashboard(1, 'it will')}));
+  state.animals.push(normalizeAnimal({animalId: animalId.trim()}));
   saveShift();
   renderShiftList();
 });
@@ -1668,7 +1658,6 @@ function renderParsedBookingTable(rows){
   });
   function confirmBookingAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
-    const sync = askSyncDashboard(rows.length, 'they');
     rows.forEach(r=>{
       const ageP = parseAgeText(r.age);
       const a = normalizeAnimal({animalId:r.animalId, species:r.species, location:r.location, age:ageP.age, ageUnit:ageP.ageUnit, weight:r.weight||'', sex:matchSex(r.sex||'') || r.sex || ''});
@@ -1684,10 +1673,9 @@ function renderParsedBookingTable(rows){
       if(r.notes) commentParts.push(`Notes: ${r.notes}`);
       a.assistComments = commentParts.join('\n');
       a.surgNotes = buildTemplate(a);
-      a.syncDash = sync;
       state.animals.push(a);
     });
-    if(sync) syncListToDashboard(rows, 'surgery');
+    syncListToDashboard(rows, 'surgery');
     saveShift(); renderShiftList();
     document.getElementById('bookingXlsxInput').value = '';
     wrap.innerHTML = '';
@@ -1743,15 +1731,13 @@ function renderParsedSmTable(rows){
   });
   function confirmSmAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
-    const sync = askSyncDashboard(rows.length, 'they');
     rows.forEach(r=>{
       const a = normalizeAnimal({animalId:r.animalId, weight:r.weight, species:r.species, sex:r.sex, needs:{flea:!!r.fleaDueDate, worm:!!r.wormDueDate, vacc:!!r.vaccDue, fiv:false, chip:false, hc:false}});
       if(r.surgType) a.surgType = r.surgType;
       a.surgNotes = buildTemplate(a);
-      a.syncDash = sync;
       state.animals.push(a);
     });
-    if(sync) syncListToDashboard(rows, 'surgery');
+    syncListToDashboard(rows, 'surgery');
     saveShift(); renderShiftList();
     document.getElementById('smXlsxInput').value = '';
     wrap.innerHTML = '';
@@ -2881,7 +2867,7 @@ function bindExamForm(a){
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
     saveShift();
-    if(a.registered){ const synced = syncCompletionToDashboard(a, 'surgery', planExcerpt(a.assistComments, 140)); alert('Saved to register.' + (synced ? '' : ' (Not synced to dashboard.)')); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery', planExcerpt(a.assistComments, 140)); }
     openExam(a.id);
     renderShiftList();
   });
