@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.5';
+const APP_VERSION = '2026-09-25.6';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -927,7 +927,7 @@ function addOrMergeFromRecheck(r){
 function flagHistoryLabel(r){
   const redFlags = Array.isArray(r.redFlags) ? r.redFlags.filter(Boolean).join(', ') : String(r.redFlags||'').trim();
   let label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
-  if(redFlags) label += `\nRed flags: ${redFlags}`;
+  if(redFlags) label += `\nEmergency signs: ${redFlags}`;
   if(r.condition && String(r.condition).trim()) label += `\nSuspected condition: ${String(r.condition).trim()}`;
   return label;
 }
