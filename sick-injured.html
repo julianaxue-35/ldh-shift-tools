@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.1';
+const APP_VERSION = '2026-09-25.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2350,6 +2350,40 @@ function downloadFile(file){
 function showClearReminder(){
   const note = document.getElementById('shareExportNote');
   if(note) note.textContent = 'Once you\'ve confirmed this file was sent/received, use "Clear list" on the Shift List tab to remove this shift\'s data from this device.';
+  showExportClearBanner();
+}
+/* 2026-09-25: after an export/share, a banner (visible on every tab) offers to
+   clear the exported animals — so completed animals don't get left in the list
+   and re-exported or mixed into tomorrow's. Deliberately NOT a pop-up: the
+   download finishes before anyone has opened the file, so the vet opens the
+   file first, checks it, then taps Clear. Reuses the existing "Clear exported"
+   button (registered animals only, confirm + automatic backup). */
+function showExportClearBanner(){
+  const n = state.animals.filter(a=>a.registered).length;
+  if(!n) return;
+  let b = document.getElementById('exportClearBanner');
+  if(!b){
+    b = document.createElement('div');
+    b.id = 'exportClearBanner';
+    b.setAttribute('role','status');
+    b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;background:#fff4d6;color:#3a2f00;border-bottom:2px solid #d9a400;padding:10px 14px;font-size:14px;line-height:1.4;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 2px 8px rgba(0,0,0,.2)';
+    document.body.appendChild(b);
+  }
+  const time = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  b.innerHTML = '';
+  const msg = document.createElement('span');
+  msg.style.flex = '1 1 240px';
+  msg.textContent = `Exported at ${time}. Open the file and check it looks right, then clear the ${n} exported (registered) animal${n===1?'':'s'} so they aren't left in the list.`;
+  const clearBtn = document.createElement('button');
+  clearBtn.type = 'button'; clearBtn.className = 'btn small'; clearBtn.textContent = 'Clear exported';
+  clearBtn.addEventListener('click', ()=>{
+    document.getElementById('clearRegisteredBtn').click();
+    if(!state.animals.some(a=>a.registered)) b.remove();
+  });
+  const laterBtn = document.createElement('button');
+  laterBtn.type = 'button'; laterBtn.className = 'btn small secondary'; laterBtn.textContent = 'Later';
+  laterBtn.addEventListener('click', ()=> b.remove());
+  b.append(msg, clearBtn, laterBtn);
 }
 /* Tries the native share sheet with all files together, then falls back to
    sharing them one at a time (some phone browsers allow a single shared file
