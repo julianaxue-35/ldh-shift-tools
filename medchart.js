@@ -464,10 +464,49 @@
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   }
+  // Dashboard hand-off (2026-09-26): registering (or correcting) a chart for
+  // an animal that's flagged as a medication case on the LDH Shift Ops
+  // dashboard used to need a SEPARATE manual step on the dashboard's own
+  // vets.html (typing the label there again). She does all of the real
+  // clinical work here instead, so this builds a short label straight from
+  // what was just typed and sends it — same best-effort, fire-and-forget
+  // sync as the tools' own completion sync (never blocks the local save,
+  // never surfaces an error if it fails).
+  //
+  // The dashboard task might not be a medication case at all (no prior
+  // staff flag), or might not exist there yet — the Edge Function only
+  // UPDATEs a matching row, it never creates one, so this is a safe no-op
+  // in both cases. A chart created directly on the Medication Charts page
+  // (sourceTool 'manual') has no shift to match against, so it's skipped.
+  var DASHBOARD_SHIFT = { 'sick-injured': 'sick_injured', processing: 'processing', surgery: 'surgery' };
+  var SYNC_ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
+  var SYNC_APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
+  var SYNC_SECRET = '0150e5d82a61630d053ce71513eb80f35524504de454adbe374a0d7e79662103';
+  function buildDashboardLabel(chart) {
+    return (chart.meds || []).map(function (m) {
+      var line = [m.drugLabel, m.doseText, m.route, m.freq].filter(Boolean).join(' ');
+      if (m.days) line += ' x' + m.days + 'd';
+      return line.trim();
+    }).filter(Boolean).join('; ');
+  }
+  function syncChartToDashboard(chart) {
+    try {
+      var shift = DASHBOARD_SHIFT[chart.sourceTool];
+      if (!shift || !chart.animalId || !chart.location) return;
+      var label = buildDashboardLabel(chart);
+      if (!label) return;
+      fetch(SYNC_ENDPOINT, {
+        method: 'POST',
+        headers: { apikey: SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chart: { title: chart.animalId, location: chart.location, shift: shift, med_label: label, med_chart_done: true } })
+      }).catch(function () {});
+    } catch (e) { /* never let the sync attempt break the local save */ }
+  }
   function addChart(chart) {
     var list = loadCharts();
     list.push(chart);
     saveCharts(list);
+    syncChartToDashboard(chart);
     return chart;
   }
   function deleteChart(id) {
@@ -485,6 +524,7 @@
     if (idx === -1) return null;
     list[idx] = Object.assign({}, list[idx], patch);
     saveCharts(list);
+    syncChartToDashboard(list[idx]);
     return list[idx];
   }
   // Finds a previously-saved chart for the same underlying animal
