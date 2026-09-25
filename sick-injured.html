@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-25.6';
+const APP_VERSION = '2026-09-26.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1446,7 +1446,13 @@ renderShiftList();
   let items;
   try { items = JSON.parse(itemsRaw); } catch(e) { return; }
   if(!Array.isArray(items) || !items.length) return;
-  if(!checkStaleShiftBeforeAdd()){ history.replaceState(null, '', location.pathname); return; }
+  // Unlike every other caller of checkStaleShiftBeforeAdd(), a hand-off has
+  // no "re-add after" step available — the items came in on the URL and it's
+  // cleared below regardless. So a stale old list gets cleared here same as
+  // anywhere else, but the incoming hand-off always still gets imported
+  // right after, never dropped (2026-09-26 fix: it used to abort here,
+  // silently losing the case the vet had just picked up).
+  checkStaleShiftBeforeAdd();
   items.forEach(it=>{
     if(!it || !it.id) return;
     addOrMergeFromFlag({
