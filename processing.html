@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.5';
+const APP_VERSION = '2026-09-26.6';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -901,12 +901,12 @@ function heartMurmurTier(a){
 /* Exotic (rabbit etc.) drafts — the cat/dog blurbs name species-specific
    diseases (FHV-1, CIRDC, MMVD) that don't apply. Drafts for review. */
 const EXOTIC_DDX = {
-  eyes: 'DDx: conjunctivitis vs corneal disease vs nasolacrimal duct obstruction/dacryocystitis (often secondary to dental disease) vs foreign body; recommend ophthalmic exam.',
-  nose: 'DDx: upper respiratory disease (e.g. Pasteurella/Bordetella) vs dental disease vs foreign body; recommend further workup if chronic or unilateral.',
-  teeth: 'DDx: incisor/cheek-tooth overgrowth or malocclusion vs dental spurs vs tooth-root disease/abscess; recommend oral exam +/- skull radiographs and dental correction.',
-  lungs: 'DDx: pneumonia (e.g. Pasteurella/Bordetella) vs cardiac disease vs pleural effusion; recommend further respiratory workup +/- radiographs.',
-  heart: 'DDx: physiological/stress-related murmur vs cardiac disease; recommend vet review.',
-  gallop: 'DDx: gallop rhythm — cardiac disease vs severe systemic illness; recommend vet review.'
+  eyes: 'DDx: conjunctivitis vs corneal disease vs nasolacrimal duct obstruction/dacryocystitis (often secondary to dental disease) vs foreign body.',
+  nose: 'DDx: upper respiratory disease (e.g. Pasteurella/Bordetella) vs dental disease vs foreign body.',
+  teeth: 'DDx: incisor/cheek-tooth overgrowth or malocclusion vs dental spurs vs tooth-root disease/abscess.',
+  lungs: 'DDx: pneumonia (e.g. Pasteurella/Bordetella) vs cardiac disease vs pleural effusion.',
+  heart: 'DDx: physiological/stress-related murmur vs cardiac disease.',
+  gallop: 'DDx: gallop rhythm — cardiac disease vs severe systemic illness.'
 };
 function ddxBlurb(key, species, grade, approxAge){
   if(species==='exotic' && EXOTIC_DDX[key]) return EXOTIC_DDX[key];
@@ -927,26 +927,26 @@ function ddxBlurb(key, species, grade, approxAge){
     : 'DDx: gallop rhythm — dilated cardiomyopathy vs advanced degenerative valve disease vs volume overload vs severe anaemia; often indicates more advanced cardiac disease than a murmur alone.';
   const blurbs = {
     eyes: cat
-      ? 'DDx: FHV-1 vs feline calicivirus vs Chlamydophila felis vs conjunctivitis vs corneal disease; recommend ophthalmic exam.'
-      : 'DDx: conjunctivitis (bacterial/viral/allergic) vs KCS vs corneal disease vs foreign body; recommend ophthalmic exam.',
+      ? 'DDx: FHV-1 vs feline calicivirus vs Chlamydophila felis vs conjunctivitis vs corneal disease.'
+      : 'DDx: conjunctivitis (bacterial/viral/allergic) vs KCS vs corneal disease vs foreign body.',
     nose: cat
-      ? 'DDx: FHV-1/calicivirus/Chlamydophila (URI) vs cryptococcosis vs dental disease vs nasal foreign body; recommend further workup if chronic or unilateral.'
+      ? 'DDx: FHV-1/calicivirus/Chlamydophila (URI) vs cryptococcosis vs dental disease vs nasal foreign body.'
       : 'DDx: rhinitis (bacterial/viral/fungal) vs foreign body vs dental disease vs nasal neoplasia.',
-    ears: 'DDx: otitis externa (bacterial/yeast/Otodectes) vs foreign body vs polyp; recommend otoscopic exam.',
-    teeth: 'DDx: periodontal disease secondary to plaque/calculus vs tooth fracture vs endodontic disease; recommend dental assessment +/- scale and polish.',
-    skin: 'DDx: allergic dermatitis vs ectoparasites (fleas/mites) vs dermatophytosis vs pyoderma; recommend skin scrape/cytology if indicated.',
+    ears: 'DDx: otitis externa (bacterial/yeast/Otodectes) vs foreign body vs polyp.',
+    teeth: 'DDx: periodontal disease secondary to plaque/calculus vs tooth fracture vs endodontic disease.',
+    skin: 'DDx: allergic dermatitis vs ectoparasites (fleas/mites) vs dermatophytosis vs pyoderma.',
     heart: heartText,
     gallop: gallopText,
     lungs: cat
-      ? 'DDx: feline asthma vs URI-associated bronchitis vs cardiac disease vs pleural effusion; recommend follow-up auscultation +/- radiographs.'
-      : 'DDx: CIRDC complex (Bordetella/parainfluenza/CAV-2/canine influenza/Mycoplasma) vs cardiac disease vs pneumonia; recommend further respiratory workup.',
-    abdomen: 'DDx: GI foreign body/obstruction vs organomegaly vs neoplasia vs effusion (FIP/cardiac/hepatic/peritonitis) vs pregnancy (if entire female); recommend abdominal palpation follow-up +/- imaging.',
-    ortho: 'DDx: soft tissue injury vs fracture vs osteoarthritis vs referred neurological pain; recommend orthopaedic exam +/- radiographs.',
-    neuro: 'DDx: vestibular disease vs toxin exposure vs trauma vs infectious/inflammatory CNS disease; recommend neurological exam.',
-    cryptorchid: 'DDx: unilateral or bilateral cryptorchidism; recommend abdominal/inguinal palpation +/- ultrasound to locate retained testicle(s) — surgical removal recommended given increased risk of neoplasia/torsion in retained testicles.',
+      ? 'DDx: feline asthma vs URI-associated bronchitis vs cardiac disease vs pleural effusion.'
+      : 'DDx: CIRDC complex (Bordetella/parainfluenza/CAV-2/canine influenza/Mycoplasma) vs cardiac disease vs pneumonia.',
+    abdomen: 'DDx: GI foreign body/obstruction vs organomegaly vs neoplasia vs effusion (FIP/cardiac/hepatic/peritonitis) vs pregnancy (if entire female).',
+    ortho: 'DDx: soft tissue injury vs fracture vs osteoarthritis vs referred neurological pain.',
+    neuro: 'DDx: vestibular disease vs toxin exposure vs trauma vs infectious/inflammatory CNS disease.',
+    cryptorchid: 'DDx: unilateral or bilateral cryptorchidism.',
     pregnant: 'Note: pregnant — confirm gestation stage if possible; flag for priority pregnant spey scheduling and appropriate peri-operative/anaesthetic planning.',
-    bcslow: 'DDx: malnutrition vs parasitic infection vs other (metabolic/GI disease); recommend faecal exam and blood work.',
-    bcshigh: 'DDx: overfeeding/overeating vs hypothyroidism (hypoT) vs other metabolic disease; recommend dietary management and blood work if indicated.'
+    bcslow: 'DDx: malnutrition vs parasitic infection vs other (metabolic/GI disease).',
+    bcshigh: 'DDx: overfeeding/overeating vs hypothyroidism (hypoT) vs other metabolic disease.'
   };
   return blurbs[key] || 'DDx: review findings and add differentials.';
 }
@@ -2550,7 +2550,7 @@ function computeProblemList(a){
   if(a.uvLamp==='POSITIVE' && !a.assessmentDismissed['uvpositive']){
     const title = overrideTitle(a, 'uvpositive', 'UV positive \u2014 ringworm');
     const ddx = (a.assessmentOverrides['uvpositive'] != null) ? a.assessmentOverrides['uvpositive']
-      : 'DDx: dermatophytosis (ringworm); recommend fungal culture/PCR confirmation, isolation/contact precautions, and treatment as indicated.';
+      : 'DDx: dermatophytosis (ringworm).';
     problems.push({id:'uvpositive', title, ddx, custom:false});
   }
   if(a.fivTest!=='NO' && a.fivResult==='POSITIVE' && !a.assessmentDismissed['fivpositive']){
