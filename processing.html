@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.1';
+const APP_VERSION = '2026-09-26.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1098,6 +1098,41 @@ function parseInCareInventory(aoa){
    confirming. Only checked rows get added; unchecked ones are just left out,
    never deleted from the preview, so she can re-tick if she changes her mind
    without re-importing the whole file. */
+
+/* Room picker for the import preview: group rows by room so a vet helping
+   out can tick just the room(s) they're taking. "Cat Room 1 / 16" -> "Cat Room 1";
+   "CR2-43" -> "CR2"; anything unrecognised stays as its own group. */
+let parsedAddToDashboard = true;
+function roomOfLocation(loc){
+  const t = String(loc||'').trim();
+  if(!t) return '(no location)';
+  if(t.indexOf('/')!==-1) return t.split('/')[0].trim() || t;
+  const m = t.match(/^([A-Za-z]+\d*)\s*[-\s]\s*\d+[A-Za-z]?$/);
+  return m ? m[1].toUpperCase() : t;
+}
+function roomChipsHtml(rows){
+  const rooms = {};
+  rows.forEach(r=>{ const k = roomOfLocation(r.location); (rooms[k] = rooms[k] || []).push(r); });
+  const keys = Object.keys(rooms).sort((a,b)=>a.localeCompare(b, undefined, {numeric:true}));
+  return `<div style="margin:8px 0"><div style="font-size:12px;color:var(--ink-soft);margin-bottom:4px">Tap a room to tick / untick all its animals:</div>
+    <div class="opts">${keys.map(k=>{
+      const all = rooms[k].every(r=>r._checked!==false);
+      return `<button type="button" class="opt-btn ${all?'selected':''}" data-room="${esc(k)}">${esc(k)} (${rooms[k].length})</button>`;
+    }).join('')}</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-top:10px;cursor:pointer"><input type="checkbox" id="parsedDashChk" ${parsedAddToDashboard?'checked':''} style="width:18px;height:18px"> Also add these to the dashboard</label></div>`;
+}
+function bindRoomChips(wrap, rows, rerender){
+  wrap.querySelectorAll('[data-room]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const inRoom = rows.filter(r=>roomOfLocation(r.location)===btn.dataset.room);
+      const all = inRoom.every(r=>r._checked!==false);
+      inRoom.forEach(r=>{ r._checked = !all; });
+      rerender(rows);
+    });
+  });
+  const chk = wrap.querySelector('#parsedDashChk');
+  if(chk) chk.addEventListener('change', ()=>{ parsedAddToDashboard = chk.checked; });
+}
 function renderParsedTable(rows){
   const wrap = document.getElementById('parsedWrap');
   if(!rows.length){
@@ -1111,6 +1146,7 @@ function renderParsedTable(rows){
     <button type="button" class="btn small secondary" id="selectAllBtn">Select all</button>
     <button type="button" class="btn small secondary" id="selectNoneBtn">Select none</button>
   </div>`;
+  html += roomChipsHtml(rows);
   html += '<table class="parsed"><tr><th></th><th>ID</th><th>Location</th><th>Age (yrs)</th><th>Due date</th><th>Species</th><th>Sex</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
@@ -1134,6 +1170,7 @@ function renderParsedTable(rows){
   wrap.querySelectorAll('.parsedRowChk').forEach(el=>{
     el.addEventListener('change', ()=>{ rows[el.dataset.i]._checked = el.checked; });
   });
+  bindRoomChips(wrap, rows, renderParsedTable);
   const selectAllBtn = document.getElementById('selectAllBtn');
   if(selectAllBtn) selectAllBtn.addEventListener('click', ()=>{ rows.forEach(r=>r._checked=true); renderParsedTable(rows); });
   const selectNoneBtn = document.getElementById('selectNoneBtn');
@@ -1148,7 +1185,7 @@ function renderParsedTable(rows){
       state.animals.push(a);
       return a;
     });
-    syncListToDashboard(added, 'processing');
+    if(parsedAddToDashboard) syncListToDashboard(added, 'processing');
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -1306,7 +1343,7 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
   showTab(b.dataset.tab);
 });
 document.getElementById('registerAllBtn').addEventListener('click', ()=>{
-  const pending = state.animals.filter(a=>!a.registered);
+  const pending = state.animals.filter(a=>!a.registered && !a.doneElsewhere);
   if(!pending.length){ alert('Nothing to register — the Incomplete list is empty.'); return; }
   if(confirm(`Register all ${pending.length} animal(s) currently in the Incomplete list to Word & Excel? Only do this once you've finished with everyone shown — each one moves to Completed, including any marked "Not able to examine".`)){
     pending.forEach(a=>{ a.registered = true; });
@@ -1338,6 +1375,67 @@ function matchesIdSearch(a, q){
   if(!q) return true;
   return (a.animalId||'').toLowerCase().includes(q);
 }
+
+/* ---------- Read-back: animals another vet already registered ----------
+   Asks the dashboard which of THIS device's not-yet-registered animals were
+   registered today by someone else (only ever the animals we send — the
+   service never lists others). Those move to "Done by another vet": kept
+   out of the pending list, the counts and every export, because this device
+   has none of that vet's notes. Reversible per animal. Silent on failure
+   (offline / service not yet updated) — never blocks local work. */
+const DASH_SHIFT = 'processing';
+let elsewhereStatus = '';
+function elsewhereKey(title, loc){ return String(title||'').trim().toLowerCase() + '|' + String(loc||'').trim().toLowerCase(); }
+async function pullDoneElsewhere(manual){
+  const items = state.animals
+    .filter(a=>!a.registered && !a.doneElsewhere && String(a.animalId||'').trim() && String(a.location||'').trim())
+    .map(a=>({title:String(a.animalId).trim(), location:String(a.location).trim()}));
+  const say = (t)=>{ elsewhereStatus = t; if(manual) renderShiftList(); };
+  if(!items.length){ say('Nothing to check.'); return; }
+  try{
+    const res = await fetch(SYNC_ENDPOINT, {
+      method:'POST',
+      headers:{ 'apikey':SYNC_APIKEY, 'x-sync-secret':SYNC_SECRET, 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:{ shift:DASH_SHIFT, items } })
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    const done = new Set((data.done||[]).map(d=>elsewhereKey(d.title, d.location)));
+    let moved = 0;
+    state.animals.forEach(a=>{
+      if(!a.registered && !a.doneElsewhere && done.has(elsewhereKey(a.animalId, a.location))){ a.doneElsewhere = true; moved++; }
+    });
+    const t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    elsewhereStatus = `Checked ${t} — ${moved ? moved+' moved to "Done by another vet"' : 'nothing new'}.`;
+    if(moved){ saveShift(); renderShiftList(); } else if(manual){ renderShiftList(); }
+  }catch(e){
+    say('Could not check the dashboard (offline, or the dashboard service has not been updated yet).');
+  }
+}
+function renderElsewhere(elsewhere){
+  const list = document.getElementById('animalList');
+  if(!list) return;
+  let wrap = document.getElementById('elsewhereWrap');
+  if(!wrap){ wrap = document.createElement('div'); wrap.id = 'elsewhereWrap'; list.parentNode.insertBefore(wrap, list.nextSibling); }
+  wrap.innerHTML = `<div style="margin-top:14px;font-size:12.5px;color:var(--ink-soft)">
+      <button type="button" class="btn small secondary" id="checkElsewhereBtn">↻ Check for animals done by other vets</button>
+      <span style="margin-left:6px">${esc(elsewhereStatus)}</span></div>` +
+    (elsewhere.length ? `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600">✓ Done by another vet (${elsewhere.length}) — not in your exports</summary>
+      ${elsewhere.map(a=>`<div class="row-actions" style="justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)">
+        <span style="font-size:13px">${esc(a.animalId||'(no ID)')} · ${esc(a.location||'-')}</span>
+        <button type="button" class="btn small secondary" data-notelsewhere="${esc(a.id)}">Not done — put back</button></div>`).join('')}
+      </details>` : '');
+  const chk = document.getElementById('checkElsewhereBtn');
+  if(chk) chk.addEventListener('click', ()=>pullDoneElsewhere(true));
+  wrap.querySelectorAll('[data-notelsewhere]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const a = state.animals.find(x=>x.id===btn.dataset.notelsewhere);
+      if(a){ a.doneElsewhere = false; saveShift(); renderShiftList(); }
+    });
+  });
+}
+window.addEventListener('load', ()=>{ setTimeout(()=>pullDoneElsewhere(false), 1500); });
+setInterval(()=>{ if(!document.hidden) pullDoneElsewhere(false); }, 3*60*1000);
 function renderShiftList(){
   const list = document.getElementById('animalList');
   const completedList = document.getElementById('completedTabList');
@@ -1361,7 +1459,8 @@ function renderShiftList(){
   // couldn't physically examine them, so they're done as far as this
   // shift's tracking goes. There is no separate registered-but-incomplete
   // bucket any more (her explicit call, 2026-09-16).
-  const pending = sorted.filter(a=>!a.registered);
+  const pending = sorted.filter(a=>!a.registered && !a.doneElsewhere);
+  const elsewhere = sorted.filter(a=>a.doneElsewhere && !a.registered);
   const completed = sorted.filter(a=>a.registered);
   document.getElementById('shiftCount').textContent = pending.length;
   document.getElementById('completedTabCount').textContent = completed.length;
@@ -1379,6 +1478,7 @@ function renderShiftList(){
     : (pending.length ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
       : (hasAnimals ? '<p style="font-size:13px;color:var(--ink-soft)">All animals reviewed — check the Completed tab.</p>'
                     : '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>'));
+  renderElsewhere(elsewhere);
   bindListButtons();
   renderBackupList();
 }
@@ -1528,7 +1628,7 @@ function openExam(id){
     `${speciesLabel(a)} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
   {
     const total = state.animals.length;
-    const remaining = state.animals.filter(x=>!x.registered).length;
+    const remaining = state.animals.filter(x=>!x.registered && !x.doneElsewhere).length;
     document.getElementById('examProgress').textContent = `${remaining} to go \u00b7 ${total} total`;
   }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
@@ -2350,7 +2450,7 @@ function bindExamForm(a){
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     a.registered = !a.registered;
-    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing', planExcerpt(a.medPlan, 140)); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); }
     saveShift(); openExam(a.id);
   });
 }
@@ -2662,7 +2762,7 @@ async function buildWordFile(){
   // examine them). Incomplete = not registered at all \u2014 what she didn't
   // get to this shift. Her explicit redefinition, 2026-09-16.
   const toExport = sortedAnimals().filter(a=>a.registered);
-  const pending = sortedAnimals().filter(a=>!a.registered);
+  const pending = sortedAnimals().filter(a=>!a.registered && !a.doneElsewhere);
   if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Processing Notes \u2014 ${todayStr()}`, {bold:true, size:32, after:200});
   toExport.forEach((a,i)=>{
@@ -2805,7 +2905,7 @@ function buildExcelFile(){
   // Her explicit redefinition, 2026-09-16 — see processing.html's
   // renderShiftList for the same split.
   const completed = sorted.filter(a=>a.registered);
-  const incomplete = sorted.filter(a=>!a.registered);
+  const incomplete = sorted.filter(a=>!a.registered && !a.doneElsewhere);
 
   const completedAoa = [['Patient ID','Location','Weight','Microchip','Pathway','Treatments','Plan','Next step in pathway']];
   pushGroupedRows(completedAoa, completed, 8, a=> a.notExamined

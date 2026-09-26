@@ -498,7 +498,7 @@
       fetch(SYNC_ENDPOINT, {
         method: 'POST',
         headers: { apikey: SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chart: { title: chart.animalId, location: chart.location, shift: shift, med_label: label, med_chart_done: true } })
+        body: JSON.stringify({ chart: { title: chart.animalId, location: chart.location || 'Location TBC', shift: shift, med_label: label, med_chart_done: true } })
       }).catch(function () {});
     } catch (e) { /* never let the sync attempt break the local save */ }
   }
