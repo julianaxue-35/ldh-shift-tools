@@ -777,6 +777,7 @@
     updateChart: updateChart,
     deleteChart: deleteChart,
     findChartBySourceAnimal: findChartBySourceAnimal,
+    maxMeds: MAX_MEDS_PER_SHEET,
     upsertAutoMed: upsertAutoMed,
     removeAutoMed: removeAutoMed,
     saveConfirmationMessage: saveConfirmationMessage,

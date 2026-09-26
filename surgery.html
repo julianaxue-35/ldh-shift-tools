@@ -529,7 +529,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.12';
+const APP_VERSION = '2026-09-26.13';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -701,6 +701,7 @@ function normalizeAnimal(a){
   }
   ['flea','worm','vacc','fiv','chip','hc','bloods'].forEach(k=>{ if(a.needs[k]==null) a.needs[k]=false; });
   if(a.assistComments == null) a.assistComments = '';
+  if(a.bookingInfo){ a.assistComments = a.assistComments ? a.assistComments + '\n' + a.bookingInfo : a.bookingInfo; delete a.bookingInfo; }   // earlier build kept booking text separately
   if(!Array.isArray(a.planItems)) a.planItems = [];
   if(!Array.isArray(a.emergency)) a.emergency = [];
   if(!a.emgConc || typeof a.emgConc!=='object') a.emgConc = {};
@@ -898,10 +899,25 @@ function gabaInfo(a){
   if(gabaForm(a)==='capsule'){
     const cap = parseFloat(a.gabaCapMg) || 100;
     const n = +(mg/cap).toFixed(2);
-    return { mg, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule(s) (${mg}mg = 10mg/kg) PO BID${forDays}. Round to a practical dose.`] };
+    return { mg, label:`Gabapentin ${cap}mg capsules`, doseText:`${n} capsule(s)`, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule(s) (${mg}mg = 10mg/kg) PO BID${forDays}. Round to a practical dose.`] };
   }
   const ml = +(mg/200).toFixed(2);
-  return { mg, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
+  return { mg, label:'Gabapentin liquid 200mg/mL', doseText:`${ml}mL`, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
+}
+/* Keeps the gabapentin course on the animal's medication chart (like the oral
+   meloxicam course): BID, starts the next day in the AM. Needs weight + days. */
+function syncGabaChart(a){
+  const g = gabaInfo(a);
+  const days = parseInt(a.gabaDays, 10);
+  if(g && days>0){
+    MedChart.upsertAutoMed(
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:a.weight, location:a.location, vetInCharge:vetInitEl.value||''},
+      'auto-gaba',
+      {rawText:g.lines[0], drugKey:'gabapentin', drugLabel:g.label, doseText:g.doseText, freq:'BID', route:'PO', days:Math.min(days,14), startSlot:'AM', startOption:'tomorrow', drugWarning:''}
+    );
+  } else {
+    MedChart.removeAutoMed(a.id, 'auto-gaba');
+  }
 }
 /* Oral meloxicam as finally given: calculated by default, but the vet can edit
    dose (mL), days and AM/PM (a.meloxMlOv / a.meloxDaysOv / a.meloxTimingOv). */
@@ -1830,13 +1846,13 @@ function renderParsedBookingTable(rows){
       if(matchedType) a.surgType = matchedType; else if(r.surgType){ a.surgType = 'other'; a.bookedProc = r.surgType; }   // dental / ear flush etc. — don't default to a spey template
       if(a.species==='dog') a.surgType = dogSurgTypeFor(a.surgType);
       a.scp = !!r.scp;
-      // Booking details are shown on screen only — not written into the medical note.
+      // Booking details go into the Comment box (which is NOT included in the medical note).
       const infoParts = [];
       if(r.type) infoParts.push(`Type: ${r.type}`);
       if(r.surgType) infoParts.push(`Booked procedure: ${r.surgType}`);
       if(r.tasks) infoParts.push(`Tasks: ${r.tasks}`);
       if(r.notes) infoParts.push(`Notes: ${r.notes}`);
-      a.bookingInfo = infoParts.join('\n');
+      a.assistComments = infoParts.join('\n');
       a.surgNotes = buildTemplate(a);
       state.animals.push(a);
     });
@@ -2172,13 +2188,17 @@ function bindChartDraft(a, body){
     const startWarn = MedChart.startOverflowMessage(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)), 'tomorrow');
     if(startWarn && !confirm(startWarn)) return;
     const existing = MedChart.findChartBySourceAnimal(a.id);
-    if(existing && !confirm('A medication chart already exists for this animal (saved '+(existing.createdAt||'').slice(0,16).replace('T',' ')+'). Replace it with this one?')) return;
+    // automatic rows (oral meloxicam, gabapentin) always stay; only earlier hand-registered lines get replaced
+    const autoRows = existing ? existing.meds.filter(m=>m.autoKey) : [];
+    const hadManual = existing ? existing.meds.some(m=>!m.autoKey) : false;
+    if(hadManual && !confirm('This animal already has hand-registered medication lines on its chart (saved '+(existing.createdAt||'').slice(0,16).replace('T',' ')+'). Replace those with this one? (Oral meloxicam and gabapentin stay.)')) return;
+    if(MedChart.maxMeds && autoRows.length + draft.length > MedChart.maxMeds){ alert('A chart sheet holds '+MedChart.maxMeds+' medications — remove '+(autoRows.length + draft.length - MedChart.maxMeds)+' line(s) first.'); return; }
     const chart = {
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'surgery', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: a.weight, location: a.location,
       vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
       startOption: draft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
-      meds: draft.map(m=>Object.assign({startOption:'tomorrow'}, m))
+      meds: autoRows.concat(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)))
     };
     if(existing) MedChart.deleteChart(existing.id);
     MedChart.addChart(chart);
@@ -2316,7 +2336,7 @@ function needsBlockHtml(a){
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Rechecks from the booking sheet need a result — Normal (NSF), N/A, or the abnormal findings. Other checks just tick when done.</p>`;
   (a.customTicks||[]).forEach(ct=> h += customTickHtml(ct));
   h += `<button type="button" class="btn small secondary" id="addCustomTickBtn" style="margin-top:6px">+ Add custom check</button>
-    <div style="margin-top:8px"><label style="font-size:12px">Comment</label><br>
+    <div style="margin-top:8px"><label style="font-size:12px">Comment <span style="font-weight:400;color:var(--ink-soft)">(booking details and anything else — NOT included in the medical note)</span></label><br>
       <textarea class="free-input" id="fld_assistComments" placeholder="Anything else worth noting...">${esc(a.assistComments||'')}</textarea></div>
   </div>`;
   return h;
@@ -2366,8 +2386,8 @@ function healthCheckHtml(a){
 }
 function examFormHtml(a){
   syncMeloxPlanItem(a);
+  syncGabaChart(a);
   let h = '';
-  if(a.bookingInfo) h += `<div class="pe-field" style="background:var(--paper-2);border-radius:8px;padding:8px 10px;margin-bottom:10px"><div class="lbl" style="margin:0 0 4px">Booking info <span style="font-weight:400;text-transform:none">(for reference — not in the note)</span></div><div style="font-size:12.5px;white-space:pre-wrap">${esc(a.bookingInfo)}</div></div>`;
   if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed:</b> ${esc(bloodsText(a))}. Tick "Bloods taken" under Needed for this animal once done.</div>`;
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
@@ -2690,14 +2710,22 @@ function examFormHtml(a){
     const g = gabaInfo(a);
     h += g ? `<div style="margin-top:8px;background:var(--teal-soft);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;line-height:1.7">${g.lines.map(esc).join('<br>')}</div>`
            : `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Enter weight above to calculate the dose.</p>`;
+    h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:6px">Enter the days to add gabapentin to the medication chart below (BID, starting tomorrow AM).</p>`;
   }
   h += `</div>`;
 
-  h += `<div class="pe-field"><div class="lbl">New medication chart</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">For a genuinely new medication that needs its own printable 14-day chart — the automatic oral-meloxicam post-op course above already registers itself, no need to type it here. Type the instruction, then register it below.</p>
-    <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
-  </div>`;
+  {
+    const chartNow = MedChart.findChartBySourceAnimal(a.id);
+    const onChart = chartNow && chartNow.meds.length ? chartNow.meds.map(m=>`${esc(m.drugLabel)} ${esc(m.doseText||'')} ${esc(m.route||'')} ${esc(m.freq||'')} × ${esc(m.days)}d`).join('<br>') : 'nothing yet';
+    h += `<div class="pe-field"><div class="lbl">Medication chart</div>
+      <p style="font-size:11.5px;margin-bottom:6px"><b>On the chart now:</b><br>${onChart}</p>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Oral meloxicam and gabapentin above are added to the chart automatically. To add any other medication, type it below and press Register (or add a blank line), check every field, then Save chart.</p>
+      <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}">+ Register medication chart</button>
+        <button type="button" class="btn small secondary" id="addBlankMedBtn">+ Add a medication line manually</button></div>
+    </div>`;
+  }
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
   h += `<div class="pe-field"><div class="lbl">Surgery comment</div>
     <textarea class="free-input" id="fld_surgComment" placeholder="Anything else worth noting about the surgery...">${esc(a.surgComment||'')}</textarea></div>`;
@@ -2997,6 +3025,8 @@ function bindExamForm(a){
     });
     newMedPlanEl.addEventListener('input', ()=>{ a.newMedChartText = newMedPlanEl.value; });
   }
+  const addBlankMedBtn = document.getElementById('addBlankMedBtn');
+  if(addBlankMedBtn) addBlankMedBtn.addEventListener('click', ()=>{ chartDrafts[a.id] = [blankMedRow()]; openExam(a.id); });
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
     const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
@@ -3240,7 +3270,7 @@ function assembleNote(a){
   });
   if(!anyPreop) L.push('-');
   (a.customTicks||[]).forEach(ct=>{ L.push(isRecheckTick(ct) ? (ct.done ? `- ${ct.label}: ${recheckResultText(ct)} (${ct.time})` : `- ${ct.label}: not recorded`) : (ct.done ? `- ${ct.label} (${ct.time})` : `- ${ct.label}: not marked done`)); });
-  if(a.assistComments && a.assistComments.trim()) L.push(`  Comment: ${a.assistComments.trim()}`);
+  // (the Comment box is deliberately NOT written into the medical note)
   if(chipHasFullNumber(a)) L.push(`  Microchip: ${a.microchipNum}`);
   else if(chipDone) L.push('  Microchip: implanted (number not recorded on this device)');
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);

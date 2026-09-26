@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.3';
+const APP_VERSION = '2026-09-26.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1412,6 +1412,33 @@ async function pullDoneElsewhere(manual){
     say('Could not check the dashboard (offline, or the dashboard service has not been updated yet).');
   }
 }
+/* Before registering: has another device / vet already registered this animal
+   today? (Only asks the dashboard about this one animal; skipped when this
+   device already sent its own completion, when offline, or on any error.) */
+async function confirmNotDoneElsewhere(a){
+  if(a.dashSynced) return true;
+  const title = String(a.animalId||'').trim(), loc = String(a.location||'').trim();
+  if(!title || !loc) return true;
+  try{
+    const ctl = new AbortController();
+    const timer = setTimeout(()=>ctl.abort(), 4000);
+    const res = await fetch(SYNC_ENDPOINT, {
+      method:'POST',
+      headers:{ 'apikey':SYNC_APIKEY, 'x-sync-secret':SYNC_SECRET, 'Content-Type':'application/json' },
+      body: JSON.stringify({ status:{ shift:DASH_SHIFT, items:[{title, location:loc}] } }),
+      signal: ctl.signal
+    });
+    clearTimeout(timer);
+    if(!res.ok) return true;
+    const data = await res.json();
+    if((data.done||[]).length){
+      if(confirm(title + ' was already registered today on another device / by another vet.\n\nOK = register it here as well (two notes will exist)\nCancel = do not register; move it to "Done by another vet"')) return true;
+      a.doneElsewhere = true; saveShift(); renderShiftList();
+      return false;
+    }
+  }catch(e){ /* offline or slow: never block registering */ }
+  return true;
+}
 function renderElsewhere(elsewhere){
   const list = document.getElementById('animalList');
   if(!list) return;
@@ -2448,9 +2475,10 @@ function bindExamForm(a){
   bindChartDraft(a, body);
 
   const markBtn = document.getElementById('markDoneBtn');
-  if(markBtn) markBtn.addEventListener('click', ()=>{
+  if(markBtn) markBtn.addEventListener('click', async ()=>{
+    if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;
-    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
     saveShift(); openExam(a.id);
   });
 }
