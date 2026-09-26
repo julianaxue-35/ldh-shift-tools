@@ -529,7 +529,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.14';
+const APP_VERSION = '2026-09-26.15';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -889,16 +889,19 @@ function meloxOralDoseVal(w, species){
   return species==='dog' ? +(w/15).toFixed(2) : +(w*0.1).toFixed(2);   // dog 0.1mg/kg @ 1.5mg/mL; cat 0.05mg/kg @ 0.5mg/mL
 }
 /* Post-op gabapentin (send-home), 10mg/kg BID: liquid 200mg/mL or capsules. */
-/* Capsule strength that gives the easiest whole-capsule dose closest to 10mg/kg
-   (e.g. 30kg = 300mg -> one 300mg capsule BID). Ties go to fewer capsules. */
-function gabaBestCap(mg){
-  let best = null;
+/* Capsule strength for a whole-capsule dose within 5–10mg/kg, closest to 10
+   (30kg -> one 300mg capsule BID). Ties go to fewer capsules. If nothing lands
+   in range (very small dogs) the nearest to 10mg/kg is returned and flagged. */
+function gabaBestCap(w){
+  const cands = [];
   [100,300,400,600,800].forEach(cap=>{
-    const n = Math.max(1, Math.round(mg/cap));
-    const err = Math.abs(n*cap - mg)/mg;
-    if(!best || err < best.err - 1e-9 || (Math.abs(err-best.err) < 1e-9 && n < best.n)) best = {cap, n, err};
+    const raw = 10*w/cap;
+    new Set([Math.max(1,Math.floor(raw)), Math.max(1,Math.ceil(raw))]).forEach(n=> cands.push({cap, n, perKg:n*cap/w}));
   });
-  return best;
+  const inRange = cands.filter(c=>c.perKg>=5-1e-9 && c.perKg<=10+1e-9);
+  const pool = inRange.length ? inRange : cands;
+  pool.sort((x,y)=> Math.abs(x.perKg-10)-Math.abs(y.perKg-10) || x.n-y.n);
+  return Object.assign({inRange: inRange.length>0}, pool[0]);
 }
 function gabaForm(a){ return a.gabaForm || (a.species==='dog' ? 'capsule' : 'liquid'); }   // cats usually liquid, dogs usually capsules
 function gabaInfo(a){
@@ -908,11 +911,13 @@ function gabaInfo(a){
   const days = (a.gabaDays||'').toString().trim();
   const forDays = days ? ' for '+days+' days' : ' for ___ days';
   if(gabaForm(a)==='capsule'){
-    const auto = gabaBestCap(mg);
-    const cap = parseFloat(a.gabaCapMg) || auto.cap;
-    const n = Math.max(1, Math.round(mg/cap));
-    const given = n*cap, perKg = +(given/w).toFixed(1);
-    return { mg, label:`Gabapentin ${cap}mg capsules`, doseText:`${n} capsule${n===1?'':'s'}`, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule${n===1?'':'s'} (${given}mg = ${perKg}mg/kg) PO BID${forDays}.`] };
+    const auto = gabaBestCap(w);
+    const picked = parseFloat(a.gabaCapMg);
+    const cap = picked || auto.cap;
+    const n = picked ? Math.max(1, Math.round(mg/picked)) : auto.n;
+    const given = n*cap, perKgRaw = given/w, perKg = +perKgRaw.toFixed(1);
+    const outside = perKgRaw < 5 - 1e-9 || perKgRaw > 10 + 1e-9;
+    return { mg, outside, label:`Gabapentin ${cap}mg capsules`, doseText:`${n} capsule${n===1?'':'s'}`, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule${n===1?'':'s'} (${given}mg = ${perKg}mg/kg) PO BID${forDays}.${outside ? ' ⚠ outside 5–10mg/kg — consider the liquid or another strength.' : ''}`] };
   }
   const ml = +(mg/200).toFixed(2);
   return { mg, label:'Gabapentin liquid 200mg/mL', doseText:`${ml}mL`, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
@@ -1100,7 +1105,7 @@ function buildTemplate(a){
     : 'Closed muscle layer with 3/0 PDS in a continuous suture pattern.\n'+scLine+'Closed skin layer with 3/0 PDS in an intradermal suture pattern.';
 
   if(proc==='dental')return 'Surgical Procedure:\nOral examination under GA, probed and explored, dental chart performed and attached to media.\nFull mouth intraoral radiographs performed.\n(Mild/Moderate/Severe) gingivitis and (Mild/Moderate/Severe) generalised calculus.\nLocal anaesthesia: lignocaine 20mg/mL (max 2mg/kg total for the whole procedure):\n___mL L caudal mandibular\n___mL L infraorbital\n___mL L caudal maxillary\n___mL R caudal mandibular\n___mL R infraorbital\n___mL R caudal maxillary\nGood effect achieved.\nTreatment - for per tooth report refer to chart.\n(Surgical / Closed / No) extractions performed.\n(Sealing / Composite / No) restorations performed.\nRoutine prophylaxis clean of remaining teeth, ultrasonic scale and polish.\nMouth and face flushed and cleaned.\nSoft food until recheck.\nPost-op check 5-7 days. Recheck sooner if inappetent, lethargic or vomiting.';
-  if(a.species==='dog' && proc==='castrate')return 'Surgical Procedure:\nRoutine pre-scrotal '+(a.castMethod==='closed'?'closed':'open')+' castration.\n1 x Millers knot using 2/0 PDS around each spermatic cord.\nSurgery site checked for haemorrhage prior to closure - none noted.\nSC layer closed with 2/0 PDS with simple continuous pattern engaging median raphe.\nSkin closed with 2/0 PDS with intradermal pattern and tissue glue.';
+  if(a.species==='dog' && proc==='castrate')return 'Surgical Procedure:\nRoutine pre-scrotal '+(a.castMethod==='closed'?'closed':a.castMethod==='open'?'open':'(open / closed)')+' castration.\n1 x Millers knot using 2/0 PDS around each spermatic cord.\nSurgery site checked for haemorrhage prior to closure - none noted.\nSC layer closed with 2/0 PDS with simple continuous pattern engaging median raphe.\nSkin closed with 2/0 PDS with intradermal pattern and tissue glue.';
   if(a.species==='dog' && proc==='spey')return 'Surgical Procedure:\nRoutine midline ovariohysterectomy.\n2 x Millers ligatures on ovarian pedicles with '+S.lig+'.\n2 x Millers ligatures of '+S.lig+' on cervical stump.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
   if(a.species==='dog' && proc==='pyometra')return 'Surgical Procedure:\nOvariohysterectomy performed for pyometra.\nExtended midline incision performed. Careful handling of the distended uterus to prevent rupture.\nOvarian pedicles ligated with '+S.lig+'. Cervix ligated with '+S.lig+' and the uterus removed.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
   if(proc==='castrate')return 'Surgical Procedure:\nRoutine Castration.\nSingle scrotal incisions made and testicles exteriorised.\nCord tie performed via close castration.\nIncisions left open to drain and heal by second intention.';
@@ -2612,9 +2617,10 @@ function examFormHtml(a){
       ${surgTypeOptionsFor(a).map(([v,l])=>`<option value="${v}" ${a.surgType===v?'selected':''}>${l}</option>`).join('')}
     </select></div>`;
   if(a.species==='dog' && a.surgType==='castrate'){
-    h += `<div class="pe-field"><div class="lbl">Castration method</div><div class="opts">
-      <button type="button" class="opt-btn ${a.castMethod!=='closed'?'selected':''}" data-castmethod="open">Open</button>
-      <button type="button" class="opt-btn ${a.castMethod==='closed'?'selected':''}" data-castmethod="closed">Closed</button></div></div>`;
+    h += `<div class="pe-field" style="${a.castMethod?'':'border-left:4px solid var(--amber);padding-left:10px'}"><div class="lbl">Castration method — tick one</div><div class="opts">
+      <button type="button" class="opt-btn ${a.castMethod==='open'?'selected':''}" data-castmethod="open">Open</button>
+      <button type="button" class="opt-btn ${a.castMethod==='closed'?'selected':''}" data-castmethod="closed">Closed</button></div>
+      ${a.castMethod ? '' : '<p style="font-size:11.5px;color:var(--amber);margin-top:4px;font-weight:600">Not ticked yet — choose open or closed.</p>'}</div>`;
     h += tickHtml(a, INTRAOP_TICKS.find(d=>d.key==='it-block'));   // usually done before surgery, so it sits under the procedure
   }
   h += ivftHtml(a);
@@ -2859,7 +2865,7 @@ function bindExamForm(a){
       const oldA = Object.assign({}, a, {location: before===NO_LOC ? '' : before});
       removeFromDashboard(oldA, 'surgery');          // drop the case under its old location...
       syncListToDashboard([a], 'surgery');           // ...and re-add it under the new one
-      if(a.registered) syncCompletionToDashboard(a, 'surgery', planExcerpt(a.assistComments, 140));
+      if(a.registered) syncCompletionToDashboard(a, 'surgery');
     }
     saveShift(); refreshNote(a);
   });
@@ -3248,11 +3254,12 @@ function bindExamForm(a){
   if(markBtn) markBtn.addEventListener('click', ()=>{
     if(!a.registered){
       const open = (a.customTicks||[]).filter(c=>!c.done).map(c=>c.label);
+      if(a.species==='dog' && a.surgType==='castrate' && !a.castMethod) open.push('Castration method (open or closed)');
       if(open.length && !confirm('These checks are not ticked off yet:\n\n- ' + open.join('\n- ') + '\n\nRegister anyway? (Press Cancel to go back and tick them.)')) return;
     }
     a.registered = !a.registered;
     saveShift();
-    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery', planExcerpt(a.assistComments, 140)); }
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); }
     openExam(a.id);
     renderShiftList();
   });

@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.4';
+const APP_VERSION = '2026-09-26.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1342,11 +1342,15 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
   if(b.dataset.tab==='exam'){ goToExamTab(); return; }
   showTab(b.dataset.tab);
 });
-document.getElementById('registerAllBtn').addEventListener('click', ()=>{
+document.getElementById('registerAllBtn').addEventListener('click', async ()=>{
+  // first find anything another device / vet has already registered today, so it isn't registered twice
+  await pullDoneElsewhere(false);
   const pending = state.animals.filter(a=>!a.registered && !a.doneElsewhere);
-  if(!pending.length){ alert('Nothing to register — the Incomplete list is empty.'); return; }
-  if(confirm(`Register all ${pending.length} animal(s) currently in the Incomplete list to Word & Excel? Only do this once you've finished with everyone shown — each one moves to Completed, including any marked "Not able to examine".`)){
-    pending.forEach(a=>{ a.registered = true; });
+  const moved = state.animals.filter(a=>a.doneElsewhere && !a.registered).length;
+  if(!pending.length){ alert(moved ? `Nothing to register here — ${moved} animal(s) were already done by another vet (see "Done by another vet").` : 'Nothing to register — the Incomplete list is empty.'); return; }
+  const noLoc = pending.filter(a=>!String(a.location||'').trim()).length;
+  if(confirm(`Register all ${pending.length} animal(s) currently in the Incomplete list to Word & Excel? Only do this once you've finished with everyone shown \u2014 each one moves to Completed, including any marked \"Not able to examine\".` + (moved ? `\n\n${moved} other animal(s) were already registered by another vet and are NOT included.` : '') + (noLoc ? `\n\n${noLoc} have no location, so they can't be checked against or shown on the dashboard.` : ''))){
+    pending.forEach(a=>{ a.registered = true; a.dashSynced = true; syncCompletionToDashboard(a, 'processing'); });
     saveShift(); renderShiftList();
   }
 });
