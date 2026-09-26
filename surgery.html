@@ -540,7 +540,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.9';
+const APP_VERSION = '2026-09-26.10';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1073,7 +1073,27 @@ function buildTemplate(a){
   if(proc==='pyometra')return 'Surgical Procedure:\nOvariohysterectomy performed for pyometra.\nExtended midline incision performed. Careful handling of the distended uterus to prevent rupture.\nPedicle ties performed over both ovaries. Cervix ligated with 3/0 PDS and the uterus removed.\n'+close;
   return '';
 }
-function surgTypeLabel(t){
+/* Dogs only get the dog templates (castrate / spey) plus dental and non-routine;
+   cats keep the full cat list. A type that isn't in the list (e.g. imported
+   from a booking) is still shown so nothing silently changes. */
+const CAT_SURG_TYPES = [['castrate','Routine Castration'],['cryptorchid','Cryptorchid Castration'],['spey','Routine Spey (OVH) — midline'],['spey-flank','Routine Spey (OVH) — flank'],['preg1','Pregnant Spey — Stage 1'],['preg2','Pregnant Spey — Stage 2'],['preg3','Pregnant Spey — Stage 3'],['pyometra','Pyometra OVH'],['dental','Dental'],['other','Non-routine surgery']];
+const DOG_SURG_TYPES = [['castrate','Dog Castration'],['spey','Dog Spey (OVH) — midline'],['dental','Dental'],['other','Non-routine surgery']];
+function surgTypeOptionsFor(a){
+  const list = (a.species==='dog' ? DOG_SURG_TYPES : CAT_SURG_TYPES).slice();
+  if(a.surgType && !list.some(([v])=>v===a.surgType)) list.push([a.surgType, surgTypeLabel(a.surgType, a.species)]);
+  return list;
+}
+// cat-only procedures don't exist for dogs: castration-type -> castrate, spey-type -> spey
+function dogSurgTypeFor(t){
+  if(t==='cryptorchid') return 'castrate';
+  if(t==='spey-flank' || /^preg\d$/.test(t) || t==='pyometra') return 'spey';
+  return t;
+}
+function surgTypeLabel(t, species){
+  if(species==='dog'){
+    if(t==='castrate') return 'Dog Castration';
+    if(t==='spey') return 'Dog Spey (OVH) — midline';
+  }
   const map = {castrate:'Routine Castration', cryptorchid:'Cryptorchid Castration', spey:'Routine Spey (OVH) — midline', 'spey-flank':'Routine Spey (OVH) — flank', preg1:'Pregnant Spey — Stage 1', preg2:'Pregnant Spey — Stage 2', preg3:'Pregnant Spey — Stage 3', pyometra:'Pyometra OVH', dental:'Dental', other:'Non-routine surgery'};
   return map[t] || t;
 }
@@ -1753,6 +1773,7 @@ function renderParsedBookingTable(rows){
       applyParsedNeeds(a, parsedTasks.needs, parsedTasks.extras);
       const matchedType = matchSurgType(r.surgType);
       if(matchedType) a.surgType = matchedType; else if(r.surgType){ a.surgType = 'other'; a.bookedProc = r.surgType; }   // dental / ear flush etc. — don't default to a spey template
+      if(a.species==='dog') a.surgType = dogSurgTypeFor(a.surgType);
       a.scp = !!r.scp;
       const commentParts = [];
       if(r.type) commentParts.push(`Type: ${r.type}`);
@@ -1851,7 +1872,7 @@ function groupedListHtml(animals){
     <div class="animal-card">
       <div class="info">
         <b>${esc(a.animalId||'(no ID)')}</b>
-        <div class="sub">${surgTypeLabel(a.surgType)} · ${esc(a.weight||'-')}${a.weight?'kg':''}</div>
+        <div class="sub">${surgTypeLabel(a.surgType, a.species)} · ${esc(a.weight||'-')}${a.weight?'kg':''}</div>
         ${dueTreatmentsLine(a)}
       </div>
       <div>
@@ -2125,7 +2146,7 @@ function openExam(id){
   }
   state.openId = id;
   showTab('exam');
-  document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType)}`;
+  document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType, a.species)}`;
   {
     const total = state.animals.length;
     const remaining = state.animals.filter(x=>!x.registered).length;
@@ -2478,16 +2499,7 @@ function examFormHtml(a){
   h += `<div class="sechdr">Surgery</div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Procedure</label><br>
     <select class="plain" id="fld_surgType" style="width:100%">
-      <option value="castrate" ${a.surgType==='castrate'?'selected':''}>Routine Castration</option>
-      <option value="cryptorchid" ${a.surgType==='cryptorchid'?'selected':''}>Cryptorchid Castration</option>
-      <option value="spey" ${a.surgType==='spey'?'selected':''}>Routine Spey (OVH) — midline</option>
-      <option value="spey-flank" ${a.surgType==='spey-flank'?'selected':''}>Routine Spey (OVH) — flank</option>
-      <option value="preg1" ${a.surgType==='preg1'?'selected':''}>Pregnant Spey — Stage 1</option>
-      <option value="preg2" ${a.surgType==='preg2'?'selected':''}>Pregnant Spey — Stage 2</option>
-      <option value="preg3" ${a.surgType==='preg3'?'selected':''}>Pregnant Spey — Stage 3</option>
-      <option value="pyometra" ${a.surgType==='pyometra'?'selected':''}>Pyometra OVH</option>
-      <option value="dental" ${a.surgType==='dental'?'selected':''}>Dental</option>
-      <option value="other" ${a.surgType==='other'?'selected':''}>Non-routine surgery</option>
+      ${surgTypeOptionsFor(a).map(([v,l])=>`<option value="${v}" ${a.surgType===v?'selected':''}>${l}</option>`).join('')}
     </select></div>`;
   h += `<div class="two-col">
     <div><label style="font-size:12px">Surgery start</label><br>
@@ -2821,7 +2833,8 @@ function bindExamForm(a){
   if(speciesEl) speciesEl.addEventListener('change', ()=>{
     const untouched = a.surgNotes === buildTemplate(a);   // only refresh the template if she hasn't edited it
     a.species = speciesEl.value;
-    if(untouched) a.surgNotes = buildTemplate(a);
+    if(a.species==='dog') a.surgType = dogSurgTypeFor(a.surgType);
+    if(untouched || !a.surgNotes) a.surgNotes = buildTemplate(a);
     saveShift(); openExam(a.id);
   });
   const sexEl = document.getElementById('fld_sex');
@@ -3135,7 +3148,7 @@ function assembleNote(a){
     L.push(`Vet/nurse: ${vetInitEl.value||'-'} / ${nurseInitEl.value||'-'}`);
   }
   L.push('');
-  L.push(`Procedure: ${surgTypeLabel(a.surgType)}${a.surgType==='other' && a.bookedProc ? ' — ' + a.bookedProc : ''}`);
+  L.push(`Procedure: ${surgTypeLabel(a.surgType, a.species)}${a.surgType==='other' && a.bookedProc ? ' — ' + a.bookedProc : ''}`);
   L.push(`Start: ${a.surgStart||'-'}   End: ${a.surgEnd||'-'}`);
   L.push(a.surgNotes && a.surgNotes.trim() ? a.surgNotes.trim() : '-');
   L.push('');
@@ -3329,7 +3342,7 @@ async function buildWordFile(){
   toExport.forEach((a,i)=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
     if(i>0) paras += WORD_PAGE_BREAK;
-    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType)}`, {bold:true, size:26, before:i>0?0:120, after:120});
+    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType, a.species)}`, {bold:true, size:26, before:i>0?0:120, after:120});
     String(noteText).split('\n').forEach(line=>{
       if(!line.trim()){ paras += '<w:p/>'; return; }
       paras += wordParagraph(line, NOTE_SECTION_HEADERS.has(line.trim()) ? {bold:true, before:80, after:40} : {});
@@ -3489,7 +3502,7 @@ function buildExcelFile(){
     ]);
   });
   const notCompletedAoa = [['Animal ID','Procedure','Species','Sex','Weight']];
-  notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, surgTypeLabel(a.surgType), a.species==='dog'?'Dog':a.species==='cat'?'Cat':'-', a.sex||'-', a.weight||'-']));
+  notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, surgTypeLabel(a.surgType, a.species), a.species==='dog'?'Dog':a.species==='cat'?'Cat':'-', a.sex||'-', a.weight||'-']));
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,12,14,16,35,30,45]), 'Completed');
