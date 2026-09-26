@@ -540,7 +540,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.10';
+const APP_VERSION = '2026-09-26.11';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -898,6 +898,21 @@ function meloxOralDoseVal(w, species){
   if(!w || w<=0 || isNaN(w)) return null;
   return species==='dog' ? +(w/15).toFixed(2) : +(w*0.1).toFixed(2);   // dog 0.1mg/kg @ 1.5mg/mL; cat 0.05mg/kg @ 0.5mg/mL
 }
+/* Post-op gabapentin (send-home), 10mg/kg BID: liquid 200mg/mL or capsules. */
+function gabaInfo(a){
+  const w = parseFloat(a.weight);
+  if(!a.gabaOn || !w || w<=0 || isNaN(w)) return null;
+  const mg = +(w*10).toFixed(1);
+  const days = (a.gabaDays||'').toString().trim();
+  const forDays = days ? ' for '+days+' days' : ' for ___ days';
+  if(a.gabaForm==='capsule'){
+    const cap = parseFloat(a.gabaCapMg) || 100;
+    const n = +(mg/cap).toFixed(2);
+    return { mg, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule(s) (${mg}mg = 10mg/kg) PO BID${forDays}. Round to a practical dose.`] };
+  }
+  const ml = +(mg/200).toFixed(2);
+  return { mg, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
+}
 function meloxOralConc(species){ return species==='dog' ? '1.5mg/mL' : '0.5mg/mL'; }
 function meloxOralDurationDays(species, surgType){
   if(species!=='dog') return 4;
@@ -1030,14 +1045,32 @@ function tickSub(a, key){
 }
 
 /* ---------- surgical note templates (verbatim from hqhvsn.html's buildTemplate) ---------- */
+/* Dog ligature / closure suture: default by weight (<10kg 3/0 PDS, 10 to <20kg
+   2/0 PDS, 20kg+ 0 PDS) but every layer is editable per animal — vets differ,
+   and muscle / SC / skin may each use something different. */
+function dogSutureDefault(w){
+  w = parseFloat(w);
+  if(!w || w<=0 || isNaN(w)) return '___ PDS';
+  return w<10 ? '3/0 PDS' : w<20 ? '2/0 PDS' : '0 PDS';
+}
+function dogSut(a){
+  const d = dogSutureDefault(a.weight);
+  return { lig:(a.sutLig||'').trim()||d, mus:(a.sutMuscle||'').trim()||d, sc:(a.sutSC||'').trim()||d, skin:(a.sutSkin||'').trim()||d };
+}
+const DOG_SUT_TYPES = ['spey','cryptorchid','pyometra'];
 function buildTemplate(a){
   const proc=a.surgType;
   const scLine=a.scLayer?'Closed subcutaneous layer with 3/0 PDS in a continuous suture pattern.\n':'';
-  const close='Closed muscle layer with 3/0 PDS in a continuous suture pattern.\n'+scLine+'Closed skin layer with 3/0 PDS in an intradermal suture pattern.';
+  const S = a.species==='dog' ? dogSut(a) : null;
+  const ligTxt = S ? ' with '+S.lig : '';
+  const close = S
+    ? 'Closed muscle layer with '+S.mus+' in a simple continuous pattern.\nClosed subcutaneous layer with '+S.sc+' in a simple continuous pattern.\nClosed skin layer with '+S.skin+' in an intradermal pattern and tissue glue.'
+    : 'Closed muscle layer with 3/0 PDS in a continuous suture pattern.\n'+scLine+'Closed skin layer with 3/0 PDS in an intradermal suture pattern.';
 
-  if(proc==='dental')return 'Surgical Procedure:\nTampon placed in oropharynx prior to start of procedure.\nChlorhexidine 0.12% rinse of mouth prior to start of procedure.\nOral examination under GA, probed and explored, dental chart performed and attached to media.\nFull mouth intraoral radiographs performed.\n(Mild/Moderate/Severe) gingivitis and (Mild/Moderate/Severe) generalised calculus.\nLocal anaesthesia: lignocaine 20mg/mL (max 2mg/kg total for the whole procedure):\n___mL L caudal mandibular\n___mL L infraorbital\n___mL L caudal maxillary\n___mL R caudal mandibular\n___mL R infraorbital\n___mL R caudal maxillary\nGood effect achieved.\nTreatment - for per tooth report refer to chart.\n(Surgical / Closed / No) extractions performed.\n(Sealing / Composite / No) restorations performed.\nRoutine prophylaxis clean of remaining teeth, ultrasonic scale and polish.\nMouth and face flushed and cleaned.\nTampon removed, oropharynx checked for debris - oropharynx noted to be clean.\nGabapentin (10mg/kg) ___mL PO BID x ___ days (if sent home).\nSoft food until recheck.\nPost-op check 5-7 days. Recheck sooner if inappetent, lethargic or vomiting.';
+  if(proc==='dental')return 'Surgical Procedure:\nOral examination under GA, probed and explored, dental chart performed and attached to media.\nFull mouth intraoral radiographs performed.\n(Mild/Moderate/Severe) gingivitis and (Mild/Moderate/Severe) generalised calculus.\nLocal anaesthesia: lignocaine 20mg/mL (max 2mg/kg total for the whole procedure):\n___mL L caudal mandibular\n___mL L infraorbital\n___mL L caudal maxillary\n___mL R caudal mandibular\n___mL R infraorbital\n___mL R caudal maxillary\nGood effect achieved.\nTreatment - for per tooth report refer to chart.\n(Surgical / Closed / No) extractions performed.\n(Sealing / Composite / No) restorations performed.\nRoutine prophylaxis clean of remaining teeth, ultrasonic scale and polish.\nMouth and face flushed and cleaned.\nSoft food until recheck.\nPost-op check 5-7 days. Recheck sooner if inappetent, lethargic or vomiting.';
   if(a.species==='dog' && proc==='castrate')return 'Surgical Procedure:\nRoutine pre-scrotal open castration.\n1x simple encircling 2/0 PDS around each spermatic cord.\nSurgery site checked for haemorrhage prior to closure - none noted.\nSC layer closed with 2/0 PDS with simple continuous pattern engaging median raphe.\nSkin closed with 2/0 PDS with intradermal pattern and tissue glue.';
-  if(a.species==='dog' && proc==='spey')return 'Surgical Procedure:\nRoutine midline ovariohysterectomy.\n2 x Millers ligatures on ovarian pedicles with 3/0 PDS.\n2 x Millers ligatures of 3/0 PDS on cervical stump.\nAbdomen checked for haemorrhage prior to closure - none noted.\nMuscle layer closed with 3/0 PDS in simple continuous pattern.\nSC layer closed with 3/0 PDS with simple continuous pattern.\nSkin closed with 3/0 PDS with intradermal pattern and tissue glue.';
+  if(a.species==='dog' && proc==='spey')return 'Surgical Procedure:\nRoutine midline ovariohysterectomy.\n2 x Millers ligatures on ovarian pedicles with '+S.lig+'.\n2 x Millers ligatures of '+S.lig+' on cervical stump.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
+  if(a.species==='dog' && proc==='pyometra')return 'Surgical Procedure:\nOvariohysterectomy performed for pyometra.\nExtended midline incision performed. Careful handling of the distended uterus to prevent rupture.\nOvarian pedicles ligated with '+S.lig+'. Cervix ligated with '+S.lig+' and the uterus removed.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
   if(proc==='castrate')return 'Surgical Procedure:\nRoutine Castration.\nSingle scrotal incisions made and testicles exteriorised.\nCord tie performed via close castration.\nIncisions left open to drain and heal by second intention.';
 
   if(proc==='cryptorchid'){
@@ -1052,14 +1085,14 @@ function buildTemplate(a){
       t+='Castration of retained right testicle '+(locR==='abdominal'?'in the abdomen':'in the inguinal region')+'.\n';
       if(locL==='abdominal'||locR==='abdominal')t+='Ventral abdominal midline approach, routine celiotomy performed.\n';
       else t+='Inguinal incisions made bilaterally.\n';
-      t+='Both testicles exteriorised and spermatic cords ligated.\n';
+      t+='Both testicles exteriorised and spermatic cords ligated'+ligTxt+'.\n';
     } else {
       const s=side==='left'?'left':'right';
       const loc=side==='left'?locL:locR;
       t+='Castration of retained '+s+' testicle '+(loc==='abdominal'?'in the abdomen':'in the inguinal region')+'.\n';
       if(loc==='abdominal')t+='Ventral abdominal midline approach, routine celiotomy performed.\n';
       else t+='Inguinal incision made on the '+s+' side.\n';
-      t+='Exteriorised testicle.\nLigated spermatic cord.\n';
+      t+='Exteriorised testicle.\nLigated spermatic cord'+ligTxt+'.\n';
       if(contra){const other=s==='left'?'right':'left';t+='Contralateral ('+other+') descended testicle removed via standard scrotal incision. Incision left open to drain and heal by second intention.\n';}
     }
     return t+close;
@@ -1077,22 +1110,23 @@ function buildTemplate(a){
    cats keep the full cat list. A type that isn't in the list (e.g. imported
    from a booking) is still shown so nothing silently changes. */
 const CAT_SURG_TYPES = [['castrate','Routine Castration'],['cryptorchid','Cryptorchid Castration'],['spey','Routine Spey (OVH) — midline'],['spey-flank','Routine Spey (OVH) — flank'],['preg1','Pregnant Spey — Stage 1'],['preg2','Pregnant Spey — Stage 2'],['preg3','Pregnant Spey — Stage 3'],['pyometra','Pyometra OVH'],['dental','Dental'],['other','Non-routine surgery']];
-const DOG_SURG_TYPES = [['castrate','Dog Castration'],['spey','Dog Spey (OVH) — midline'],['dental','Dental'],['other','Non-routine surgery']];
+const DOG_SURG_TYPES = [['castrate','Dog Castration'],['cryptorchid','Dog Cryptorchid Castration'],['spey','Dog Spey (OVH) — midline'],['pyometra','Dog Pyometra OVH'],['dental','Dental'],['other','Non-routine surgery']];
 function surgTypeOptionsFor(a){
   const list = (a.species==='dog' ? DOG_SURG_TYPES : CAT_SURG_TYPES).slice();
   if(a.surgType && !list.some(([v])=>v===a.surgType)) list.push([a.surgType, surgTypeLabel(a.surgType, a.species)]);
   return list;
 }
-// cat-only procedures don't exist for dogs: castration-type -> castrate, spey-type -> spey
+// flank / pregnant spey templates are cat-only: they become a dog spey (cryptorchid and pyometra exist for dogs too)
 function dogSurgTypeFor(t){
-  if(t==='cryptorchid') return 'castrate';
-  if(t==='spey-flank' || /^preg\d$/.test(t) || t==='pyometra') return 'spey';
+  if(t==='spey-flank' || /^preg\d$/.test(t)) return 'spey';
   return t;
 }
 function surgTypeLabel(t, species){
   if(species==='dog'){
     if(t==='castrate') return 'Dog Castration';
     if(t==='spey') return 'Dog Spey (OVH) — midline';
+    if(t==='cryptorchid') return 'Dog Cryptorchid Castration';
+    if(t==='pyometra') return 'Dog Pyometra OVH';
   }
   const map = {castrate:'Routine Castration', cryptorchid:'Cryptorchid Castration', spey:'Routine Spey (OVH) — midline', 'spey-flank':'Routine Spey (OVH) — flank', preg1:'Pregnant Spey — Stage 1', preg2:'Pregnant Spey — Stage 2', preg3:'Pregnant Spey — Stage 3', pyometra:'Pyometra OVH', dental:'Dental', other:'Non-routine surgery'};
   return map[t] || t;
@@ -2536,7 +2570,17 @@ function examFormHtml(a){
     h += `</div>`;
   }
 
-  if(a.surgType!=='castrate'){
+  if(a.species==='dog' && DOG_SUT_TYPES.includes(a.surgType)){
+    const d = dogSutureDefault(a.weight);
+    h += `<div class="pe-field"><div class="lbl">Sutures (default by weight: &lt;10kg 3/0 PDS · 10–&lt;20kg 2/0 PDS · 20kg+ 0 PDS)</div>
+      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Leave blank to use the default (${esc(d)}), or type what you used. Updates the surgical notes below.</p>
+      <div class="two-col">
+        <div><label style="font-size:12px">Ligatures (${a.surgType==='cryptorchid'?'spermatic cord':'ovaries / cervix'})</label><br><input class="plain" data-sut="sutLig" value="${esc(a.sutLig||'')}" placeholder="${esc(d)}" style="width:100%"></div>
+        <div><label style="font-size:12px">Muscle layer</label><br><input class="plain" data-sut="sutMuscle" value="${esc(a.sutMuscle||'')}" placeholder="${esc(d)}" style="width:100%"></div>
+        <div><label style="font-size:12px">Subcutaneous layer</label><br><input class="plain" data-sut="sutSC" value="${esc(a.sutSC||'')}" placeholder="${esc(d)}" style="width:100%"></div>
+        <div><label style="font-size:12px">Skin layer</label><br><input class="plain" data-sut="sutSkin" value="${esc(a.sutSkin||'')}" placeholder="${esc(d)}" style="width:100%"></div>
+      </div></div>`;
+  } else if(a.surgType!=='castrate' && a.species!=='dog'){
     h += `<div class="pe-field"><button type="button" class="opt-btn ${a.scLayer?'selected':''}" id="scLayerToggle">Subcutaneous layer closed (3/0 PDS continuous)</button>
       <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Tapping this updates the surgical notes template below.</p></div>`;
   }
@@ -2593,6 +2637,22 @@ function examFormHtml(a){
     } else if(meloxOralVal==null){
       h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Enter weight above to calculate the oral dose.</p>`;
     }
+  }
+  h += `</div>`;
+
+  h += `<div class="pe-field"><div class="lbl">Gabapentin post op (optional)</div>
+    <div class="opts"><button type="button" class="opt-btn ${a.gabaOn?'selected':''}" id="gabaToggle">Gabapentin required post-op (10mg/kg BID)</button></div>`;
+  if(a.gabaOn){
+    h += `<div class="two-col" style="margin-top:8px">
+      <div><label style="font-size:12px">Form</label><br><select class="plain" id="fld_gabaForm" style="width:100%">
+        <option value="liquid" ${a.gabaForm!=='capsule'?'selected':''}>Liquid 200mg/mL</option>
+        <option value="capsule" ${a.gabaForm==='capsule'?'selected':''}>Capsules</option></select></div>
+      ${a.gabaForm==='capsule' ? `<div><label style="font-size:12px">Capsule strength</label><br><select class="plain" id="fld_gabaCapMg" style="width:100%">${['100','300','400'].map(v=>`<option value="${v}" ${(a.gabaCapMg||'100')===v?'selected':''}>${v}mg</option>`).join('')}</select></div>` : ''}
+      <div><label style="font-size:12px">Days</label><br><input class="plain" id="fld_gabaDays" type="number" min="1" value="${esc(a.gabaDays||'')}" style="width:100%"></div>
+    </div>`;
+    const g = gabaInfo(a);
+    h += g ? `<div style="margin-top:8px;background:var(--teal-soft);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;line-height:1.7">${g.lines.map(esc).join('<br>')}</div>`
+           : `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Enter weight above to calculate the dose.</p>`;
   }
   h += `</div>`;
 
@@ -2828,7 +2888,20 @@ function bindExamForm(a){
   bindChange('fld_cryptoLocLeft','cryptoLocLeft'); bindChange('fld_cryptoLocRight','cryptoLocRight');
 
   const weightEl = document.getElementById('fld_weight');
-  if(weightEl) weightEl.addEventListener('change', ()=>{ a.weight = weightEl.value; saveShift(); openExam(a.id); });
+  if(weightEl) weightEl.addEventListener('change', ()=>{
+    const untouched = a.species==='dog' && a.surgNotes === buildTemplate(a);   // dog suture defaults depend on weight
+    a.weight = weightEl.value;
+    if(untouched) a.surgNotes = buildTemplate(a);
+    saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-sut]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const untouched = a.surgNotes === buildTemplate(a);
+      a[el.dataset.sut] = el.value;
+      if(untouched) a.surgNotes = buildTemplate(a);
+      saveShift(); openExam(a.id);
+    });
+  });
   const speciesEl = document.getElementById('fld_species');
   if(speciesEl) speciesEl.addEventListener('change', ()=>{
     const untouched = a.surgNotes === buildTemplate(a);   // only refresh the template if she hasn't edited it
@@ -2964,6 +3037,14 @@ function bindExamForm(a){
     a.scLayer = !a.scLayer; a.surgNotes = buildTemplate(a);
     saveShift(); openExam(a.id);
   });
+  const gabaToggle = document.getElementById('gabaToggle');
+  if(gabaToggle) gabaToggle.addEventListener('click', ()=>{ a.gabaOn = !a.gabaOn; saveShift(); openExam(a.id); });
+  const gabaFormEl = document.getElementById('fld_gabaForm');
+  if(gabaFormEl) gabaFormEl.addEventListener('change', ()=>{ a.gabaForm = gabaFormEl.value; saveShift(); openExam(a.id); });
+  const gabaCapEl = document.getElementById('fld_gabaCapMg');
+  if(gabaCapEl) gabaCapEl.addEventListener('change', ()=>{ a.gabaCapMg = gabaCapEl.value; saveShift(); openExam(a.id); });
+  const gabaDaysEl = document.getElementById('fld_gabaDays');
+  if(gabaDaysEl) gabaDaysEl.addEventListener('change', ()=>{ a.gabaDays = gabaDaysEl.value; saveShift(); openExam(a.id); });
   const meloxOralToggle = document.getElementById('meloxOralToggle');
   if(meloxOralToggle) meloxOralToggle.addEventListener('click', ()=>{
     a.meloxOral = !a.meloxOral;
@@ -3204,6 +3285,7 @@ function assembleNote(a){
     L.push(`Start: ${tomorrowDate()}, ${meloxTiming}`);
     L.push('STOP if signs of vomiting, diarrhoea and/or not eating.');
   }
+  { const g = gabaInfo(a); if(g){ L.push(''); L.push('GABAPENTIN POST OP'); g.lines.forEach(x=>L.push(x)); } }
   if(a.recoveryNotes && a.recoveryNotes.trim()) L.push(`Recovery notes: ${a.recoveryNotes.trim()}`);
   L.push('');
   L.push('');
