@@ -529,7 +529,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.13';
+const APP_VERSION = '2026-09-26.14';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -889,6 +889,17 @@ function meloxOralDoseVal(w, species){
   return species==='dog' ? +(w/15).toFixed(2) : +(w*0.1).toFixed(2);   // dog 0.1mg/kg @ 1.5mg/mL; cat 0.05mg/kg @ 0.5mg/mL
 }
 /* Post-op gabapentin (send-home), 10mg/kg BID: liquid 200mg/mL or capsules. */
+/* Capsule strength that gives the easiest whole-capsule dose closest to 10mg/kg
+   (e.g. 30kg = 300mg -> one 300mg capsule BID). Ties go to fewer capsules. */
+function gabaBestCap(mg){
+  let best = null;
+  [100,300,400,600,800].forEach(cap=>{
+    const n = Math.max(1, Math.round(mg/cap));
+    const err = Math.abs(n*cap - mg)/mg;
+    if(!best || err < best.err - 1e-9 || (Math.abs(err-best.err) < 1e-9 && n < best.n)) best = {cap, n, err};
+  });
+  return best;
+}
 function gabaForm(a){ return a.gabaForm || (a.species==='dog' ? 'capsule' : 'liquid'); }   // cats usually liquid, dogs usually capsules
 function gabaInfo(a){
   const w = parseFloat(a.weight);
@@ -897,9 +908,11 @@ function gabaInfo(a){
   const days = (a.gabaDays||'').toString().trim();
   const forDays = days ? ' for '+days+' days' : ' for ___ days';
   if(gabaForm(a)==='capsule'){
-    const cap = parseFloat(a.gabaCapMg) || 100;
-    const n = +(mg/cap).toFixed(2);
-    return { mg, label:`Gabapentin ${cap}mg capsules`, doseText:`${n} capsule(s)`, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule(s) (${mg}mg = 10mg/kg) PO BID${forDays}. Round to a practical dose.`] };
+    const auto = gabaBestCap(mg);
+    const cap = parseFloat(a.gabaCapMg) || auto.cap;
+    const n = Math.max(1, Math.round(mg/cap));
+    const given = n*cap, perKg = +(given/w).toFixed(1);
+    return { mg, label:`Gabapentin ${cap}mg capsules`, doseText:`${n} capsule${n===1?'':'s'}`, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule${n===1?'':'s'} (${given}mg = ${perKg}mg/kg) PO BID${forDays}.`] };
   }
   const ml = +(mg/200).toFixed(2);
   return { mg, label:'Gabapentin liquid 200mg/mL', doseText:`${ml}mL`, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
@@ -1087,7 +1100,7 @@ function buildTemplate(a){
     : 'Closed muscle layer with 3/0 PDS in a continuous suture pattern.\n'+scLine+'Closed skin layer with 3/0 PDS in an intradermal suture pattern.';
 
   if(proc==='dental')return 'Surgical Procedure:\nOral examination under GA, probed and explored, dental chart performed and attached to media.\nFull mouth intraoral radiographs performed.\n(Mild/Moderate/Severe) gingivitis and (Mild/Moderate/Severe) generalised calculus.\nLocal anaesthesia: lignocaine 20mg/mL (max 2mg/kg total for the whole procedure):\n___mL L caudal mandibular\n___mL L infraorbital\n___mL L caudal maxillary\n___mL R caudal mandibular\n___mL R infraorbital\n___mL R caudal maxillary\nGood effect achieved.\nTreatment - for per tooth report refer to chart.\n(Surgical / Closed / No) extractions performed.\n(Sealing / Composite / No) restorations performed.\nRoutine prophylaxis clean of remaining teeth, ultrasonic scale and polish.\nMouth and face flushed and cleaned.\nSoft food until recheck.\nPost-op check 5-7 days. Recheck sooner if inappetent, lethargic or vomiting.';
-  if(a.species==='dog' && proc==='castrate')return 'Surgical Procedure:\nRoutine pre-scrotal open castration.\n1x simple encircling 2/0 PDS around each spermatic cord.\nSurgery site checked for haemorrhage prior to closure - none noted.\nSC layer closed with 2/0 PDS with simple continuous pattern engaging median raphe.\nSkin closed with 2/0 PDS with intradermal pattern and tissue glue.';
+  if(a.species==='dog' && proc==='castrate')return 'Surgical Procedure:\nRoutine pre-scrotal '+(a.castMethod==='closed'?'closed':'open')+' castration.\n1 x Millers knot using 2/0 PDS around each spermatic cord.\nSurgery site checked for haemorrhage prior to closure - none noted.\nSC layer closed with 2/0 PDS with simple continuous pattern engaging median raphe.\nSkin closed with 2/0 PDS with intradermal pattern and tissue glue.';
   if(a.species==='dog' && proc==='spey')return 'Surgical Procedure:\nRoutine midline ovariohysterectomy.\n2 x Millers ligatures on ovarian pedicles with '+S.lig+'.\n2 x Millers ligatures of '+S.lig+' on cervical stump.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
   if(a.species==='dog' && proc==='pyometra')return 'Surgical Procedure:\nOvariohysterectomy performed for pyometra.\nExtended midline incision performed. Careful handling of the distended uterus to prevent rupture.\nOvarian pedicles ligated with '+S.lig+'. Cervix ligated with '+S.lig+' and the uterus removed.\nAbdomen checked for haemorrhage prior to closure - none noted.\n'+close;
   if(proc==='castrate')return 'Surgical Procedure:\nRoutine Castration.\nSingle scrotal incisions made and testicles exteriorised.\nCord tie performed via close castration.\nIncisions left open to drain and heal by second intention.';
@@ -1474,6 +1487,28 @@ function renderEmgLog(a){
   });
 }
 
+/* IV fluid therapy: cats 3mL/kg/h, dogs 5mL/kg/h by default (editable) — the
+   pump rate in mL/h is calculated for the nurses. On unless switched off. */
+function ivftOn(a){ return a.ivftOn !== false; }
+function ivftRateKg(a){
+  const r = parseFloat(a.ivftRate);
+  return (!isNaN(r) && r>0) ? r : (a.species==='dog' ? 5 : 3);
+}
+function ivftPerHour(a){
+  const w = parseFloat(a.weight);
+  return (!w || w<=0 || isNaN(w)) ? null : +(w*ivftRateKg(a)).toFixed(1);
+}
+function ivftHtml(a){
+  const perH = ivftPerHour(a);
+  let h = `<div class="pe-field"><div class="lbl">IV fluids (IVFT)</div>
+    <div class="opts"><button type="button" class="opt-btn ${ivftOn(a)?'selected':''}" id="ivftToggle">IVFT during surgery (LRS)</button></div>`;
+  if(ivftOn(a)){
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Rate (mL/kg/hour) — default ${a.species==='dog'?5:3}</label><br>
+      <input class="plain" id="fld_ivftRate" type="number" step="0.5" min="0" value="${esc(a.ivftRate||'')}" placeholder="${a.species==='dog'?5:3}" style="width:100%"></div>
+      <div style="margin-top:8px;background:var(--teal-soft);border-radius:8px;padding:10px 12px;font-size:14px"><b>${perH==null ? 'Enter weight to calculate the pump rate' : 'Set the pump to '+perH+' mL/hour'}</b>${perH==null ? '' : ` <span style="font-size:12px;color:var(--ink-soft)">(${ivftRateKg(a)} mL/kg/hr × ${esc(a.weight)}kg)</span>`}</div>`;
+  }
+  return h + `</div>`;
+}
 function dogPropofol(a){ return a.species==='dog' && a.dogInduction!=='alfaxalone'; }   // dogs default to propofol; vet can switch to alfaxalone
 function inductionName(a){ return dogPropofol(a) ? 'Propofol' : 'Alfaxalone'; }
 function tickLabel(a, def){
@@ -1501,14 +1536,13 @@ function isRecheckTick(ct){ return /^(recheck|wound recheck)/i.test(ct.label||''
 function recheckResultText(ct){
   const txt = (ct.text||'').trim();
   if(txt) return 'Abnormal — ' + txt;
-  return ct.result==='nsf' ? 'NSF (normal)' : ct.result==='na' ? 'N/A' : '';
+  return (ct.result==='nsf' || ct.result==='na') ? 'NSF (normal)' : '';
 }
 function recheckHtml(ct){
   return `<div class="pe-field" style="position:relative;border-left:4px solid ${ct.done?'var(--teal)':'var(--amber)'};padding-left:10px">
     <div class="lbl" style="margin:0 0 6px">${esc(ct.label)}${ct.done && ct.time ? ` <span style="font-weight:400">🕐 ${esc(ct.time)}</span>` : ''}</div>
     <div class="opts">
-      <button type="button" class="opt-btn ${ct.result==='nsf'?'selected':''}" data-ctres="nsf" data-ctid="${ct.id}">Normal (NSF)</button>
-      <button type="button" class="opt-btn ${ct.result==='na'?'selected':''}" data-ctres="na" data-ctid="${ct.id}">N/A</button>
+      <button type="button" class="opt-btn ${(ct.result==='nsf'||ct.result==='na')?'selected':''}" data-ctres="nsf" data-ctid="${ct.id}">Normal (NSF)</button>
     </div>
     <textarea class="free-input" data-ctfind="${ct.id}" placeholder="Abnormal findings — describe..." style="margin-top:6px">${esc(ct.text||'')}</textarea>
     <button type="button" data-delcustomtick="${ct.id}" style="position:absolute;top:4px;right:4px;border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:15px;line-height:1;padding:2px 6px">&times;</button>
@@ -2333,7 +2367,7 @@ function needsBlockHtml(a){
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Set from the booking sheet where possible. Amber = required.</p>`;
   NEED_ITEMS.forEach(item=> h += needRowHtml(a, item));
   h += `<div class="pe-field"><div class="lbl">Additional checks</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Rechecks from the booking sheet need a result — Normal (NSF), N/A, or the abnormal findings. Other checks just tick when done.</p>`;
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Rechecks from the booking sheet need a result — Normal (NSF) or the abnormal findings. Other checks just tick when done.</p>`;
   (a.customTicks||[]).forEach(ct=> h += customTickHtml(ct));
   h += `<button type="button" class="btn small secondary" id="addCustomTickBtn" style="margin-top:6px">+ Add custom check</button>
     <div style="margin-top:8px"><label style="font-size:12px">Comment <span style="font-weight:400;color:var(--ink-soft)">(booking details and anything else — NOT included in the medical note)</span></label><br>
@@ -2577,6 +2611,13 @@ function examFormHtml(a){
     <select class="plain" id="fld_surgType" style="width:100%">
       ${surgTypeOptionsFor(a).map(([v,l])=>`<option value="${v}" ${a.surgType===v?'selected':''}>${l}</option>`).join('')}
     </select></div>`;
+  if(a.species==='dog' && a.surgType==='castrate'){
+    h += `<div class="pe-field"><div class="lbl">Castration method</div><div class="opts">
+      <button type="button" class="opt-btn ${a.castMethod!=='closed'?'selected':''}" data-castmethod="open">Open</button>
+      <button type="button" class="opt-btn ${a.castMethod==='closed'?'selected':''}" data-castmethod="closed">Closed</button></div></div>`;
+    h += tickHtml(a, INTRAOP_TICKS.find(d=>d.key==='it-block'));   // usually done before surgery, so it sits under the procedure
+  }
+  h += ivftHtml(a);
   h += `<div class="two-col">
     <div><label style="font-size:12px">Surgery start</label><br>
       <div style="display:flex;gap:6px"><input class="plain" id="fld_surgStart" type="time" value="${esc(a.surgStart||'')}" style="flex:1"><button type="button" class="btn small secondary" id="surgStartNowBtn">Now</button></div></div>
@@ -2612,17 +2653,7 @@ function examFormHtml(a){
     h += `</div>`;
   }
 
-  if(a.species==='dog' && DOG_SUT_TYPES.includes(a.surgType)){
-    const d = dogSutureDefault(a.weight);
-    h += `<div class="pe-field"><div class="lbl">Sutures (default by weight: &lt;10kg 3/0 PDS · 10–&lt;20kg 2/0 PDS · 20kg+ 0 PDS)</div>
-      <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Leave blank to use the default (${esc(d)}), or type what you used. Updates the surgical notes below.</p>
-      <div class="two-col">
-        <div><label style="font-size:12px">Ligatures (${a.surgType==='cryptorchid'?'spermatic cord':'ovaries / cervix'})</label><br><input class="plain" data-sut="sutLig" value="${esc(a.sutLig||'')}" placeholder="${esc(d)}" style="width:100%"></div>
-        <div><label style="font-size:12px">Muscle layer</label><br><input class="plain" data-sut="sutMuscle" value="${esc(a.sutMuscle||'')}" placeholder="${esc(d)}" style="width:100%"></div>
-        <div><label style="font-size:12px">Subcutaneous layer</label><br><input class="plain" data-sut="sutSC" value="${esc(a.sutSC||'')}" placeholder="${esc(d)}" style="width:100%"></div>
-        <div><label style="font-size:12px">Skin layer</label><br><input class="plain" data-sut="sutSkin" value="${esc(a.sutSkin||'')}" placeholder="${esc(d)}" style="width:100%"></div>
-      </div></div>`;
-  } else if(a.surgType!=='castrate' && a.species!=='dog'){
+  if(a.surgType!=='castrate' && a.species!=='dog'){
     h += `<div class="pe-field"><button type="button" class="opt-btn ${a.scLayer?'selected':''}" id="scLayerToggle">Subcutaneous layer closed (3/0 PDS continuous)</button>
       <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Tapping this updates the surgical notes template below.</p></div>`;
   }
@@ -2634,7 +2665,7 @@ function examFormHtml(a){
   h += `<div class="sechdr">Intraoperative Monitoring</div>`;
   h += `<div class="pe-field"><div class="lbl">Intraoperative medications</div>`;
   INTRAOP_TICKS.forEach(def=>{
-    if(!intraopShown(a, def)) return;
+    if(!intraopShown(a, def) || def.key==='it-block') return;   // block tick lives under Procedure
     h += tickHtml(a, def);
   });
   if(a.ticks['alfax-intra'] && a.ticks['alfax-intra'].done){
@@ -2657,6 +2688,7 @@ function examFormHtml(a){
   h += waiversBlockHtml(a, 'intra');
   h += `<div class="sechdr">End of surgery</div><div class="pe-field">`;
   POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
+  h += `<div style="margin-top:8px"><label style="font-size:12px">Atipamezole given (mL) <span style="font-weight:400;color:var(--ink-soft)">— enter the amount if it isn't covered by the calculation above</span></label><br><input class="plain" id="fld_atipMl" type="number" step="0.01" min="0" value="${esc(a.atipMl||'')}" style="width:100%"></div>`;
   h += `</div>`;
   h += `<div class="pe-field"><div class="lbl">Oral meloxicam post op (optional)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button>
@@ -2704,7 +2736,7 @@ function examFormHtml(a){
       <div><label style="font-size:12px">Form</label><br><select class="plain" id="fld_gabaForm" style="width:100%">
         <option value="liquid" ${gabaForm(a)!=='capsule'?'selected':''}>Liquid 200mg/mL</option>
         <option value="capsule" ${gabaForm(a)==='capsule'?'selected':''}>Capsules</option></select></div>
-      ${gabaForm(a)==='capsule' ? `<div><label style="font-size:12px">Capsule strength</label><br><select class="plain" id="fld_gabaCapMg" style="width:100%">${['100','300','400','600','800'].map(v=>`<option value="${v}" ${(a.gabaCapMg||'100')===v?'selected':''}>${v}mg</option>`).join('')}</select></div>` : ''}
+      ${gabaForm(a)==='capsule' ? `<div><label style="font-size:12px">Capsule strength</label><br><select class="plain" id="fld_gabaCapMg" style="width:100%"><option value="" ${!a.gabaCapMg?'selected':''}>Auto (easiest fit)</option>${['100','300','400','600','800'].map(v=>`<option value="${v}" ${a.gabaCapMg===v?'selected':''}>${v}mg</option>`).join('')}</select></div>` : ''}
       <div><label style="font-size:12px">Days</label><br><input class="plain" id="fld_gabaDays" type="number" min="1" value="${esc(a.gabaDays||'')}" style="width:100%"></div>
     </div>`;
     const g = gabaInfo(a);
@@ -2907,7 +2939,7 @@ function bindExamForm(a){
     a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
   });
   bindChange('fld_microchipNum','microchipNum');
-  bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl');
+  bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl'); bindChange('fld_atipMl','atipMl');
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes'); bindChange('fld_surgComment','surgComment');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
   bindChange('fld_recoveryNotes','recoveryNotes');
@@ -3072,7 +3104,7 @@ function bindExamForm(a){
   body.querySelectorAll('[data-ctres]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const ct = a.customTicks.find(x=>x.id===btn.dataset.ctid); if(!ct) return;
-      ct.result = ct.result===btn.dataset.ctres ? '' : btn.dataset.ctres;
+      ct.result = (ct.result==='nsf'||ct.result==='na') ? '' : 'nsf';
       ct.done = !!ct.result || !!(ct.text||'').trim();
       ct.time = ct.done ? (ct.time || nowTime()) : '';
       saveShift(); openExam(a.id);
@@ -3115,6 +3147,18 @@ function bindExamForm(a){
   if(scLayerToggle) scLayerToggle.addEventListener('click', ()=>{
     a.scLayer = !a.scLayer; a.surgNotes = buildTemplate(a);
     saveShift(); openExam(a.id);
+  });
+  const ivftToggle = document.getElementById('ivftToggle');
+  if(ivftToggle) ivftToggle.addEventListener('click', ()=>{ a.ivftOn = !ivftOn(a); saveShift(); openExam(a.id); });
+  const ivftRateEl = document.getElementById('fld_ivftRate');
+  if(ivftRateEl) ivftRateEl.addEventListener('change', ()=>{ a.ivftRate = ivftRateEl.value; saveShift(); openExam(a.id); });
+  body.querySelectorAll('[data-castmethod]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const untouched = a.surgNotes === buildTemplate(a);
+      a.castMethod = btn.dataset.castmethod;
+      if(untouched) a.surgNotes = buildTemplate(a);
+      saveShift(); openExam(a.id);
+    });
   });
   const gabaToggle = document.getElementById('gabaToggle');
   if(gabaToggle) gabaToggle.addEventListener('click', ()=>{ a.gabaOn = !a.gabaOn; saveShift(); openExam(a.id); });
@@ -3278,6 +3322,7 @@ function assembleNote(a){
   if(a.alfaxPreMl) L.push(`  ${inductionName(a)} pre-op given: ${a.alfaxPreMl}mL`);
   L.push('');
   L.push('Surgery:');
+  if(ivftOn(a)){ const ph = ivftPerHour(a); L.push(ph==null ? `IVFT: LRS at ${ivftRateKg(a)}mL/kg/hr (enter weight for the pump rate)` : `IVFT: LRS at ${ivftRateKg(a)}mL/kg/hr = ${ph}mL/hr`); } else { L.push('IVFT: not used'); }
   L.push(`Health check required under GA: ${a.needs.hc ? 'Yes' : 'No'}`);
   if(a.needs.hc){
     L.push('');
@@ -3345,6 +3390,7 @@ function assembleNote(a){
     if(t && t.done){ anyEnd = true; L.push(`- ${def.label} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
   });
   if(!anyEnd) L.push('-');
+  if(a.atipMl) L.push(`  Atipamezole given: ${a.atipMl}mL`);
   if(a.surgComment && a.surgComment.trim()) L.push(`Surgery comment: ${a.surgComment.trim()}`);
   L.push('');
   L.push('Post-op:');
