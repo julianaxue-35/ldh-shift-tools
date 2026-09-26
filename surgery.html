@@ -488,16 +488,6 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   </div>
 </div>
 
-<!-- CHIP SCAN MODAL -->
-<div id="scanModal" class="hidden" style="position:fixed;inset:0;background:#000;z-index:200;flex-direction:column;align-items:center;justify-content:center">
-  <video id="scanVideo" autoplay playsinline muted style="max-width:100%;max-height:70vh"></video>
-  <canvas id="scanCanvas" class="hidden"></canvas>
-  <div style="color:#fff;font-size:13px;margin:10px 0;text-align:center;padding:0 16px;max-width:480px" id="scanStatus">Frame the scanner's digit display, then tap Capture.</div>
-  <div class="row-actions">
-    <button class="btn" id="captureChipBtn">Capture</button>
-    <button class="btn secondary" id="cancelScanBtn">Cancel</button>
-  </div>
-</div>
 
 <script>
 
@@ -528,7 +518,6 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
 
 </script>
-<script src="ocr-vendor/tesseract.min.js"></script>
 <script src="vendor/jszip.min.js"></script>
 <script src="medchart.js"></script>
 <script>
@@ -540,7 +529,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.11';
+const APP_VERSION = '2026-09-26.12';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -899,19 +888,32 @@ function meloxOralDoseVal(w, species){
   return species==='dog' ? +(w/15).toFixed(2) : +(w*0.1).toFixed(2);   // dog 0.1mg/kg @ 1.5mg/mL; cat 0.05mg/kg @ 0.5mg/mL
 }
 /* Post-op gabapentin (send-home), 10mg/kg BID: liquid 200mg/mL or capsules. */
+function gabaForm(a){ return a.gabaForm || (a.species==='dog' ? 'capsule' : 'liquid'); }   // cats usually liquid, dogs usually capsules
 function gabaInfo(a){
   const w = parseFloat(a.weight);
   if(!a.gabaOn || !w || w<=0 || isNaN(w)) return null;
   const mg = +(w*10).toFixed(1);
   const days = (a.gabaDays||'').toString().trim();
   const forDays = days ? ' for '+days+' days' : ' for ___ days';
-  if(a.gabaForm==='capsule'){
+  if(gabaForm(a)==='capsule'){
     const cap = parseFloat(a.gabaCapMg) || 100;
     const n = +(mg/cap).toFixed(2);
     return { mg, lines:[`Gabapentin ${cap}mg capsules — give ${n} capsule(s) (${mg}mg = 10mg/kg) PO BID${forDays}. Round to a practical dose.`] };
   }
   const ml = +(mg/200).toFixed(2);
   return { mg, lines:[`Gabapentin liquid 200mg/mL — give ${ml}mL (${mg}mg = 10mg/kg) PO BID${forDays}.`] };
+}
+/* Oral meloxicam as finally given: calculated by default, but the vet can edit
+   dose (mL), days and AM/PM (a.meloxMlOv / a.meloxDaysOv / a.meloxTimingOv). */
+function meloxFinal(a){
+  const auto = meloxOralDoseVal(a.weight, a.species);
+  const mlOv = parseFloat(a.meloxMlOv);
+  const daysOv = parseInt(a.meloxDaysOv, 10);
+  return {
+    ml: (!isNaN(mlOv) && mlOv>0) ? mlOv : auto,
+    days: daysOv>0 ? daysOv : meloxOralDurationDays(a.species, a.surgType),
+    timing: a.meloxTimingOv || resolvedMeloxTiming(a)
+  };
 }
 function meloxOralConc(species){ return species==='dog' ? '1.5mg/mL' : '0.5mg/mL'; }
 function meloxOralDurationDays(species, surgType){
@@ -935,7 +937,7 @@ function resolvedMeloxTiming(a){
    the recheck lands `days` after that — matches her worked example: surgery
    6/9, oral starts 7/9, 4-day course -> recheck 11/9 (7/9 + 4 days). */
 function meloxRecheckDateISO(a){
-  const days = meloxOralDurationDays(a.species, a.surgType);
+  const days = meloxFinal(a).days;
   const d = new Date();
   d.setDate(d.getDate() + 1 + days);
   return d.toISOString().slice(0,10);
@@ -950,10 +952,11 @@ function syncMeloxPlanItem(a){
   if(!Array.isArray(a.planItems)) a.planItems = [];
   const idx = a.planItems.findIndex(pi=>pi.autoMelox);
   let changed = false;
-  const val = a.meloxOral ? meloxOralDoseVal(a.weight, a.species) : null;
-  const timing = a.meloxOral ? resolvedMeloxTiming(a) : '';
+  const mf = a.meloxOral ? meloxFinal(a) : null;
+  const val = mf ? mf.ml : null;
+  const timing = mf ? mf.timing : '';
   if(a.meloxOral && val!=null && timing){
-    const days = meloxOralDurationDays(a.species, a.surgType);
+    const days = mf.days;
     const medName = `Meloxicam oral suspension — ${val}mL ${timing} once daily for ${days} days`;
     const recheckDate = meloxRecheckDateISO(a);
     if(idx===-1){
@@ -1478,7 +1481,25 @@ function tickHtml(a, def){
    the PREOP/INTRAOP/POSTOP_TICKS arrays — so each item carries its own
    label, not just a lookup key, plus a remove button since these aren't
    part of the fixed checklist. */
+function isRecheckTick(ct){ return /^(recheck|wound recheck)/i.test(ct.label||''); }
+function recheckResultText(ct){
+  const txt = (ct.text||'').trim();
+  if(txt) return 'Abnormal — ' + txt;
+  return ct.result==='nsf' ? 'NSF (normal)' : ct.result==='na' ? 'N/A' : '';
+}
+function recheckHtml(ct){
+  return `<div class="pe-field" style="position:relative;border-left:4px solid ${ct.done?'var(--teal)':'var(--amber)'};padding-left:10px">
+    <div class="lbl" style="margin:0 0 6px">${esc(ct.label)}${ct.done && ct.time ? ` <span style="font-weight:400">🕐 ${esc(ct.time)}</span>` : ''}</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${ct.result==='nsf'?'selected':''}" data-ctres="nsf" data-ctid="${ct.id}">Normal (NSF)</button>
+      <button type="button" class="opt-btn ${ct.result==='na'?'selected':''}" data-ctres="na" data-ctid="${ct.id}">N/A</button>
+    </div>
+    <textarea class="free-input" data-ctfind="${ct.id}" placeholder="Abnormal findings — describe..." style="margin-top:6px">${esc(ct.text||'')}</textarea>
+    <button type="button" data-delcustomtick="${ct.id}" style="position:absolute;top:4px;right:4px;border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:15px;line-height:1;padding:2px 6px">&times;</button>
+  </div>`;
+}
 function customTickHtml(ct){
+  if(isRecheckTick(ct)) return recheckHtml(ct);
   return `<div class="tick ${ct.done?'done':''}" data-customtickid="${ct.id}" style="position:relative">
     <div class="tick-box"><span class="tick-check">✓</span></div>
     <div><div class="tick-lbl">${esc(ct.label)}</div></div>
@@ -1809,12 +1830,13 @@ function renderParsedBookingTable(rows){
       if(matchedType) a.surgType = matchedType; else if(r.surgType){ a.surgType = 'other'; a.bookedProc = r.surgType; }   // dental / ear flush etc. — don't default to a spey template
       if(a.species==='dog') a.surgType = dogSurgTypeFor(a.surgType);
       a.scp = !!r.scp;
-      const commentParts = [];
-      if(r.type) commentParts.push(`Type: ${r.type}`);
-      if(r.surgType) commentParts.push(`Booked procedure: ${r.surgType}`);
-      if(r.tasks) commentParts.push(`Tasks: ${r.tasks}`);
-      if(r.notes) commentParts.push(`Notes: ${r.notes}`);
-      a.assistComments = commentParts.join('\n');
+      // Booking details are shown on screen only — not written into the medical note.
+      const infoParts = [];
+      if(r.type) infoParts.push(`Type: ${r.type}`);
+      if(r.surgType) infoParts.push(`Booked procedure: ${r.surgType}`);
+      if(r.tasks) infoParts.push(`Tasks: ${r.tasks}`);
+      if(r.notes) infoParts.push(`Notes: ${r.notes}`);
+      a.bookingInfo = infoParts.join('\n');
       a.surgNotes = buildTemplate(a);
       state.animals.push(a);
     });
@@ -2278,8 +2300,7 @@ function needRowHtml(a, item){
         h += `<div style="font-size:13px;margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">✓ Implanted — the number is held only on the device that implanted it (not shared, for privacy). Nothing to enter here.</div>`;
       } else {
         h += `<div style="margin-top:8px"><label style="font-size:12px">Microchip number</label><br><div style="display:flex;gap:6px">
-          <input class="plain" id="fld_microchipNum" value="${esc(a.microchipNum||'')}" placeholder="15-digit number" style="width:100%">
-          <button type="button" class="btn small secondary" id="scanChipBtn" style="white-space:nowrap">📷 Scan</button></div></div>`;
+          <input class="plain" id="fld_microchipNum" value="${esc(a.microchipNum||'')}" placeholder="15-digit number" style="width:100%"></div></div>`;
       }
     }
     else if(item.key==='bloods') h += `<div style="font-size:12.5px;margin-top:6px;font-weight:600">${esc(bloodsText(a))} — take BEFORE premed</div>` + givenCheckHtml('bloods', a.bloodsTaken, 'Bloods taken');
@@ -2292,7 +2313,7 @@ function needsBlockHtml(a){
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Set from the booking sheet where possible. Amber = required.</p>`;
   NEED_ITEMS.forEach(item=> h += needRowHtml(a, item));
   h += `<div class="pe-field"><div class="lbl">Additional checks</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Anything else this animal needs (e.g. rechecks from the booking sheet) — tap to tick when done, or add one on the fly.</p>`;
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Rechecks from the booking sheet need a result — Normal (NSF), N/A, or the abnormal findings. Other checks just tick when done.</p>`;
   (a.customTicks||[]).forEach(ct=> h += customTickHtml(ct));
   h += `<button type="button" class="btn small secondary" id="addCustomTickBtn" style="margin-top:6px">+ Add custom check</button>
     <div style="margin-top:8px"><label style="font-size:12px">Comment</label><br>
@@ -2346,6 +2367,7 @@ function healthCheckHtml(a){
 function examFormHtml(a){
   syncMeloxPlanItem(a);
   let h = '';
+  if(a.bookingInfo) h += `<div class="pe-field" style="background:var(--paper-2);border-radius:8px;padding:8px 10px;margin-bottom:10px"><div class="lbl" style="margin:0 0 4px">Booking info <span style="font-weight:400;text-transform:none">(for reference — not in the note)</span></div><div style="font-size:12.5px;white-space:pre-wrap">${esc(a.bookingInfo)}</div></div>`;
   if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed:</b> ${esc(bloodsText(a))}. Tick "Bloods taken" under Needed for this animal once done.</div>`;
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
@@ -2611,31 +2633,46 @@ function examFormHtml(a){
     ${!a.vitals.length ? `<p style="text-align:center;padding:12px;color:var(--ink-soft);font-size:12.5px">No readings yet.</p>` : ''}
   </div>`;
 
+  h += `<div class="sechdr">Waivers</div>`;
+  h += waiversBlockHtml(a, 'intra');
+  h += `<div class="sechdr">End of surgery</div><div class="pe-field">`;
+  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
+  h += `</div>`;
   h += `<div class="pe-field"><div class="lbl">Oral meloxicam post op (optional)</div>
-    <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button></div>`;
+    <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button>
+    ${a.meloxOral ? `<button type="button" class="opt-btn ${a.meloxEdit?'selected':''}" id="meloxEditBtn">✎ Edit</button>` : ''}</div>`;
   if(a.meloxOral){
-    const meloxOralVal = meloxOralDoseVal(a.weight, a.species);
-    const days = meloxOralDurationDays(a.species, a.surgType);
+    const mf = meloxFinal(a);
     const scTick = a.ticks['melox-sc'];
-    const timing = resolvedMeloxTiming(a);
-    if(a.species==='dog'){
-      h += timing
-        ? `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Timing auto-set from the Meloxicam SC time (${esc(scTick.time)}) — ${timing==='AM'?'given before 12pm':'given after 12pm'}, so oral starts <b>${timing}</b> the next day.</p>`
-        : `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Timing will be set automatically once Meloxicam SC is ticked given, below.</p>`;
-    } else {
+    if(a.species==='dog' && !a.meloxTimingOv){
+      h += mf.timing
+        ? `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Timing auto-set from the Meloxicam SC time (${esc(scTick.time)}) — ${mf.timing==='AM'?'given before 12pm':'given after 12pm'}, so oral starts <b>${mf.timing}</b> the next day.</p>`
+        : `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Timing will be set automatically once Meloxicam SC is ticked given, above (or use Edit to set it).</p>`;
+    } else if(a.species!=='dog' && !a.meloxTimingOv){
       h += `<div style="margin-top:8px"><label style="font-size:12px">Timing</label><br>
         <select class="plain" id="fld_meloxTiming" style="width:100%">
           <option value="AM" ${a.meloxTiming==='AM'?'selected':''}>Morning (AM)</option>
           <option value="PM" ${a.meloxTiming==='PM'?'selected':''}>Evening (PM)</option>
         </select></div>`;
     }
-    if(meloxOralVal!=null && timing){
+    if(a.meloxEdit){
+      h += `<div class="two-col" style="margin-top:8px">
+        <div><label style="font-size:12px">Dose (mL)</label><br><input class="plain" id="fld_meloxMlOv" type="number" step="0.01" min="0" value="${esc(a.meloxMlOv||'')}" placeholder="${esc(meloxOralDoseVal(a.weight,a.species)==null?'':meloxOralDoseVal(a.weight,a.species))}" style="width:100%"></div>
+        <div><label style="font-size:12px">Days</label><br><input class="plain" id="fld_meloxDaysOv" type="number" min="1" value="${esc(a.meloxDaysOv||'')}" placeholder="${meloxOralDurationDays(a.species,a.surgType)}" style="width:100%"></div>
+        <div><label style="font-size:12px">Given in the</label><br><select class="plain" id="fld_meloxTimingOv" style="width:100%">
+          <option value="" ${!a.meloxTimingOv?'selected':''}>Automatic</option>
+          <option value="AM" ${a.meloxTimingOv==='AM'?'selected':''}>Morning (AM)</option>
+          <option value="PM" ${a.meloxTimingOv==='PM'?'selected':''}>Evening (PM)</option></select></div>
+      </div>
+      <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Blank = the calculated value (shown greyed). <button type="button" class="btn small secondary" id="meloxResetBtn">Reset to calculated</button></p>`;
+    }
+    if(mf.ml!=null && mf.timing){
       h += `<div style="margin-top:8px;background:var(--teal-soft);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;line-height:1.7">MELOXICAM oral suspension ${meloxOralConc(a.species)}<br>
-        Give ${meloxOralVal}mL orally in the ${timing} ONCE daily WITH FOOD for ${days} days.<br>
-        Start: ${tomorrowDate()}, ${timing}<br>
+        Give ${mf.ml}mL orally in the ${mf.timing} ONCE daily WITH FOOD for ${mf.days} days.<br>
+        Start: ${tomorrowDate()}, ${mf.timing}<br>
         STOP if signs of vomiting, diarrhoea and/or not eating.</div>`;
-    } else if(meloxOralVal==null){
-      h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Enter weight above to calculate the oral dose.</p>`;
+    } else if(mf.ml==null){
+      h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Enter weight above to calculate the oral dose (or use Edit).</p>`;
     }
   }
   h += `</div>`;
@@ -2645,9 +2682,9 @@ function examFormHtml(a){
   if(a.gabaOn){
     h += `<div class="two-col" style="margin-top:8px">
       <div><label style="font-size:12px">Form</label><br><select class="plain" id="fld_gabaForm" style="width:100%">
-        <option value="liquid" ${a.gabaForm!=='capsule'?'selected':''}>Liquid 200mg/mL</option>
-        <option value="capsule" ${a.gabaForm==='capsule'?'selected':''}>Capsules</option></select></div>
-      ${a.gabaForm==='capsule' ? `<div><label style="font-size:12px">Capsule strength</label><br><select class="plain" id="fld_gabaCapMg" style="width:100%">${['100','300','400'].map(v=>`<option value="${v}" ${(a.gabaCapMg||'100')===v?'selected':''}>${v}mg</option>`).join('')}</select></div>` : ''}
+        <option value="liquid" ${gabaForm(a)!=='capsule'?'selected':''}>Liquid 200mg/mL</option>
+        <option value="capsule" ${gabaForm(a)==='capsule'?'selected':''}>Capsules</option></select></div>
+      ${gabaForm(a)==='capsule' ? `<div><label style="font-size:12px">Capsule strength</label><br><select class="plain" id="fld_gabaCapMg" style="width:100%">${['100','300','400','600','800'].map(v=>`<option value="${v}" ${(a.gabaCapMg||'100')===v?'selected':''}>${v}mg</option>`).join('')}</select></div>` : ''}
       <div><label style="font-size:12px">Days</label><br><input class="plain" id="fld_gabaDays" type="number" min="1" value="${esc(a.gabaDays||'')}" style="width:100%"></div>
     </div>`;
     const g = gabaInfo(a);
@@ -2656,11 +2693,12 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
-  h += `<div class="sechdr">Waivers</div>`;
-  h += waiversBlockHtml(a, 'intra');
-  h += `<div class="sechdr">End of surgery</div><div class="pe-field">`;
-  POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
-  h += `</div>`;
+  h += `<div class="pe-field"><div class="lbl">New medication chart</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">For a genuinely new medication that needs its own printable 14-day chart — the automatic oral-meloxicam post-op course above already registers itself, no need to type it here. Type the instruction, then register it below.</p>
+    <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+  </div>`;
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
   h += `<div class="pe-field"><div class="lbl">Surgery comment</div>
     <textarea class="free-input" id="fld_surgComment" placeholder="Anything else worth noting about the surgery...">${esc(a.surgComment||'')}</textarea></div>`;
 
@@ -2727,12 +2765,6 @@ function examFormHtml(a){
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
 
-  h += `<div class="pe-field"><div class="lbl">New medication chart</div>
-    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">For a genuinely new medication that needs its own printable 14-day chart — the automatic oral-meloxicam post-op course above already registers itself, no need to type it here. Type the instruction, then register it below.</p>
-    <textarea class="plain" id="fld_newmedplan" style="width:100%;min-height:50px" placeholder="e.g. Lactulose: give 1ml PO BID for 5 days">${esc(a.newMedChartText||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
-  </div>`;
-  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
   h += `</div></details>`;
 
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
@@ -3007,6 +3039,25 @@ function bindExamForm(a){
     a.customTicks.push({id: uid(), label: label.trim(), done:false, time:''});
     saveShift(); openExam(a.id);
   });
+  body.querySelectorAll('[data-ctres]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const ct = a.customTicks.find(x=>x.id===btn.dataset.ctid); if(!ct) return;
+      ct.result = ct.result===btn.dataset.ctres ? '' : btn.dataset.ctres;
+      ct.done = !!ct.result || !!(ct.text||'').trim();
+      ct.time = ct.done ? (ct.time || nowTime()) : '';
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-ctfind]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const ct = a.customTicks.find(x=>x.id===el.dataset.ctfind); if(!ct) return;
+      ct.text = el.value;
+      if((ct.text||'').trim()) ct.result = '';   // free text = abnormal, so no NSF / N/A alongside it
+      ct.done = !!ct.result || !!(ct.text||'').trim();
+      ct.time = ct.done ? (ct.time || nowTime()) : '';
+      saveShift(); openExam(a.id);
+    });
+  });
   bindChange('fld_assistComments','assistComments');
 
   const surgTypeEl = document.getElementById('fld_surgType');
@@ -3014,8 +3065,6 @@ function bindExamForm(a){
     a.surgType = surgTypeEl.value; a.surgNotes = buildTemplate(a);
     saveShift(); openExam(a.id);
   });
-  const scanChipBtn = document.getElementById('scanChipBtn');
-  if(scanChipBtn) scanChipBtn.addEventListener('click', openScanModal);
   bindChange('fld_surgStart','surgStart'); bindChange('fld_surgEnd','surgEnd');
   const surgStartNowBtn = document.getElementById('surgStartNowBtn');
   if(surgStartNowBtn) surgStartNowBtn.addEventListener('click', ()=>{ a.surgStart = nowTime(); saveShift(); openExam(a.id); });
@@ -3045,6 +3094,14 @@ function bindExamForm(a){
   if(gabaCapEl) gabaCapEl.addEventListener('change', ()=>{ a.gabaCapMg = gabaCapEl.value; saveShift(); openExam(a.id); });
   const gabaDaysEl = document.getElementById('fld_gabaDays');
   if(gabaDaysEl) gabaDaysEl.addEventListener('change', ()=>{ a.gabaDays = gabaDaysEl.value; saveShift(); openExam(a.id); });
+  const meloxEditBtn = document.getElementById('meloxEditBtn');
+  if(meloxEditBtn) meloxEditBtn.addEventListener('click', ()=>{ a.meloxEdit = !a.meloxEdit; saveShift(); openExam(a.id); });
+  [['fld_meloxMlOv','meloxMlOv'],['fld_meloxDaysOv','meloxDaysOv'],['fld_meloxTimingOv','meloxTimingOv']].forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', ()=>{ a[key] = el.value; saveShift(); openExam(a.id); });
+  });
+  const meloxResetBtn = document.getElementById('meloxResetBtn');
+  if(meloxResetBtn) meloxResetBtn.addEventListener('click', ()=>{ a.meloxMlOv = ''; a.meloxDaysOv = ''; a.meloxTimingOv = ''; saveShift(); openExam(a.id); });
   const meloxOralToggle = document.getElementById('meloxOralToggle');
   if(meloxOralToggle) meloxOralToggle.addEventListener('click', ()=>{
     a.meloxOral = !a.meloxOral;
@@ -3182,7 +3239,7 @@ function assembleNote(a){
     if(t && t.done){ anyPreop = true; L.push(`- ${tickLabel(a, def)} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
   });
   if(!anyPreop) L.push('-');
-  (a.customTicks||[]).forEach(ct=>{ L.push(ct.done ? `- ${ct.label} (${ct.time})` : `- ${ct.label}: not marked done`); });
+  (a.customTicks||[]).forEach(ct=>{ L.push(isRecheckTick(ct) ? (ct.done ? `- ${ct.label}: ${recheckResultText(ct)} (${ct.time})` : `- ${ct.label}: not recorded`) : (ct.done ? `- ${ct.label} (${ct.time})` : `- ${ct.label}: not marked done`)); });
   if(a.assistComments && a.assistComments.trim()) L.push(`  Comment: ${a.assistComments.trim()}`);
   if(chipHasFullNumber(a)) L.push(`  Microchip: ${a.microchipNum}`);
   else if(chipDone) L.push('  Microchip: implanted (number not recorded on this device)');
@@ -3274,10 +3331,10 @@ function assembleNote(a){
   } else {
     L.push('  Post-op vitals: -');
   }
-  const meloxOralVal = meloxOralDoseVal(a.weight, a.species);
-  const meloxTiming = resolvedMeloxTiming(a);
+  const mfN = meloxFinal(a);
+  const meloxOralVal = mfN.ml, meloxTiming = mfN.timing;
   if(a.meloxOral && meloxOralVal!=null && meloxTiming){
-    const days = meloxOralDurationDays(a.species, a.surgType);
+    const days = mfN.days;
     L.push('');
     L.push('ORAL MELOXICAM POST OP');
     L.push('MELOXICAM oral suspension '+meloxOralConc(a.species));
@@ -3608,76 +3665,6 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   await runShareFlow(files, `Surgery Notes — ${todayStr()}`, `Surgery shift export — ${todayStr()}`);
   shareScrubExported();
 });
-
-/* ---------- microchip camera scan (offline OCR via vendored Tesseract.js) ----------
-   Note: the OCR worker is loaded from local files in ocr-vendor/, so it runs with
-   no internet at the shelter. If this HTML is opened directly as a file:// page in
-   Chrome/Edge, the browser may block the worker script for security reasons — if
-   Scan doesn't work, try opening the tool from a simple local server instead
-   (or Firefox, which allows file:// workers), or just type the chip number in. */
-let ocrWorker = null;
-let scanStream = null;
-async function getOcrWorker(){
-  if(!ocrWorker){
-    document.getElementById('scanStatus').textContent = 'Loading OCR engine (first scan only)…';
-    ocrWorker = await Tesseract.createWorker('eng', 1, {
-      workerPath: 'ocr-vendor/worker.min.js',
-      corePath: 'ocr-vendor/tesseract-core-lstm.wasm.js',
-      langPath: 'ocr-vendor/',
-      gzip: true
-    });
-    await ocrWorker.setParameters({tessedit_char_whitelist:'0123456789'});
-  }
-  return ocrWorker;
-}
-async function openScanModal(){
-  const modal = document.getElementById('scanModal');
-  const video = document.getElementById('scanVideo');
-  document.getElementById('scanStatus').textContent = "Frame the scanner's digit display, then tap Capture.";
-  modal.classList.remove('hidden');
-  modal.style.display = 'flex';
-  try{
-    scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
-    video.srcObject = scanStream;
-  }catch(err){
-    document.getElementById('scanStatus').textContent = 'Could not open camera: ' + err.message + '. You can still type the microchip number in manually.';
-  }
-}
-function closeScanModal(){
-  const modal = document.getElementById('scanModal');
-  modal.classList.add('hidden');
-  modal.style.display = 'none';
-  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
-}
-document.getElementById('cancelScanBtn').addEventListener('click', closeScanModal);
-document.getElementById('captureChipBtn').addEventListener('click', async ()=>{
-  const video = document.getElementById('scanVideo');
-  const canvas = document.getElementById('scanCanvas');
-  if(!video.videoWidth) return;
-  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  document.getElementById('scanStatus').textContent = 'Reading digits…';
-  try{
-    const worker = await getOcrWorker();
-    const { data: { text } } = await worker.recognize(canvas);
-    const digits = (text||'').replace(/\D/g,'');
-    closeScanModal();
-    const a = state.animals.find(x=>x.id===state.openId);
-    if(a){
-      if(digits){
-        a.microchipNum = digits;
-        saveShift();
-        openExam(a.id);
-        alert('Read: ' + digits + ' — double-check it against the scanner before saving.');
-      } else {
-        alert('Could not read any digits — try again with better lighting/focus, or type the number in manually.');
-      }
-    }
-  }catch(err){
-    document.getElementById('scanStatus').textContent = 'OCR failed: ' + err.message;
-  }
-});
-
 
 /* ---------- multi-station sharing ("Share this shift") ----------
    Opt-in per shift. Local-first: localStorage stays the source of truth and
