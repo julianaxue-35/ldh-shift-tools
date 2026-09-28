@@ -529,7 +529,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.15';
+const APP_VERSION = '2026-09-28.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -645,7 +645,7 @@ function formatRecheckDate(dateStr){
    ever shows, which looks like "nothing happens" with no visible error. */
 function normalizeAnimal(a){
   const defaults = {
-    animalId:'', species:'', weight:'', sex:'', age:'', ageUnit:'months', location:'', scp:false,
+    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'months', location:'', scp:false,
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
@@ -872,6 +872,16 @@ function calcDoses(w){
     bupren:+(w*0.0667).toFixed(2)
   };
 }
+/* Pregnant spey (Stage 1-3): the uterus comes out, so the post-op medications
+   (buprenorphine, meloxicam SC + oral, gabapentin) calculate from the separate
+   post-spey weight when one is entered. Premed / atipamezole always stay on the
+   pre-op weight. Blank post-spey weight = everything uses the pre-op weight. */
+function isPregSpey(a){ return /^preg\d$/.test(a.surgType||''); }
+function postWeight(a){
+  if(isPregSpey(a)){ const p = parseFloat(a.postWeight); if(p>0) return a.postWeight; }
+  return a.weight;
+}
+function usesPostWeight(a){ return isPregSpey(a) && parseFloat(a.postWeight)>0; }
 /* Meloxicam dosing differs by species, and (for cats) by whether an oral
    post-op oral course is also planned — giving the full 0.2mg/kg SC dose on top
    of a same-day oral dose risks cumulative NSAID overdose in cats, so the SC
@@ -905,7 +915,7 @@ function gabaBestCap(w){
 }
 function gabaForm(a){ return a.gabaForm || (a.species==='dog' ? 'capsule' : 'liquid'); }   // cats usually liquid, dogs usually capsules
 function gabaInfo(a){
-  const w = parseFloat(a.weight);
+  const w = parseFloat(postWeight(a));
   if(!a.gabaOn || !w || w<=0 || isNaN(w)) return null;
   const mg = +(w*10).toFixed(1);
   const days = (a.gabaDays||'').toString().trim();
@@ -929,7 +939,7 @@ function syncGabaChart(a){
   const days = parseInt(a.gabaDays, 10);
   if(g && days>0){
     MedChart.upsertAutoMed(
-      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:a.weight, location:a.location, vetInCharge:vetInitEl.value||''},
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
       'auto-gaba',
       {rawText:g.lines[0], drugKey:'gabapentin', drugLabel:g.label, doseText:g.doseText, freq:'BID', route:'PO', days:Math.min(days,14), startSlot:'AM', startOption:'tomorrow', drugWarning:''}
     );
@@ -940,7 +950,7 @@ function syncGabaChart(a){
 /* Oral meloxicam as finally given: calculated by default, but the vet can edit
    dose (mL), days and AM/PM (a.meloxMlOv / a.meloxDaysOv / a.meloxTimingOv). */
 function meloxFinal(a){
-  const auto = meloxOralDoseVal(a.weight, a.species);
+  const auto = meloxOralDoseVal(postWeight(a), a.species);
   const mlOv = parseFloat(a.meloxMlOv);
   const daysOv = parseInt(a.meloxDaysOv, 10);
   return {
@@ -1002,7 +1012,7 @@ function syncMeloxPlanItem(a){
       changed = true;
     }
     MedChart.upsertAutoMed(
-      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:a.weight, location:a.location, vetInCharge:vetInitEl.value||''},
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
       'auto-melox',
       {rawText:medName, drugKey:'meloxicam', drugLabel:'Meloxicam oral suspension '+meloxOralConc(a.species), doseText:val+'mL',
        freq:'SID', route:'PO', days:days, startSlot:timing,
@@ -1014,6 +1024,65 @@ function syncMeloxPlanItem(a){
   }
   if(!a.meloxOral) MedChart.removeAutoMed(a.id, 'auto-melox');
   if(changed) saveShift();
+}
+/* Buprenorphine on the medication chart: one dose ~4h post-op (day + AM/PM taken
+   from now + 4h the first time it is registered, then kept). Added when
+   "+ Register medication chart" is pressed, and only while Required is ticked;
+   once on the chart it follows weight / route changes and is removed if Required is untoggled. */
+function syncBupChart(a, addNow){
+  const dp = calcDoses(postWeight(a));
+  const existing = MedChart.findChartBySourceAnimal(a.id);
+  const cur = existing ? existing.meds.find(m=>m.autoKey==='auto-bup') : null;
+  if(!a.bupRequired || !dp){ if(cur) MedChart.removeAutoMed(a.id, 'auto-bup'); return false; }
+  if(!cur && !addNow) return false;
+  const now = new Date(), t = new Date(now.getTime()+4*3600*1000);
+  const route = a.buprenorphineRoute||'IV';
+  const text = `Buprenorphine 300mcg/mL — ${dp.bupren}mL ${route} once, ~4 hours post-surgery (0.02mg/kg)`;
+  MedChart.upsertAutoMed(
+    {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
+    'auto-bup',
+    {rawText:text, drugKey:'buprenorphine', drugLabel:'Buprenorphine 300mcg/mL', doseText:dp.bupren+'mL', freq:'SID', route:route, days:1,
+     startSlot: cur ? cur.startSlot : (t.getHours()<12?'AM':'PM'),
+     startOption: cur ? cur.startOption : (t.getDate()!==now.getDate()?'tomorrow':'today'),
+     s8:true, drugWarning:'SCHEDULE 8 DRUG — sign out at '+DDBOOK_URL+'  |  Single dose ~4 hours post-surgery.'}
+  );
+  return true;
+}
+/* Complete post-op medication list shown in the tool (one row per drug). To add
+   another post-op drug that follows the post-spey weight, add one more object here. */
+function postopMedRows(a){
+  const wt = postWeight(a), wTxt = wt ? wt+'kg'+(usesPostWeight(a)?' (post-spey)':'') : 'no weight';
+  const chart = MedChart.findChartBySourceAnimal(a.id);
+  const onChart = key => !!(chart && chart.meds.some(m=>m.autoKey===key));
+  const dp = calcDoses(wt);
+  const rows = [];
+  rows.push({name:'Buprenorphine', on:a.bupRequired,
+    dose: dp ? dp.bupren+'mL '+(a.buprenorphineRoute||'IV')+' (0.02mg/kg, 300mcg/mL) once ~4h post-op' : 'enter weight',
+    chart: onChart('auto-bup') ? 'on chart' : 'press Register medication chart'});
+  const scMl = meloxSCDose(wt, a.species, a.meloxOral);
+  const scTick = a.ticks && a.ticks['melox-sc'];
+  rows.push({name:'Meloxicam SC', on:true,
+    dose: scMl!=null ? scMl+'mL SC (5mg/mL)'+(a.species==='cat'&&a.meloxOral?' — reduced, oral planned':'') : 'enter weight',
+    chart:'given in theatre — '+(scTick&&scTick.done?'ticked '+scTick.time:'not yet ticked')});
+  const mf = a.meloxOral ? meloxFinal(a) : null;
+  rows.push({name:'Meloxicam oral', on:a.meloxOral,
+    dose: mf && mf.ml!=null ? mf.ml+'mL PO SID '+(mf.timing||'(timing pending)')+' × '+mf.days+' days ('+meloxOralConc(a.species)+')' : 'enter weight',
+    chart: onChart('auto-melox') ? 'on chart' : 'press Register medication chart'});
+  const g = gabaInfo(a);
+  rows.push({name:'Gabapentin', on:a.gabaOn,
+    dose: g ? g.doseText+' PO BID'+(parseInt(a.gabaDays,10)>0?' × '+a.gabaDays+' days':'') : 'enter weight',
+    chart: onChart('auto-gaba') ? 'on chart' : 'enter days to add'});
+  return rows.map(r=>Object.assign({wTxt}, r));
+}
+function postopMedListHtml(a){
+  const rows = postopMedRows(a);
+  return `<div class="pe-field"><div class="lbl">Post-op medications — complete list</div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="text-align:left;color:var(--ink-soft)"><th style="padding:4px 6px">Drug</th><th style="padding:4px 6px">Dose</th><th style="padding:4px 6px">Weight</th><th style="padding:4px 6px">Chart</th></tr>
+      ${rows.map(r=> r.on
+        ? `<tr style="border-top:1px solid var(--line,#ddd)"><td style="padding:4px 6px"><b>${esc(r.name)}</b></td><td style="padding:4px 6px">${esc(r.dose)}</td><td style="padding:4px 6px">${esc(r.wTxt)}</td><td style="padding:4px 6px">${esc(r.chart)}</td></tr>`
+        : `<tr style="border-top:1px solid var(--line,#ddd);color:var(--ink-soft)"><td style="padding:4px 6px">${esc(r.name)}</td><td style="padding:4px 6px" colspan="3">not required</td></tr>`).join('')}
+    </table></div></div>`;
 }
 function dogPremedGivenMl(a){
   if(a.dogPremedRate==='custom') return a.dogPremedMl ? a.dogPremedMl : null;
@@ -1042,16 +1111,25 @@ function premixDoses(w){
   return { premix:+(w*0.1).toFixed(2), atip:+(w*0.03).toFixed(3) };
 }
 function mmmRoute(a){ return a.mmmRoute || (a.species==='dog' ? 'SC' : 'IM'); }
-function mmmDoses(w){
+/* IV uses lower midazolam (0.1mg/kg) and medetomidine (4mcg/kg); SC/IM keep 0.2mg/kg and 7mcg/kg. Methadone is 0.4mg/kg on every route. */
+function mmmRates(route){
+  return route==='IV'
+    ? { midaMgKg:0.1, midaMl:0.02, medetMcgKg:4, medetMl:0.004 }
+    : { midaMgKg:0.2, midaMl:0.04, medetMcgKg:7, medetMl:0.007 };
+}
+function mmmDoses(w, route){
   w = parseFloat(w);
   if(!w || w<=0 || isNaN(w)) return null;
-  const medet = +(w*0.007).toFixed(3);
-  return { meth:+(w*0.04).toFixed(2), mida:+(w*0.04).toFixed(2), medet, atip:+(medet/2).toFixed(3) };
+  const r = mmmRates(route);
+  const medet = +(w*r.medetMl).toFixed(3);
+  return { meth:+(w*0.04).toFixed(2), mida:+(w*r.midaMl).toFixed(route==='IV'?3:2), medet, atip:+(medet/2).toFixed(3) };
 }
+function mmmD(a){ return mmmDoses(a.weight, mmmRoute(a)); }
 function mmmSummary(a){
-  const d = mmmDoses(a.weight);
+  const d = mmmD(a);
   if(!d) return null;
-  return `methadone ${d.meth}mL (0.4mg/kg, 10mg/mL) + midazolam ${d.mida}mL (0.2mg/kg, 5mg/mL) + medetomidine ${d.medet}mL (7mcg/kg, 1mg/mL) ${mmmRoute(a)}`;
+  const r = mmmRates(mmmRoute(a));
+  return `methadone ${d.meth}mL (0.4mg/kg, 10mg/mL) + midazolam ${d.mida}mL (${r.midaMgKg}mg/kg, 5mg/mL) + medetomidine ${d.medet}mL (${r.medetMcgKg}mcg/kg, 1mg/mL) ${mmmRoute(a)}`;
 }
 /* PREOP_TICKS 'zmd' is the premed tick: dogs on the standard premed have no
    tick, cats on the standard premed keep ZMD, and MMM (either species) swaps
@@ -1066,7 +1144,8 @@ function tickSub(a, key){
   if(key==='vacc') return a.species==='dog' ? 'DHP (C3) — KC is intranasal (IN) only' : 'Tricat F3';
   const d = calcDoses(a.weight);
   if(!d) return '';
-  const meloxSC = meloxSCDose(a.weight, a.species, a.meloxOral);
+  const meloxSC = meloxSCDose(postWeight(a), a.species, a.meloxOral);
+  const dp = calcDoses(postWeight(a)) || d;
   const map = {
     zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixDoses(a.weight).premix+'mL '+premixRoute(a)+' (0.1mL/kg)') : d.zml+'mL IM',
     'alfax-pre': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
@@ -1074,9 +1153,9 @@ function tickSub(a, key){
     'bupi-ip': d.bupi+'mL (2mg/kg, 5mg/mL)',
     'lido-dental': 'max '+(+(d.weight*0.1).toFixed(2))+'mL total for the whole procedure (2mg/kg, 20mg/mL) — all sites combined',
     'it-block': (+(d.weight*0.2).toFixed(2))+'mL total (1mg/kg, 5mg/mL) = '+(+(d.weight*0.1).toFixed(2))+'mL each testicle',
-    atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmDoses(a.weight).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : d.atip+'mL IM (5mg/mL)',
+    atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : d.atip+'mL IM (5mg/mL)',
     'melox-sc': meloxSC+'mL SC (5mg/mL)'+(a.species==='cat' && a.meloxOral ? ' — reduced, oral planned' : ''),
-    buprenorphine: d.bupren+'mL (300mcg/mL)'
+    buprenorphine: dp.bupren+'mL (300mcg/mL)'
   };
   return map[key] || '';
 }
@@ -2234,7 +2313,7 @@ function bindChartDraft(a, body){
     if(MedChart.maxMeds && autoRows.length + draft.length > MedChart.maxMeds){ alert('A chart sheet holds '+MedChart.maxMeds+' medications — remove '+(autoRows.length + draft.length - MedChart.maxMeds)+' line(s) first.'); return; }
     const chart = {
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'surgery', createdAt: new Date().toISOString(),
-      animalId: a.animalId, species: a.species, weight: a.weight, location: a.location,
+      animalId: a.animalId, species: a.species, weight: postWeight(a), location: a.location,
       vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
       startOption: draft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
       meds: autoRows.concat(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)))
@@ -2426,6 +2505,7 @@ function healthCheckHtml(a){
 function examFormHtml(a){
   syncMeloxPlanItem(a);
   syncGabaChart(a);
+  syncBupChart(a, false);
   let h = '';
   if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed:</b> ${esc(bloodsText(a))}. Tick "Bloods taken" under Needed for this animal once done.</div>`;
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
@@ -2505,20 +2585,21 @@ function examFormHtml(a){
   } else {
     const isDog = a.species==='dog';
     const hasBupi = a.surgType !== 'castrate' && a.surgType !== 'dental';
-    const meloxSC = meloxSCDose(a.weight, a.species, a.meloxOral);
+    const meloxSC = meloxSCDose(postWeight(a), a.species, a.meloxOral);
+    const dosesPost = calcDoses(postWeight(a)) || doses;
     const rows = [
       isPremix(a) ? {l:'Medetomidine + methadone premix', v:premixDoses(a.weight).premix, n:'0.1mL/kg · '+premixRoute(a)} : null,
       (isDog || isMmm(a) || isPremix(a)) ? null : {l:'ZMD (IM)', v:doses.zml, n:'Zoletil + Methadone + Medetomidine · 0.045mL/kg'},
-      isMmm(a) ? {l:'Methadone', v:mmmDoses(a.weight).meth, n:'10mg/mL · 0.4mg/kg'} : null,
-      isMmm(a) ? {l:'Midazolam', v:mmmDoses(a.weight).mida, n:'5mg/mL · 0.2mg/kg'} : null,
-      isMmm(a) ? {l:'Medetomidine', v:mmmDoses(a.weight).medet, n:'1mg/mL · 7mcg/kg'} : null,
+      isMmm(a) ? {l:'Methadone', v:mmmD(a).meth, n:'10mg/mL · 0.4mg/kg'} : null,
+      isMmm(a) ? {l:'Midazolam', v:mmmD(a).mida, n:'5mg/mL · '+mmmRates(mmmRoute(a)).midaMgKg+'mg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
+      isMmm(a) ? {l:'Medetomidine', v:mmmD(a).medet, n:'1mg/mL · '+mmmRates(mmmRoute(a)).medetMcgKg+'mcg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
       dogPropofol(a) ? {l:'Propofol IV (to effect)', v:propofolRange(doses.weight), n:'10mg/mL · 2–6mg/kg'} : {l:'Alfaxalone IV (PRN)', v:doses.alfLow+'–'+doses.alfHigh, n:'1-5mg/kg slow IV'},
       hasBupi ? {l:'Bupivacaine IP', v:doses.bupi, n:'5mg/mL · 2mg/kg'} : null,
       (isDog && a.surgType==='castrate') ? {l:'Intra-testicular block', v:+(doses.weight*0.2).toFixed(2), n:'bupivacaine 5mg/mL · 1mg/kg total · '+(+(doses.weight*0.1).toFixed(2))+'mL each testicle'} : null,
       a.surgType==='dental' ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
-      {l:'Meloxicam SC', v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
-      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmDoses(a.weight).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:doses.atip, n:'5mg/mL · half ZMD volume'},
-      {l:'Buprenorphine (PRN)', v:doses.bupren, n:'300mcg/mL · 0.02mg/kg'}
+      {l:'Meloxicam SC'+(usesPostWeight(a)?' (post-spey wt)':''), v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
+      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:doses.atip, n:'5mg/mL · half ZMD volume'},
+      {l:'Buprenorphine (PRN)'+(usesPostWeight(a)?' (post-spey wt)':''), v:dosesPost.bupren, n:'300mcg/mL · 0.02mg/kg'}
     ].filter(Boolean);
     if(isDog) h += `<div class="pe-field" style="margin-bottom:8px"><div class="lbl">Induction agent</div><div class="opts">
       <button type="button" class="opt-btn ${dogPropofol(a)?'selected':''}" data-induct="propofol">Propofol</button>
@@ -2549,12 +2630,12 @@ function examFormHtml(a){
       </div>`;
     })() : ''}
     ${a.premedType==='mmm' ? (()=>{
-      const d = mmmDoses(a.weight);
+      const d = mmmD(a); const rt = mmmRates(mmmRoute(a));
       return `<div style="margin-top:8px">
-        <p style="font-size:11.5px;color:var(--ink-soft)">Methadone 0.4mg/kg (10mg/mL) + midazolam 0.2mg/kg (5mg/mL) + medetomidine 7mcg/kg (1mg/mL), one syringe. Pick the route.</p>
+        <p style="font-size:11.5px;color:var(--ink-soft)">Methadone 0.4mg/kg (10mg/mL) + midazolam ${rt.midaMgKg}mg/kg (5mg/mL) + medetomidine ${rt.medetMcgKg}mcg/kg (1mg/mL), one syringe. Pick the route (IV uses the lower midazolam and medetomidine doses).</p>
         <div><label style="font-size:12px">Route</label><br>
           <select class="plain" id="fld_mmmRoute" style="width:100%">
-            ${['SC','IM'].map(v=>`<option value="${v}" ${mmmRoute(a)===v?'selected':''}>${v}</option>`).join('')}
+            ${['SC','IM','IV'].map(v=>`<option value="${v}" ${mmmRoute(a)===v?'selected':''}>${v}</option>`).join('')}
           </select></div>
         ${d ? `<p style="font-size:12.5px;margin-top:8px"><b>Methadone ${d.meth} mL + midazolam ${d.mida} mL + medetomidine ${d.medet} mL</b> ${mmmRoute(a)} (${+(d.meth+d.mida+d.medet).toFixed(3)} mL total for ${esc(a.weight)}kg)</p>` : '<p style="font-size:12.5px;margin-top:8px">Enter weight above to calculate.</p>'}
       </div>`;
@@ -2696,6 +2777,12 @@ function examFormHtml(a){
   POSTOP_TICKS.forEach(def=> h += tickHtml(a, def));
   h += `<div style="margin-top:8px"><label style="font-size:12px">Atipamezole given (mL) <span style="font-weight:400;color:var(--ink-soft)">— enter the amount if it isn't covered by the calculation above</span></label><br><input class="plain" id="fld_atipMl" type="number" step="0.01" min="0" value="${esc(a.atipMl||'')}" style="width:100%"></div>`;
   h += `</div>`;
+  if(isPregSpey(a)){
+    h += `<div class="pe-field"><div class="lbl">Post-spey weight</div>
+      <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:6px">Weigh after the uterus is removed. Buprenorphine, meloxicam (SC and oral) and gabapentin calculate from this weight; the premed and atipamezole stay on the pre-op weight (${esc(a.weight||'-')}kg). Blank = pre-op weight is used.</p>
+      <input class="plain" id="fld_postWeight" type="number" step="0.01" min="0" value="${esc(a.postWeight||'')}" placeholder="kg" style="width:100%"></div>`;
+  }
+  h += postopMedListHtml(a);
   h += `<div class="pe-field"><div class="lbl">Oral meloxicam post op (optional)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.meloxOral?'selected':''}" id="meloxOralToggle">Oral meloxicam required post-op</button>
     ${a.meloxOral ? `<button type="button" class="opt-btn ${a.meloxEdit?'selected':''}" id="meloxEditBtn">✎ Edit</button>` : ''}</div>`;
@@ -2715,7 +2802,7 @@ function examFormHtml(a){
     }
     if(a.meloxEdit){
       h += `<div class="two-col" style="margin-top:8px">
-        <div><label style="font-size:12px">Dose (mL)</label><br><input class="plain" id="fld_meloxMlOv" type="number" step="0.01" min="0" value="${esc(a.meloxMlOv||'')}" placeholder="${esc(meloxOralDoseVal(a.weight,a.species)==null?'':meloxOralDoseVal(a.weight,a.species))}" style="width:100%"></div>
+        <div><label style="font-size:12px">Dose (mL)</label><br><input class="plain" id="fld_meloxMlOv" type="number" step="0.01" min="0" value="${esc(a.meloxMlOv||'')}" placeholder="${esc(meloxOralDoseVal(postWeight(a),a.species)==null?'':meloxOralDoseVal(postWeight(a),a.species))}" style="width:100%"></div>
         <div><label style="font-size:12px">Days</label><br><input class="plain" id="fld_meloxDaysOv" type="number" min="1" value="${esc(a.meloxDaysOv||'')}" placeholder="${meloxOralDurationDays(a.species,a.surgType)}" style="width:100%"></div>
         <div><label style="font-size:12px">Given in the</label><br><select class="plain" id="fld_meloxTimingOv" style="width:100%">
           <option value="" ${!a.meloxTimingOv?'selected':''}>Automatic</option>
@@ -2778,7 +2865,7 @@ function examFormHtml(a){
       ${givenCheckHtml('worm', a.wormGiven, 'Worming treatment given')}
     </div>`;
   }
-  const bupDoses = calcDoses(a.weight);
+  const bupDoses = calcDoses(postWeight(a));
   h += `<div class="pe-field"><div class="lbl">Buprenorphine</div>
     <div class="opts">
       <button type="button" class="opt-btn ${a.bupRequired?'selected abn':''}" data-bupreq="1">Required</button>
@@ -2788,7 +2875,7 @@ function examFormHtml(a){
     h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
       <select class="plain" id="fld_buprenorphineRoute" style="width:100%">${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}</select></div>
       <p style="font-size:13px;margin:8px 0 0">To be given ~4 hours post-surgery via <b>${esc(a.buprenorphineRoute||'IV')}</b>${bupDoses?` — ${bupDoses.bupren} mL (0.02mg/kg, 300mcg/mL)`:''}.</p>`;
-    const bupRepeat = bupRepeatDose(a.weight);
+    const bupRepeat = bupRepeatDose(postWeight(a));
     if(bupRepeat!=null) h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = <b>${bupRepeat}mg</b>, given ~4 hours post-surgery.</p>`;
   }
   h += `</div>`;
@@ -2985,6 +3072,8 @@ function bindExamForm(a){
   if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });
   bindChange('fld_cryptoLocLeft','cryptoLocLeft'); bindChange('fld_cryptoLocRight','cryptoLocRight');
 
+  const postWeightEl = document.getElementById('fld_postWeight');
+  if(postWeightEl) postWeightEl.addEventListener('change', ()=>{ a.postWeight = postWeightEl.value; saveShift(); openExam(a.id); });
   const weightEl = document.getElementById('fld_weight');
   if(weightEl) weightEl.addEventListener('change', ()=>{
     const untouched = a.species==='dog' && a.surgNotes === buildTemplate(a);   // dog suture defaults depend on weight
@@ -3058,7 +3147,7 @@ function bindExamForm(a){
       // field skipped it entirely, so every fix made to that check
       // (per-mL phrasing, Mirtazapine exclusion, etc.) never reached
       // charts registered from Surgery.
-      a.newMedChartText = MedChart.annotateMgPerKg(newMedPlanEl.value, a.weight, a.species);
+      a.newMedChartText = MedChart.annotateMgPerKg(newMedPlanEl.value, postWeight(a), a.species);
       saveShift(); openExam(a.id);
     });
     newMedPlanEl.addEventListener('input', ()=>{ a.newMedChartText = newMedPlanEl.value; });
@@ -3068,7 +3157,19 @@ function bindExamForm(a){
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
     const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
-    if(!parsed.length){ alert('Type a new medication instruction above first.'); return; }
+    // registering the chart also adds the post-op buprenorphine (if Required) and oral meloxicam (if toggled)
+    const bupAdded = syncBupChart(a, true);
+    syncMeloxPlanItem(a);
+    const melAdded = a.meloxOral && meloxFinal(a).ml!=null && !!meloxFinal(a).timing;
+    if(!parsed.length){
+      if(bupAdded || melAdded){
+        alert('Registered on the medication chart: '+[bupAdded?'buprenorphine':'', melAdded?'oral meloxicam':''].filter(Boolean).join(' + ')+'. See "Post-op medications — complete list" below.\n\nTo add any other medication, type it in the box and press Register again.');
+        openExam(a.id);
+      } else {
+        alert('Nothing to register yet. Tick Buprenorphine "Required" (Recovery) and/or Oral meloxicam, or type a new medication instruction in the box.');
+      }
+      return;
+    }
     chartDrafts[a.id] = parsed;
     openExam(a.id);
   });
@@ -3271,7 +3372,7 @@ function assembleNote(a){
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog') L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
   L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
-  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} ${a.ageUnit} | Location: ${a.location||'-'}`);
+  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} ${a.ageUnit} | Location: ${a.location||'-'}`);
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
@@ -3403,9 +3504,9 @@ function assembleNote(a){
   L.push('Post-op:');
   if(a.needs.worm) L.push(`- Worming treatment: ${a.wormGiven ? 'given' : 'REQUIRED — not marked given'}`);
   if(a.bupRequired){
-    const bd = calcDoses(a.weight);
+    const bd = calcDoses(postWeight(a));
     L.push(`- Buprenorphine: to be given ~4 hours post-surgery via ${a.buprenorphineRoute||'IV'}${bd?` — ${bd.bupren}mL (0.02mg/kg, 300mcg/mL)`:''}`);
-    const bupRepeat = bupRepeatDose(a.weight);
+    const bupRepeat = bupRepeatDose(postWeight(a));
     if(bupRepeat!=null) L.push(`  Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = ${bupRepeat}mg, given ~4 hours post-surgery.`);
   }
   if(a.postopVitals.length){
