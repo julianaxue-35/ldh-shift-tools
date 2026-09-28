@@ -360,7 +360,25 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <details class="faq-item">
       <summary>Registering a new medication chart</summary>
-      <div class="a">The automatic oral meloxicam post-op course (the toggle in Recovery) registers and updates its own medication chart for you — no extra step needed. For any other genuinely new medication that needs its own printable 14-day chart, use "+ Register medication chart" under Paperwork: type the instruction, check the parsed drug/dose/frequency/route/days before saving. Every chart registered today (from this tool, Processing, or Sick &amp; Injured) collects in one place — open <b>Medication Charts</b> from the Shift Tools hub to select and export them as one Excel workbook, one real 14-day sheet per animal. Ask a nurse or the admission AA to print these and collect medications — print on the <b>Cranadopt</b> printer, drawer 2 (yellow paper).</div>
+      <div class="a">Pressing "+ Register medication chart" (under Paperwork) also puts the post-op <b>buprenorphine</b> (if Required is ticked in Recovery — one dose about 4 hours post-op, S8 sign-out flagged) and the <b>oral meloxicam</b> course (if toggled) onto the animal's chart, even if you haven't typed anything in the box. Oral meloxicam and gabapentin also keep their own chart lines up to date automatically. The <b>Post-op medications — complete list</b> table shows every post-op drug with its dose, the weight used and whether it is on the chart. For any other genuinely new medication that needs its own printable 14-day chart, use "+ Register medication chart" under Paperwork: type the instruction, check the parsed drug/dose/frequency/route/days before saving. Every chart registered today (from this tool, Processing, or Sick &amp; Injured) collects in one place — open <b>Medication Charts</b> from the Shift Tools hub to select and export them as one Excel workbook, one real 14-day sheet per animal. Ask a nurse or the admission AA to print these and collect medications — print on the <b>Cranadopt</b> printer, drawer 2 (yellow paper).</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Pregnant spey (Stage 1-3): post-spey weight</summary>
+      <div class="a">After the uterus is removed the animal weighs less, so pregnant spey (Stage 1, 2 and 3) shows a <b>Post-spey weight</b> box in the surgery section. Weigh the animal after surgery and enter it: buprenorphine, meloxicam (SC and oral), gabapentin and the medication chart weight then calculate from it. The premed and atipamezole always stay on the pre-op weight. Leave the box blank and the pre-op weight is used. The shift list, exam list, completed list, note and Excel export show the post-spey weight once entered.</div>
+    </details>
+
+    <details class="faq-item">
+      <summary>Methadone + midazolam + medetomidine (MMM): doses by route</summary>
+      <div class="a">
+        <table class="cmp">
+          <tr><th>Drug</th><th>SC / IM</th><th>IV</th></tr>
+          <tr><td>Methadone (10mg/mL)</td><td>0.4mg/kg</td><td>0.4mg/kg</td></tr>
+          <tr><td>Midazolam (5mg/mL)</td><td>0.2mg/kg</td><td>0.1mg/kg</td></tr>
+          <tr><td>Medetomidine (1mg/mL)</td><td>7mcg/kg</td><td>4mcg/kg</td></tr>
+        </table>
+        Pick the route under Premed used and the dose card, premed tick, note and atipamezole (half the medetomidine volume) all follow it.
+      </div>
     </details>
 
     <details class="faq-item">
@@ -529,7 +547,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-28.1';
+const APP_VERSION = '2026-09-28.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2055,6 +2073,18 @@ function dueTreatmentsLine(a){
   const items = needsSummary(a).map(esc).concat((a.customTicks||[]).filter(c=>!c.done).map(c=>esc(c.label)));
   return items.length ? `<div class="sub" style="color:var(--amber);font-weight:600">Needs: ${items.join(' &middot; ')}</div>` : '';
 }
+/* Weight text for the lists: pregnant spey shows the post-spey weight once entered. */
+function listWeightHtml(a){
+  if(!a.weight && !usesPostWeight(a)) return '-';
+  return esc(a.weight||'-')+(a.weight?'kg':'')+(usesPostWeight(a)?` → ${esc(a.postWeight)}kg post-spey`:'');
+}
+/* One-line "Post-op meds" summary for the lists; ⚠ = needs the chart button pressing. */
+function postopMedsLine(a){
+  const rows = postopMedRows(a).filter(r=>r.on && r.name!=='Meloxicam SC');
+  if(!rows.length) return '';
+  const txt = rows.map(r=> esc(r.name.toLowerCase()) + (r.chart==='press Register medication chart' ? ' ⚠ not on chart' : '')).join(' · ');
+  return `<div class="sub">Post-op meds: ${txt}</div>`;
+}
 function groupedListHtml(animals){
   let html = '';
   animals.forEach(a=>{
@@ -2062,7 +2092,8 @@ function groupedListHtml(animals){
     <div class="animal-card">
       <div class="info">
         <b>${esc(a.animalId||'(no ID)')}</b>
-        <div class="sub">${surgTypeLabel(a.surgType, a.species)} · ${esc(a.weight||'-')}${a.weight?'kg':''}</div>
+        <div class="sub">${surgTypeLabel(a.surgType, a.species)} · ${listWeightHtml(a)}</div>
+        ${postopMedsLine(a)}
         ${dueTreatmentsLine(a)}
       </div>
       <div>
@@ -3808,7 +3839,7 @@ function buildExcelFile(){
   const completed = sortedAnimals().filter(a=>a.registered);
   const notCompleted = sortedAnimals().filter(a=>!a.registered);
 
-  const completedAoa = [['Animal ID','Species','Sex','Weight','Flea Given','Worming Given','Vaccination Given','Plan','Pathway','S8 Sign-Out?']];
+  const completedAoa = [['Animal ID','Species','Sex','Weight','Post-spey Weight','Flea Given','Worming Given','Vaccination Given','Post-op Meds','Plan','Pathway','S8 Sign-Out?']];
   completed.forEach(a=>{
     const vaccT = a.ticks['vacc'];
     completedAoa.push([
@@ -3816,9 +3847,11 @@ function buildExcelFile(){
       a.species==='dog'?'Dog':a.species==='cat'?'Cat':'-',
       a.sex||'-',
       a.weight||'-',
+      usesPostWeight(a) ? a.postWeight : '',
       a.fleaGiven ? 'Given' : '',
       a.wormGiven ? 'Given' : '',
       (a.vaccGiven || (vaccT && vaccT.done)) ? 'Given' : '',
+      postopMedRows(a).filter(r=>r.on).map(r=>r.name+': '+r.dose).join(' | ') || '-',
       planSummary(a),
       pathwaySummary(a),
       a.premedType==='other' ? ('🟥 Non-standard premed' + (a.premedOther? (' — '+a.premedOther.trim()):'') + ' — sign out at ' + DDBOOK_URL) : '-'
@@ -3828,7 +3861,7 @@ function buildExcelFile(){
   notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, surgTypeLabel(a.surgType, a.species), a.species==='dog'?'Dog':a.species==='cat'?'Cat':'-', a.sex||'-', a.weight||'-']));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,12,14,16,35,30,45]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,14,12,14,16,50,35,30,45]), 'Completed');
   XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,22,10,14,10]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
   const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
