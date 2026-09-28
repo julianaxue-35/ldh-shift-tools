@@ -377,7 +377,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
           <tr><td>Midazolam (5mg/mL)</td><td>0.2mg/kg</td><td>0.1mg/kg</td></tr>
           <tr><td>Medetomidine (1mg/mL)</td><td>7mcg/kg</td><td>4mcg/kg</td></tr>
         </table>
-        Pick the route under Premed used and the dose card, premed tick, note and atipamezole (half the medetomidine volume) all follow it.
+        Pick the route under Premed used and the dose card, premed tick, note and atipamezole (half the medetomidine volume) all follow it. Every premed also has an "actual amount given" box — fill it in only if you gave something different from the calculated amount (atipamezole then follows the amount given); leave it blank and the calculated amount goes in the note.
       </div>
     </details>
 
@@ -547,7 +547,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-28.2';
+const APP_VERSION = '2026-09-28.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -663,7 +663,7 @@ function formatRecheckDate(dateStr){
    ever shows, which looks like "nothing happens" with no visible error. */
 function normalizeAnimal(a){
   const defaults = {
-    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'months', location:'', scp:false,
+    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'',
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
@@ -692,6 +692,12 @@ function normalizeAnimal(a){
     noteEdited:null, registered:false
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
+  // age is years only now — older records saved in months are converted so nothing is lost
+  if(a.ageUnit!=='years'){
+    const n = parseFloat(a.age);
+    if(a.age!=='' && !isNaN(n) && a.ageUnit==='months') a.age = String(Math.round(n/12*100)/100);
+    a.ageUnit = 'years';
+  }
   if(!a.examSectionsOpen || typeof a.examSectionsOpen!=='object') a.examSectionsOpen = {};
   ['peri','intra','post','paper'].forEach(k=>{ if(a.examSectionsOpen[k]==null) a.examSectionsOpen[k]=true; });
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
@@ -1142,12 +1148,31 @@ function mmmDoses(w, route){
   const medet = +(w*r.medetMl).toFixed(3);
   return { meth:+(w*0.04).toFixed(2), mida:+(w*r.midaMl).toFixed(route==='IV'?3:2), medet, atip:+(medet/2).toFixed(3) };
 }
-function mmmD(a){ return mmmDoses(a.weight, mmmRoute(a)); }
+/* Calculated (default) doses vs. what was actually given: each premed has an optional
+   "actual amount given" box. Blank = the calculated amount goes in the note. */
+function ovNum(v){ const n = parseFloat(v); return n>0 ? n : null; }
+function mmmCalc(a){ return mmmDoses(a.weight, mmmRoute(a)); }
+function mmmD(a){
+  const d = mmmCalc(a);
+  if(!d) return null;
+  const meth = ovNum(a.mmmMethOv)||d.meth, mida = ovNum(a.mmmMidaOv)||d.mida, medet = ovNum(a.mmmMedetOv)||d.medet;
+  return { meth, mida, medet, atip:+(medet/2).toFixed(3) };
+}
+function zmdGivenMl(a){
+  const d = calcDoses(a.weight);
+  return d ? (ovNum(a.zmdMlOv)||d.zml) : null;
+}
+function zmdAtipMl(a){ const g = zmdGivenMl(a); return g==null ? null : +(g/2).toFixed(2); }
+function premixGivenMl(a){
+  const d = premixDoses(a.weight);
+  return d ? (ovNum(a.premixMlOv)||d.premix) : null;
+}
 function mmmSummary(a){
   const d = mmmD(a);
   if(!d) return null;
   const r = mmmRates(mmmRoute(a));
-  return `methadone ${d.meth}mL (0.4mg/kg, 10mg/mL) + midazolam ${d.mida}mL (${r.midaMgKg}mg/kg, 5mg/mL) + medetomidine ${d.medet}mL (${r.medetMcgKg}mcg/kg, 1mg/mL) ${mmmRoute(a)}`;
+  const adj = (a.mmmMethOv||a.mmmMidaOv||a.mmmMedetOv) ? ' — amounts as given (adjusted from calculated)' : '';
+  return `methadone ${d.meth}mL (0.4mg/kg, 10mg/mL) + midazolam ${d.mida}mL (${r.midaMgKg}mg/kg, 5mg/mL) + medetomidine ${d.medet}mL (${r.medetMcgKg}mcg/kg, 1mg/mL) ${mmmRoute(a)}${adj}`;
 }
 /* PREOP_TICKS 'zmd' is the premed tick: dogs on the standard premed have no
    tick, cats on the standard premed keep ZMD, and MMM (either species) swaps
@@ -1165,13 +1190,13 @@ function tickSub(a, key){
   const meloxSC = meloxSCDose(postWeight(a), a.species, a.meloxOral);
   const dp = calcDoses(postWeight(a)) || d;
   const map = {
-    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixDoses(a.weight).premix+'mL '+premixRoute(a)+' (0.1mL/kg)') : d.zml+'mL IM',
+    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : zmdGivenMl(a)+'mL IM'+(ovNum(a.zmdMlOv)?' (adjusted from calculated '+d.zml+'mL)':''),
     'alfax-pre': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'alfax-intra': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'bupi-ip': d.bupi+'mL (2mg/kg, 5mg/mL)',
     'lido-dental': 'max '+(+(d.weight*0.1).toFixed(2))+'mL total for the whole procedure (2mg/kg, 20mg/mL) — all sites combined',
     'it-block': (+(d.weight*0.2).toFixed(2))+'mL total (1mg/kg, 5mg/mL) = '+(+(d.weight*0.1).toFixed(2))+'mL each testicle',
-    atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : d.atip+'mL IM (5mg/mL)',
+    atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : zmdAtipMl(a)+'mL IM (5mg/mL)',
     'melox-sc': meloxSC+'mL SC (5mg/mL)'+(a.species==='cat' && a.meloxOral ? ' — reduced, oral planned' : ''),
     buprenorphine: dp.bupren+'mL (300mcg/mL)'
   };
@@ -1292,7 +1317,6 @@ const NEED_ITEMS = [
   {key:'hc', label:'Health check under GA'},
   {key:'bloods', label:'Bloods (before premed)'}
 ];
-function bloodsText(a){ return a.species==='cat' ? 'Chem 17 + CBC + TT4' : 'Chem 17 + CBC'; }
 function needsSummary(a){ return NEED_ITEMS.filter(n=>a.needs && a.needs[n.key]).map(n=>n.label); }
 const range05 = (lo, hi)=>{ const o=[]; for(let v=lo; v<=hi+1e-9; v+=0.5) o.push(v.toFixed(1)); return o; };
 const ET_SIZES_CAT = range05(2, 5.5);   // cats 2.0–5.5 mm
@@ -1329,13 +1353,13 @@ function parseTasks(text){
 }
 function parseAgeText(s){
   const t = String(s||'').toLowerCase().trim();
-  if(!t) return {age:'', ageUnit:'months'};
+  if(!t) return {age:'', ageUnit:'years'};
   const ym = t.match(/(\d+(?:\.\d+)?)\s*y/), mm = t.match(/(\d+(?:\.\d+)?)\s*m/);
-  if(!ym && !mm){ const n = parseFloat(t); return isNaN(n) ? {age:'', ageUnit:'months'} : {age:String(Math.round(n*10)/10), ageUnit:'years'}; }
+  if(!ym && !mm){ const n = parseFloat(t); return isNaN(n) ? {age:'', ageUnit:'years'} : {age:String(Math.round(n*10)/10), ageUnit:'years'}; }
   if(ym && !mm) return {age:String(parseFloat(ym[1])), ageUnit:'years'};
-  // years + months (e.g. 10y9m) stays in years (10.8); months-only (e.g. 6m) stays in months
+  // years + months (e.g. 10y9m) = 10.8 years; months-only (e.g. 6m) is converted to years (0.5)
   if(ym) return {age:String(Math.round((parseFloat(ym[1]) + parseFloat(mm[1])/12)*10)/10), ageUnit:'years'};
-  return {age:String(Math.round(parseFloat(mm[1])*10)/10), ageUnit:'months'};
+  return {age:String(Math.round(parseFloat(mm[1])/12*100)/100), ageUnit:'years'};
 }
 function applyParsedNeeds(a, needs, extras){
   Object.keys(needs).forEach(k=>{ if(needs[k]) a.needs[k] = true; });
@@ -2472,7 +2496,7 @@ function needRowHtml(a, item){
           <input class="plain" id="fld_microchipNum" value="${esc(a.microchipNum||'')}" placeholder="15-digit number" style="width:100%"></div></div>`;
       }
     }
-    else if(item.key==='bloods') h += `<div style="font-size:12.5px;margin-top:6px;font-weight:600">${esc(bloodsText(a))} — take BEFORE premed</div>` + givenCheckHtml('bloods', a.bloodsTaken, 'Bloods taken');
+    else if(item.key==='bloods') h += `<div style="font-size:12.5px;margin-top:6px;font-weight:600">Bloods — take BEFORE premed</div>` + givenCheckHtml('bloods', a.bloodsTaken, 'Bloods taken');
     else if(item.key==='hc') h += `<div style="font-size:11.5px;color:var(--ink-soft);margin-top:6px">Done as the patient goes into surgery — the form is at the top of the Surgery section.</div>`;
   }
   return h + `</div>`;
@@ -2538,7 +2562,7 @@ function examFormHtml(a){
   syncGabaChart(a);
   syncBupChart(a, false);
   let h = '';
-  if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed:</b> ${esc(bloodsText(a))}. Tick "Bloods taken" under Needed for this animal once done.</div>`;
+  if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed.</b> Tick "Bloods taken" under Needed for this animal once done.</div>`;
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
     <div><label style="font-size:12px">Patient ID / Tag</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
@@ -2566,14 +2590,8 @@ function examFormHtml(a){
       </select></div>
   </div>`;
   h += `<div class="two-col" style="margin-top:8px">
-    <div><label style="font-size:12px">Age</label><br>
-      <div style="display:flex;gap:6px">
-        <input class="plain" id="fld_age" type="number" step="0.1" value="${esc(a.age||'')}" style="flex:1">
-        <select class="plain" id="fld_ageUnit" style="width:96px">
-          <option value="months" ${a.ageUnit==='months'?'selected':''}>months</option>
-          <option value="years" ${a.ageUnit==='years'?'selected':''}>years</option>
-        </select>
-      </div></div>
+    <div><label style="font-size:12px">Age (years)</label><br>
+      <input class="plain" id="fld_age" type="number" step="0.1" min="0" value="${esc(a.age||'')}" style="width:100%"></div>
   </div>`;
   h += `<div class="sechdr">Physical Examination</div>`;
   h += `<div><label style="font-size:12px">HR (bpm)</label><br>
@@ -2621,15 +2639,15 @@ function examFormHtml(a){
     const rows = [
       isPremix(a) ? {l:'Medetomidine + methadone premix', v:premixDoses(a.weight).premix, n:'0.1mL/kg · '+premixRoute(a)} : null,
       (isDog || isMmm(a) || isPremix(a)) ? null : {l:'ZMD (IM)', v:doses.zml, n:'Zoletil + Methadone + Medetomidine · 0.045mL/kg'},
-      isMmm(a) ? {l:'Methadone', v:mmmD(a).meth, n:'10mg/mL · 0.4mg/kg'} : null,
-      isMmm(a) ? {l:'Midazolam', v:mmmD(a).mida, n:'5mg/mL · '+mmmRates(mmmRoute(a)).midaMgKg+'mg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
-      isMmm(a) ? {l:'Medetomidine', v:mmmD(a).medet, n:'1mg/mL · '+mmmRates(mmmRoute(a)).medetMcgKg+'mcg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
+      isMmm(a) ? {l:'Methadone', v:mmmCalc(a).meth, n:'10mg/mL · 0.4mg/kg'} : null,
+      isMmm(a) ? {l:'Midazolam', v:mmmCalc(a).mida, n:'5mg/mL · '+mmmRates(mmmRoute(a)).midaMgKg+'mg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
+      isMmm(a) ? {l:'Medetomidine', v:mmmCalc(a).medet, n:'1mg/mL · '+mmmRates(mmmRoute(a)).medetMcgKg+'mcg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
       dogPropofol(a) ? {l:'Propofol IV (to effect)', v:propofolRange(doses.weight), n:'10mg/mL · 2–6mg/kg'} : {l:'Alfaxalone IV (PRN)', v:doses.alfLow+'–'+doses.alfHigh, n:'1-5mg/kg slow IV'},
       hasBupi ? {l:'Bupivacaine IP', v:doses.bupi, n:'5mg/mL · 2mg/kg'} : null,
       (isDog && a.surgType==='castrate') ? {l:'Intra-testicular block', v:+(doses.weight*0.2).toFixed(2), n:'bupivacaine 5mg/mL · 1mg/kg total · '+(+(doses.weight*0.1).toFixed(2))+'mL each testicle'} : null,
       a.surgType==='dental' ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
       {l:'Meloxicam SC'+(usesPostWeight(a)?' (post-spey wt)':''), v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
-      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:doses.atip, n:'5mg/mL · half ZMD volume'},
+      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:zmdAtipMl(a), n:ovNum(a.zmdMlOv) ? '5mg/mL · half the ZMD given ('+zmdGivenMl(a)+'mL)' : '5mg/mL · half ZMD volume'},
       {l:'Buprenorphine (PRN)'+(usesPostWeight(a)?' (post-spey wt)':''), v:dosesPost.bupren, n:'300mcg/mL · 0.02mg/kg'}
     ].filter(Boolean);
     if(isDog) h += `<div class="pe-field" style="margin-bottom:8px"><div class="lbl">Induction agent</div><div class="opts">
@@ -2657,20 +2675,31 @@ function examFormHtml(a){
           <select class="plain" id="fld_premixRoute" style="width:100%">
             ${['IM','SC'].map(v=>`<option value="${v}" ${premixRoute(a)===v?'selected':''}>${v}</option>`).join('')}
           </select></div>
-        ${d ? `<p style="font-size:12.5px;margin-top:8px"><b>${d.premix} mL</b> ${premixRoute(a)} (0.1 mL/kg × ${esc(a.weight)}kg)</p>` : '<p style="font-size:12.5px;margin-top:8px">Enter weight above to calculate.</p>'}
+        ${d ? `<p style="font-size:12.5px;margin-top:8px"><b>${d.premix} mL</b> ${premixRoute(a)} (0.1 mL/kg × ${esc(a.weight)}kg)</p>
+        <div style="margin-top:8px"><label style="font-size:12px">Actual amount given (mL) <span style="font-weight:400;color:var(--ink-soft)">— only if different from ${d.premix}mL</span></label><br>
+          <input class="plain" id="fld_premixMlOv" type="number" step="0.01" min="0" value="${esc(a.premixMlOv||'')}" placeholder="${d.premix}" style="width:100%"></div>` : '<p style="font-size:12.5px;margin-top:8px">Enter weight above to calculate.</p>'}
       </div>`;
     })() : ''}
     ${a.premedType==='mmm' ? (()=>{
-      const d = mmmD(a); const rt = mmmRates(mmmRoute(a));
+      const d = mmmCalc(a); const rt = mmmRates(mmmRoute(a));
       return `<div style="margin-top:8px">
         <p style="font-size:11.5px;color:var(--ink-soft)">Methadone 0.4mg/kg (10mg/mL) + midazolam ${rt.midaMgKg}mg/kg (5mg/mL) + medetomidine ${rt.medetMcgKg}mcg/kg (1mg/mL), one syringe. Pick the route (IV uses the lower midazolam and medetomidine doses).</p>
         <div><label style="font-size:12px">Route</label><br>
           <select class="plain" id="fld_mmmRoute" style="width:100%">
             ${['SC','IM','IV'].map(v=>`<option value="${v}" ${mmmRoute(a)===v?'selected':''}>${v}</option>`).join('')}
           </select></div>
-        ${d ? `<p style="font-size:12.5px;margin-top:8px"><b>Methadone ${d.meth} mL + midazolam ${d.mida} mL + medetomidine ${d.medet} mL</b> ${mmmRoute(a)} (${+(d.meth+d.mida+d.medet).toFixed(3)} mL total for ${esc(a.weight)}kg)</p>` : '<p style="font-size:12.5px;margin-top:8px">Enter weight above to calculate.</p>'}
+        ${d ? `<p style="font-size:12.5px;margin-top:8px"><b>Methadone ${d.meth} mL + midazolam ${d.mida} mL + medetomidine ${d.medet} mL</b> ${mmmRoute(a)} (${+(d.meth+d.mida+d.medet).toFixed(3)} mL total for ${esc(a.weight)}kg)</p>
+        <p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Actual amounts given (mL) — only fill in a drug if it differs from the calculated amount; atipamezole follows the medetomidine given.</p>
+        <div class="two-col" style="margin-top:4px">
+          <div><label style="font-size:12px">Methadone</label><br><input class="plain" id="fld_mmmMethOv" type="number" step="0.001" min="0" value="${esc(a.mmmMethOv||'')}" placeholder="${mmmCalc(a).meth}" style="width:100%"></div>
+          <div><label style="font-size:12px">Midazolam</label><br><input class="plain" id="fld_mmmMidaOv" type="number" step="0.001" min="0" value="${esc(a.mmmMidaOv||'')}" placeholder="${mmmCalc(a).mida}" style="width:100%"></div>
+          <div><label style="font-size:12px">Medetomidine</label><br><input class="plain" id="fld_mmmMedetOv" type="number" step="0.001" min="0" value="${esc(a.mmmMedetOv||'')}" placeholder="${mmmCalc(a).medet}" style="width:100%"></div>
+        </div>` : '<p style="font-size:12.5px;margin-top:8px">Enter weight above to calculate.</p>'}
       </div>`;
     })() : ''}
+    ${a.premedType==='standard' && a.species==='cat' && calcDoses(a.weight) ? `<div style="margin-top:8px">
+        <label style="font-size:12px">ZMD actual amount given (mL) <span style="font-weight:400;color:var(--ink-soft)">— only if different from the calculated ${calcDoses(a.weight).zml}mL; atipamezole follows it</span></label><br>
+        <input class="plain" id="fld_zmdMlOv" type="number" step="0.01" min="0" value="${esc(a.zmdMlOv||'')}" placeholder="${calcDoses(a.weight).zml}" style="width:100%"></div>` : ''}
     ${a.premedType==='other' ? `<textarea class="free-input" id="fld_premedOther" placeholder="e.g. Methadone + medetomidine + midazolam...">${esc(a.premedOther||'')}</textarea>
       <div style="margin-top:8px">${tickHtml(a, {key:'premed-other', label:'Other premed given'})}</div>` : ''}
     ${a.premedType==='standard' && a.species==='dog' ? (()=>{
@@ -2718,7 +2747,7 @@ function examFormHtml(a){
   });
   h += `</div></details>`;
 
-  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Surgery — health check, notes, monitoring, waivers, tattoo / atipamezole / meloxicam</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-intra" ${a.examSectionsOpen.intra?'open':''}><summary>Surgery — health check, notes, monitoring, waivers, tattoo / atipamezole / meloxicam / buprenorphine</summary><div class="exam-section-body">`;
   if(a.needs.hc){
     h += `<div class="sechdr">Health check — do this as the patient goes into surgery</div>`;
     h += healthCheckHtml(a);
@@ -2853,6 +2882,20 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
+  const bupDoses = calcDoses(postWeight(a));
+  h += `<div class="pe-field"><div class="lbl">Buprenorphine</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.bupRequired?'selected abn':''}" data-bupreq="1">Required</button>
+      <button type="button" class="opt-btn ${!a.bupRequired?'selected':''}" data-bupreq="0">Not required</button>
+    </div>`;
+  if(a.bupRequired){
+    h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
+      <select class="plain" id="fld_buprenorphineRoute" style="width:100%">${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <p style="font-size:13px;margin:8px 0 0">To be given ~4 hours post-surgery via <b>${esc(a.buprenorphineRoute||'IV')}</b>${bupDoses?` — ${bupDoses.bupren} mL (0.02mg/kg, 300mcg/mL)`:''}.</p>`;
+  }
+  if(a.bupRequired && isPregSpey(a)) h += usesPostWeight(a) ? `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:6px">Dose calculated from the post-spey weight (${esc(a.postWeight)}kg).</p>` : `<p style="font-size:11.5px;color:var(--amber);font-weight:600;margin-top:6px">Enter the post-spey weight above so the dose is calculated from it (currently using the pre-op weight).</p>`;
+  h += `</div>`;
+
   h += `<div class="pe-field"><div class="lbl">Gabapentin post op (optional)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.gabaOn?'selected':''}" id="gabaToggle">Gabapentin required post-op (10mg/kg BID)</button></div>`;
   if(a.gabaOn){
@@ -2888,7 +2931,7 @@ function examFormHtml(a){
 
   h += `</div></details>`;
 
-  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Recovery — worming, buprenorphine, vitals, notes</summary><div class="exam-section-body">`;
+  h += `<details class="exam-section" id="sec-post" ${a.examSectionsOpen.post?'open':''}><summary>Recovery — worming, vitals, notes</summary><div class="exam-section-body">`;
   h += `<div class="sechdr">Post-op &amp; Recovery</div>`;
   if(a.needs.worm){
     h += `<div class="pe-field">
@@ -2896,21 +2939,6 @@ function examFormHtml(a){
       ${givenCheckHtml('worm', a.wormGiven, 'Worming treatment given')}
     </div>`;
   }
-  const bupDoses = calcDoses(postWeight(a));
-  h += `<div class="pe-field"><div class="lbl">Buprenorphine</div>
-    <div class="opts">
-      <button type="button" class="opt-btn ${a.bupRequired?'selected abn':''}" data-bupreq="1">Required</button>
-      <button type="button" class="opt-btn ${!a.bupRequired?'selected':''}" data-bupreq="0">Not required</button>
-    </div>`;
-  if(a.bupRequired){
-    h += `<div style="margin-top:8px"><label style="font-size:12px">Route</label><br>
-      <select class="plain" id="fld_buprenorphineRoute" style="width:100%">${['IV','IM','SC','TM'].map(v=>`<option value="${v}" ${a.buprenorphineRoute===v?'selected':''}>${v}</option>`).join('')}</select></div>
-      <p style="font-size:13px;margin:8px 0 0">To be given ~4 hours post-surgery via <b>${esc(a.buprenorphineRoute||'IV')}</b>${bupDoses?` — ${bupDoses.bupren} mL (0.02mg/kg, 300mcg/mL)`:''}.</p>`;
-    const bupRepeat = bupRepeatDose(postWeight(a));
-    if(bupRepeat!=null) h += `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:8px">Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = <b>${bupRepeat}mg</b>, given ~4 hours post-surgery.</p>`;
-  }
-  h += `</div>`;
-
   h += `<div class="pe-field">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div class="lbl" style="margin:0">Post-op vitals — every 5-10 min</div>
@@ -3016,7 +3044,11 @@ function bindExamForm(a){
   const hrNEBtn = document.getElementById('hrNEToggle');
   if(hrNEBtn) hrNEBtn.addEventListener('click', ()=>{ a.hrNE = !a.hrNE; saveShift(); openExam(a.id); });
   bindChange('fld_hr','hr'); bindChange('fld_rr','rr'); bindChange('fld_mm','mm'); bindChange('fld_crt','crt');
-  bindChange('fld_age','age'); bindChange('fld_ageUnit','ageUnit');
+  ['zmdMlOv','premixMlOv','mmmMethOv','mmmMidaOv','mmmMedetOv'].forEach(k=>{
+    const el = document.getElementById('fld_'+k);
+    if(el) el.addEventListener('change', ()=>{ a[k] = el.value; saveShift(); openExam(a.id); });
+  });
+  bindChange('fld_age','age');
   bindChange('fld_murmurGrade','caMurmurGrade');
   bindChange('fld_premedOther','premedOther');
   const premixRouteEl = document.getElementById('fld_premixRoute');
@@ -3403,7 +3435,7 @@ function assembleNote(a){
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog') L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
   L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
-  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} ${a.ageUnit} | Location: ${a.location||'-'}`);
+  L.push(`Species: ${a.species==='dog'?'Dog':a.species==='cat'?'Cat':'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}`);
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
@@ -3418,13 +3450,13 @@ function assembleNote(a){
   L.push('Premed:');
   if(isPremix(a)){
     const d = premixDoses(a.weight);
-    L.push(d ? `Medetomidine + methadone premix — ${d.premix}mL ${premixRoute(a)} (0.1mL/kg)` : 'Medetomidine + methadone premix (enter weight to calculate dose)');
+    L.push(d ? (ovNum(a.premixMlOv) ? `Medetomidine + methadone premix — ${premixGivenMl(a)}mL ${premixRoute(a)} (adjusted from calculated ${d.premix}mL)` : `Medetomidine + methadone premix — ${d.premix}mL ${premixRoute(a)} (0.1mL/kg)`) : 'Medetomidine + methadone premix (enter weight to calculate dose)');
   } else if(a.premedType==='mmm'){
     L.push(mmmSummary(a) ? `Methadone + midazolam + medetomidine — ${mmmSummary(a)}` : 'Methadone + midazolam + medetomidine (enter weight to calculate dose)');
   } else if(a.premedType==='standard' && a.species==='dog'){
     L.push(`Medetomidine + methadone premix — ${dogPremedGivenMl(a)||'?'}mL ${a.dogPremedRoute}${a.dogPremedRate&&a.dogPremedRate!=='custom'?` (${a.dogPremedRate} mL/kg)`:''} (dose range 0.075-0.1mL/kg)`);
   } else if(a.premedType==='standard'){
-    L.push(doses ? `Standard ZMD — ${doses.zml}mL IM (Zoletil + Methadone + Medetomidine, 0.045mL/kg)` : 'Standard ZMD (enter weight to calculate dose)');
+    L.push(doses ? (ovNum(a.zmdMlOv) ? `Standard ZMD — ${zmdGivenMl(a)}mL IM (Zoletil + Methadone + Medetomidine; adjusted from calculated ${doses.zml}mL)` : `Standard ZMD — ${doses.zml}mL IM (Zoletil + Methadone + Medetomidine, 0.045mL/kg)`) : 'Standard ZMD (enter weight to calculate dose)');
   } else {
     L.push(`Other (vet-selected): ${a.premedOther && a.premedOther.trim() ? a.premedOther.trim() : '-'}`);
     { const pt = a.ticks['premed-other']; L.push(pt && pt.done ? `- Other premed given (${pt.time})` : '- Other premed: not marked given'); }
@@ -3439,7 +3471,7 @@ function assembleNote(a){
   };
   reqLine('Flea treatment', a.needs.flea, a.fleaGiven, 'given');
   reqLine('Vaccination', a.needs.vacc, a.vaccGiven, 'given');
-  reqLine('Bloods ('+bloodsText(a)+')', a.needs.bloods, !!a.bloodsTaken, 'taken');
+  reqLine('Bloods', a.needs.bloods, !!a.bloodsTaken, 'taken');
   reqLine('FIV test', a.needs.fiv, a.fivDone || !!a.fivResult, 'done' + (a.fivResult ? ` — ${a.fivResult}` : ' (result not recorded)'));
   const chipDone = !!(a.ticks['microchip'] && a.ticks['microchip'].done);
   if(a.needs.chip || chipDone){
@@ -3519,9 +3551,6 @@ function assembleNote(a){
     a.vitals.forEach(v=> L.push(`    ${v.time}  HR:${v.hr||'-'} RR:${v.rr||'-'} SpO2:${v.spo2||'-'} ISO:${v.iso||'-'}% O2:${v.o2||'-'}L/min Temp:${v.temp||'-'}°C ETCO2:${v.etco2||'-'} BP:${v.bp||'-'}`));
   }
   L.push('');
-  L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
-  L.push(`Waivers: ${a.waiversSelected.length ? a.waiversSelected.join(', ') : '-'}`);
-  L.push('');
   L.push('End of surgery:');
   let anyEnd = false;
   POSTOP_TICKS.forEach(def=>{
@@ -3537,8 +3566,6 @@ function assembleNote(a){
   if(a.bupRequired){
     const bd = calcDoses(postWeight(a));
     L.push(`- Buprenorphine: to be given ~4 hours post-surgery via ${a.buprenorphineRoute||'IV'}${bd?` — ${bd.bupren}mL (0.02mg/kg, 300mcg/mL)`:''}`);
-    const bupRepeat = bupRepeatDose(postWeight(a));
-    if(bupRepeat!=null) L.push(`  Repeat dose if required — (0.02mg/kg × bodyweight) ÷ 10 = ${bupRepeat}mg, given ~4 hours post-surgery.`);
   }
   if(a.postopVitals.length){
     L.push('  Post-op vitals:');
@@ -3565,6 +3592,9 @@ function assembleNote(a){
   if(a.rehomingPathway==='suitable') L.push('- Suitable for rehoming');
   else if(a.rehomingPathway==='not-suitable') L.push(`- Not suitable for rehoming (Reason: ${a.notSuitableReason||''})`);
   else L.push('-');
+  L.push('');
+  L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
+  L.push(`Waivers: ${a.waiversSelected.length ? a.waiversSelected.join(', ') : '-'}`);
   L.push('');
   L.push(`Paperwork by: ${a.paperworkBy||'-'}`);
   L.push(`Vet chat needed? ${a.vetChatNeeded||'-'}`);
