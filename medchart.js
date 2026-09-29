@@ -550,7 +550,25 @@
   // volume here is never assumed, since guessing one could be wildly wrong.
   var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b)/i;
   var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b/i;
-  var QTY_TOKEN_RE = /(\d+(?:\.\d+)?)\s*(?:tablets?|tabs?|capsules?|caps?)\b/i;
+  // Quantity before tablet/capsule: a plain number ("2 tablets"), a mixed or
+  // simple fraction ("1 1/2 tablets", "1/2 tablet"), or a fraction word
+  // ("half tablet", "half a tablet", "quarter tablet", "three-quarters of a
+  // tablet") — a half tablet is half the strength, so treating it as a
+  // whole tablet (the old behaviour, no match -> default qty 1) silently
+  // doubled the computed mg/kg. Order matters: the mixed-number alternative
+  // must come before the bare-number one so "1 1/2" isn't cut down to "1".
+  var QTY_TOKEN_RE = /(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|quarter|three[\s-]?quarters?)\s*(?:of\s+)?(?:an?\s+)?(?:tablets?|tabs?|capsules?|caps?)\b/i;
+  var QTY_WORDS = { half: 0.5, quarter: 0.25, 'three quarters': 0.75 };
+  function parseQtyToken(raw) {
+    var s = String(raw || '').trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ');
+    if (Object.prototype.hasOwnProperty.call(QTY_WORDS, s)) return QTY_WORDS[s];
+    var mixed = /^(\d+)\s+(\d+)\/(\d+)$/.exec(s);
+    if (mixed) return parseFloat(mixed[1]) + parseFloat(mixed[2]) / parseFloat(mixed[3]);
+    var frac = /^(\d+)\/(\d+)$/.exec(s);
+    if (frac) return parseFloat(frac[1]) / parseFloat(frac[2]);
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
   var VOLUME_ML_RE = /(\d+(?:\.\d+)?)\s*m[lL]s?\b/i;
   // Matches an annotation this function itself inserted on an earlier pass,
   // so re-running it on already-annotated text (e.g. re-editing the same
@@ -631,7 +649,7 @@
     var mgVal = parseFloat(m[1]);
     if (!(mgVal > 0)) return null;
     var qtyM = QTY_TOKEN_RE.exec(parts.tail) || QTY_TOKEN_RE.exec(line);
-    var qty = qtyM ? parseFloat(qtyM[1]) : 1;
+    var qty = qtyM ? parseQtyToken(qtyM[1]) : 1;
     if (!(qty > 0)) qty = 1;
     return { mgPerKg: (mgVal * qty) / wNum, insertAt: m.index + m[0].length };
   }
