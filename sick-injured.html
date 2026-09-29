@@ -392,7 +392,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-26.5';
+const APP_VERSION = '2026-09-30.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -698,7 +698,22 @@ function parseNoteSections(text){
     {key:'reasonHistory', re:/Reason(\s*\/\s*History)?\s*:/i},
     {key:'examination', re:/Exam(ination)?\s*:/i},
     {key:'assessment', re:/Assessment\s*:/i},
-    {key:'treatment', re:/(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/i},
+    // Must come before 'treatment' below — "Current Medication:" also
+    // contains the word "Medication", so without its own, more specific
+    // header this label was never recognised as a boundary at all: its
+    // text (including the literal word "Current") just ran on into
+    // whichever section preceded it in the note (often History, if it's
+    // written right after Reason/History — her "the word current is left
+    // in the history section" report), and never reached the animal's own
+    // Current medication field either (her "doesn't transfer over well"
+    // report) since nothing ever captured it as its own section.
+    {key:'currentMed', re:/Current\s*(Medications?|Meds?)\s*:/i},
+    // Negative lookbehind so this doesn't also match the "Medication" inside
+    // "Current Medication:" above — without it, that phrase matched BOTH
+    // headers at two adjacent positions, splitting itself into a near-empty
+    // currentMed slice and knocking the real Treatment section's boundary
+    // sideways into the middle of that phrase instead of its own label.
+    {key:'treatment', re:/(?<!current\s)(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/i},
     {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/i}
   ];
   const found = [];
@@ -730,6 +745,7 @@ function parseNoteSections(text){
     examination: sections.examination || '',
     assessment: sections.assessment || '',
     treatment: sections.treatment || '',
+    currentMed: sections.currentMed || '',
     pathway: sections.pathway || ''
   };
 }
@@ -897,7 +913,13 @@ function addOrMergeFromRecheck(r){
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
-  if(importedTreatment && !existing.currentMed) existing.currentMed = importedTreatment;
+  // A note's own "Current Medication:" section (now parsed out on its own,
+  // see parseNoteSections) is what she actually means by "current
+  // medication" — put it first, ahead of the Treatment/Assessment-derived
+  // fallback that already existed, rather than instead of it, so nothing
+  // that used to surface here stops surfacing.
+  const importedCurrentMed = reflowFreeText([sections.currentMed||'', importedTreatment].filter(Boolean).join('\n'));
+  if(importedCurrentMed && !existing.currentMed) existing.currentMed = importedCurrentMed;
   if(importedTreatment && !existing.treatment){ existing.treatment = importedTreatment; }
   else if(medLines.length){
     medLines.forEach(ml=>{ if(!existing.treatment.includes(ml)) existing.treatment = existing.treatment ? existing.treatment+'\n'+ml : ml; });
@@ -1251,6 +1273,10 @@ function makeAnimal(r){
   const sections = parseNoteSections(r.noteText || '');
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const treatmentText = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
+  // Same combination as the merge path above: her note's own "Current
+  // Medication:" section, if it has one, ahead of the existing
+  // Treatment/Assessment-derived fallback.
+  const currentMedText = reflowFreeText([sections.currentMed||'', treatmentText].filter(Boolean).join('\n'));
   return {
     id: uid(),
     animalId: r.animalId || '',
@@ -1279,7 +1305,7 @@ function makeAnimal(r){
       return {id: uid(), text: t, matched: m ? m.key : null, resolved: null};
     }),
     assessmentNotes: '',
-    currentMed: treatmentText,
+    currentMed: currentMedText,
     treatment: treatmentText,
     pathway: matchPathway(sections.pathway),
     plan: reflowFreeText(stripTrailingInitials(sections.pathway)),
@@ -2291,9 +2317,12 @@ function assembleNote(a){
     const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
     assessLines.push(p.resolved===true ? `${line} — resolved this visit` : line);
   } else {
-    a.assessment.forEach(p=>{
+    // Her fix: number each condition (1. 2. 3. ...) when there's more than
+    // one, so a pasted/printed note reads as clearly separate problems
+    // instead of running together as one block of text.
+    a.assessment.forEach((p,i)=>{
       const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
-      assessLines.push(`${line}${p.resolved===true ? ' — resolved this visit' : ''}`);
+      assessLines.push(`${i+1}. ${line}${p.resolved===true ? ' — resolved this visit' : ''}`);
     });
   }
   if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(reflowFreeText(a.assessmentNotes.trim()));

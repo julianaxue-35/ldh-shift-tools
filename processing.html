@@ -371,7 +371,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-29.3';
+const APP_VERSION = '2026-09-30.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -986,7 +986,8 @@ document.getElementById('parseXlsxBtn').addEventListener('click', ()=>{
       const wb = XLSX.read(data, {type:'array', cellDates:true});
       const ws = wb.Sheets[wb.SheetNames[0]];
       const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      const rows = parseInCareInventory(aoa);
+      const {rows, excludedFsa} = parseInCareInventory(aoa);
+      rows.excludedFsa = excludedFsa; // carried on the array itself so it survives every re-render (select all/none, room chips, per-row edits all just re-call renderParsedTable(rows))
       renderParsedTable(rows);
     }catch(err){
       alert('Could not read that file — is it the "In Care Inventory" Excel export? (' + err.message + ')');
@@ -1046,8 +1047,25 @@ function speciesFromLocation(loc){
   return '';
 }
 
+// Column name varies slightly across export copies ("Sub Status" / "Sub-Status" /
+// "Substatus") — normHeader only collapses whitespace/case, not punctuation, so
+// try a small set of plausible normalized keys rather than one fixed string.
+function subStatusColIdx(colMap){
+  for(const k of ['sub status','sub-status','substatus']){
+    if(colMap[k]!=null) return colMap[k];
+  }
+  return -1;
+}
+// Her rule: a cat still on the "Feline Spectrum Assessment" sub-status is not
+// yet socialised — it should never land on the Processing shift list. Matched
+// on the Sub Status column value alone (not species), since only cats carry
+// this sub-status in practice.
+function isFelineSpectrumAssessment(v){
+  return /feline\s*spectrum\s*assessment/i.test(String(v||''));
+}
 function parseInCareInventory(aoa){
   const rows = [];
+  const excludedFsa = [];
   let colMap = null;
   let currentSpecies = null;
 
@@ -1080,8 +1098,14 @@ function parseInCareInventory(aoa){
 
     const ageYears = parseAgeToYears(row[colMap['age']]);
     const location = String(row[colMap['shelter loc. / kennel']] ?? '');
+    const animalId = String(row[colMap['animalid']] ?? '');
+    const subStatusIdx = subStatusColIdx(colMap);
+    if(subStatusIdx!==-1 && isFelineSpectrumAssessment(row[subStatusIdx])){
+      excludedFsa.push(animalId);
+      return;
+    }
     rows.push({
-      animalId: String(row[colMap['animalid']] ?? ''),
+      animalId,
       location,
       dueDate: fmtExcelDate(row[colMap['due date out']]),
       species: speciesFromLocation(location) || currentSpecies || '',
@@ -1089,7 +1113,7 @@ function parseInCareInventory(aoa){
       sex: matchSexCode(row[colMap['sex']])
     });
   });
-  return rows;
+  return {rows, excludedFsa};
 }
 
 /* Each parsed row defaults to checked (included) \u2014 she can untick individual
@@ -1135,12 +1159,16 @@ function bindRoomChips(wrap, rows, rerender){
 }
 function renderParsedTable(rows){
   const wrap = document.getElementById('parsedWrap');
+  const excludedFsa = rows.excludedFsa || [];
+  const fsaNote = excludedFsa.length
+    ? `<div class="warn">${excludedFsa.length} cat${excludedFsa.length===1?'':'s'} with Sub Status "Feline Spectrum Assessment" (not yet socialised) left off this list \u2014 not brought over: ${excludedFsa.map(esc).join(', ')}. Add one manually if it genuinely needs to be seen this shift.</div>`
+    : '';
   if(!rows.length){
-    wrap.innerHTML = '<p class="warn">No rows detected. Check the paste, or add the animal manually.</p>';
+    wrap.innerHTML = fsaNote + '<p class="warn">No rows detected. Check the paste, or add the animal manually.</p>';
     return;
   }
   rows.forEach(r=>{ if(r._checked==null) r._checked = true; });
-  let html = '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns. Untick any you don\u2019t want to add.</div>';
+  let html = fsaNote + '<div class="warn">Check every row below before adding \u2014 PDF-pasted text can misplace columns. Untick any you don\u2019t want to add.</div>';
   html += `<div class="row-actions" style="align-items:center">
     <button class="btn" id="confirmAddBtnTop">Add selected to the shift</button>
     <button type="button" class="btn small secondary" id="selectAllBtn">Select all</button>
