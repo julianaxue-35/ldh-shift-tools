@@ -547,7 +547,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-28.3';
+const APP_VERSION = '2026-09-29.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1343,8 +1343,13 @@ function parseTasks(text){
   if(/r\/c\s*ortho/.test(t)) extras.push('Recheck — orthopaedic / MSK exam');
   if(/r\/c\s*abdo/.test(t)) extras.push('Recheck — abdominal palpation');
   if(/wound\s*re-?check/.test(t)) extras.push('Wound recheck');
-  // any other "R/C <area>" (heart, eyes/oral, skin, ...) becomes its own tickable recheck
-  (t.match(/r\/c\s+[a-z]+(?:\/[a-z]+)?/g)||[]).forEach(m=>{
+  // any other "R/C <area>" (heart, right eye, skin, ...) becomes its own tickable
+  // recheck. The area can be one word ("neuro"), slash-joined ("abdo/ortho/neuro"),
+  // or space-joined ("right eye") — `*` (not `?`) so a chain of any length is
+  // captured in full rather than silently dropping everything after the first
+  // extra word (e.g. "abdo/ortho/neuro" used to lose "neuro" entirely, and
+  // "right eye" used to lose "eye").
+  (t.match(/r\/c\s+[a-z]+(?:[\/\s][a-z]+)*/g)||[]).forEach(m=>{
     const area = m.replace(/^r\/c\s+/,'');
     if(area==='ortho' || area==='abdo') return;
     extras.push('Recheck — '+area);
