@@ -547,7 +547,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-29.1';
+const APP_VERSION = '2026-09-30.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -680,7 +680,7 @@ function normalizeAnimal(a){
     hcNotes:{}, hcDental:{grade:'0', desc:''},
     waiversRequired:'', waiversSelected:[],
     premedType:'standard', premedOther:'', dogPremedMl:'', dogPremedRoute:'IM',
-    surgType:'spey', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'',
+    surgType:'spey', surgType2:'', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'',
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
     scLayer:false, isoNotes:'',
     buprenorphineRoute:'IV', bupRequired:false, recoveryNotes:'',
@@ -1270,6 +1270,23 @@ function buildTemplate(a){
    from a booking) is still shown so nothing silently changes. */
 const CAT_SURG_TYPES = [['castrate','Routine Castration'],['cryptorchid','Cryptorchid Castration'],['spey','Routine Spey (OVH) — midline'],['spey-flank','Routine Spey (OVH) — flank'],['preg1','Pregnant Spey — Stage 1'],['preg2','Pregnant Spey — Stage 2'],['preg3','Pregnant Spey — Stage 3'],['pyometra','Pyometra OVH'],['dental','Dental'],['other','Non-routine surgery']];
 const DOG_SURG_TYPES = [['castrate','Dog Castration'],['cryptorchid','Dog Cryptorchid Castration'],['spey','Dog Spey (OVH) — midline'],['pyometra','Dog Pyometra OVH'],['dental','Dental'],['other','Non-routine surgery']];
+// True if `type` is either the primary procedure or the added second one
+// (a.surgType2) — used for the handful of dose-card/tick checks that must
+// still fire even when that procedure was added as the SECOND template
+// (e.g. a castrate booking that also gets a dental done), not just when
+// it's the primary. Deliberately narrow: only the clinically load-bearing
+// dental checks (lignocaine dose + its intraop tick) use this today — every
+// other surgType-gated check (bupivacaine IP, the dog castrate
+// intra-testicular block, cryptorchid fields, etc.) still looks at the
+// primary procedure only, her explicit scope call.
+function hasProcedure(a, type){ return a.surgType===type || a.surgType2===type; }
+// Display label including the second procedure, if one's been added — used
+// everywhere the shift list/exam header/Word doc show "what's being done",
+// so a combo shows as e.g. "Dog Castration + Dental" rather than just the
+// primary procedure.
+function surgTypeFullLabel(a){
+  return surgTypeLabel(a.surgType, a.species) + (a.surgType2 ? ' + ' + surgTypeLabel(a.surgType2, a.species) : '');
+}
 function surgTypeOptionsFor(a){
   const list = (a.species==='dog' ? DOG_SURG_TYPES : CAT_SURG_TYPES).slice();
   if(a.surgType && !list.some(([v])=>v===a.surgType)) list.push([a.surgType, surgTypeLabel(a.surgType, a.species)]);
@@ -1378,7 +1395,7 @@ const INTRAOP_TICKS = [
 ];
 function intraopShown(a, def){
   if(def.key==='bupi-ip') return a.surgType!=='castrate' && a.surgType!=='dental';
-  if(def.key==='lido-dental') return a.surgType==='dental';
+  if(def.key==='lido-dental') return hasProcedure(a,'dental');
   if(def.key==='it-block') return a.species==='dog' && a.surgType==='castrate';
   return true;
 }
@@ -2121,7 +2138,7 @@ function groupedListHtml(animals){
     <div class="animal-card">
       <div class="info">
         <b>${esc(a.animalId||'(no ID)')}</b>
-        <div class="sub">${surgTypeLabel(a.surgType, a.species)} · ${listWeightHtml(a)}</div>
+        <div class="sub">${surgTypeFullLabel(a)} · ${listWeightHtml(a)}</div>
         ${postopMedsLine(a)}
         ${dueTreatmentsLine(a)}
       </div>
@@ -2400,7 +2417,7 @@ function openExam(id){
   }
   state.openId = id;
   showTab('exam');
-  document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType, a.species)}`;
+  document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`;
   {
     const total = state.animals.length;
     const remaining = state.animals.filter(x=>!x.registered).length;
@@ -2650,7 +2667,7 @@ function examFormHtml(a){
       dogPropofol(a) ? {l:'Propofol IV (to effect)', v:propofolRange(doses.weight), n:'10mg/mL · 2–6mg/kg'} : {l:'Alfaxalone IV (PRN)', v:doses.alfLow+'–'+doses.alfHigh, n:'1-5mg/kg slow IV'},
       hasBupi ? {l:'Bupivacaine IP', v:doses.bupi, n:'5mg/mL · 2mg/kg'} : null,
       (isDog && a.surgType==='castrate') ? {l:'Intra-testicular block', v:+(doses.weight*0.2).toFixed(2), n:'bupivacaine 5mg/mL · 1mg/kg total · '+(+(doses.weight*0.1).toFixed(2))+'mL each testicle'} : null,
-      a.surgType==='dental' ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
+      hasProcedure(a,'dental') ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
       {l:'Meloxicam SC'+(usesPostWeight(a)?' (post-spey wt)':''), v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
       isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:zmdAtipMl(a), n:ovNum(a.zmdMlOv) ? '5mg/mL · half the ZMD given ('+zmdGivenMl(a)+'mL)' : '5mg/mL · half ZMD volume'},
       {l:'Buprenorphine (PRN)'+(usesPostWeight(a)?' (post-spey wt)':''), v:dosesPost.bupren, n:'300mcg/mL · 0.02mg/kg'}
@@ -2808,6 +2825,23 @@ function examFormHtml(a){
   if(a.surgType!=='castrate' && a.species!=='dog'){
     h += `<div class="pe-field"><button type="button" class="opt-btn ${a.scLayer?'selected':''}" id="scLayerToggle">Subcutaneous layer closed (3/0 PDS continuous)</button>
       <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Tapping this updates the surgical notes template below.</p></div>`;
+  }
+
+  { // Doing more than one procedure (e.g. a castrate that also gets a dental) —
+    // pick the second one and add its own template text below, on top of
+    // whatever's already in Surgical notes. Options exclude whatever's
+    // already picked as the main Procedure, so it can't be added onto itself.
+    const type2Options = surgTypeOptionsFor(a).filter(([v])=>v!==a.surgType);
+    const type2Marker = a.surgType2 ? '=== ALSO PERFORMED: '+surgTypeLabel(a.surgType2,a.species).toUpperCase()+' ===' : null;
+    const type2Added = type2Marker && (a.surgNotes||'').includes(type2Marker);
+    h += `<div class="pe-field"><div class="lbl">Doing more than one procedure?</div>
+      <select class="plain" id="fld_surgType2" style="width:100%">
+        <option value="">None</option>
+        ${type2Options.map(([v,l])=>`<option value="${v}" ${a.surgType2===v?'selected':''}>${l}</option>`).join('')}
+      </select>
+      ${a.surgType2 ? `<button type="button" class="btn small secondary" id="addTemplate2Btn" style="margin-top:8px">${type2Added ? '✓ Template added below' : '+ Add template below'}</button>
+        <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Adds ${esc(surgTypeLabel(a.surgType2,a.species))}'s own template text under what's already in Surgical notes — edit either part by hand afterward same as usual. The Drug Dose Reference and Procedure line above already reflect this second procedure.</p>` : ''}
+    </div>`;
   }
 
   h += `<div class="pe-field"><div class="lbl">Surgical notes</div>
@@ -3300,6 +3334,22 @@ function bindExamForm(a){
   const surgTypeEl = document.getElementById('fld_surgType');
   if(surgTypeEl) surgTypeEl.addEventListener('change', ()=>{
     a.surgType = surgTypeEl.value; a.surgNotes = buildTemplate(a);
+    if(a.surgType2===a.surgType) a.surgType2 = '';   // can't add the same procedure onto itself
+    saveShift(); openExam(a.id);
+  });
+  const surgType2El = document.getElementById('fld_surgType2');
+  if(surgType2El) surgType2El.addEventListener('change', ()=>{
+    a.surgType2 = surgType2El.value; saveShift(); openExam(a.id);
+  });
+  const addTemplate2Btn = document.getElementById('addTemplate2Btn');
+  if(addTemplate2Btn) addTemplate2Btn.addEventListener('click', ()=>{
+    if(!a.surgType2) return;
+    const label = surgTypeLabel(a.surgType2, a.species);
+    const marker = '=== ALSO PERFORMED: '+label.toUpperCase()+' ===';
+    if((a.surgNotes||'').includes(marker)){ alert('That template has already been added below — edit it directly there if you need to change it.'); return; }
+    const secondText = buildTemplate(Object.assign({}, a, {surgType:a.surgType2}));
+    const existing = (a.surgNotes||'').replace(/\s+$/,'');
+    a.surgNotes = (existing ? existing + '\n\n' : '') + marker + '\n' + secondText;
     saveShift(); openExam(a.id);
   });
   bindChange('fld_surgStart','surgStart'); bindChange('fld_surgEnd','surgEnd');
@@ -3537,7 +3587,7 @@ function assembleNote(a){
     L.push(`Vet/nurse: ${vetInitEl.value||'-'} / ${nurseInitEl.value||'-'}`);
   }
   L.push('');
-  L.push(`Procedure: ${surgTypeLabel(a.surgType, a.species)}${a.surgType==='other' && a.bookedProc ? ' — ' + a.bookedProc : ''}`);
+  L.push(`Procedure: ${surgTypeLabel(a.surgType, a.species)}${a.surgType==='other' && a.bookedProc ? ' — ' + a.bookedProc : ''}${a.surgType2 ? ' + ' + surgTypeLabel(a.surgType2, a.species) : ''}`);
   L.push(`Start: ${a.surgStart||'-'}   End: ${a.surgEnd||'-'}`);
   L.push(a.surgNotes && a.surgNotes.trim() ? a.surgNotes.trim() : '-');
   L.push('');
@@ -3731,7 +3781,7 @@ async function buildWordFile(){
   toExport.forEach((a,i)=>{
     const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
     if(i>0) paras += WORD_PAGE_BREAK;
-    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${surgTypeLabel(a.surgType, a.species)}`, {bold:true, size:26, before:i>0?0:120, after:120});
+    paras += wordParagraph(`${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`, {bold:true, size:26, before:i>0?0:120, after:120});
     String(noteText).split('\n').forEach(line=>{
       if(!line.trim()){ paras += '<w:p/>'; return; }
       paras += wordParagraph(line, NOTE_SECTION_HEADERS.has(line.trim()) ? {bold:true, before:80, after:40} : {});
