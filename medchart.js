@@ -550,18 +550,35 @@
   // volume here is never assumed, since guessing one could be wildly wrong.
   var STRENGTH_TOKEN_RE = /(\d+(?:\.\d+)?\s*mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b)/i;
   var CONCENTRATION_TOKEN_RE = /\d+(?:\.\d+)?\s*mg\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b/i;
-  // Quantity before tablet/capsule: a plain number ("2 tablets"), a mixed or
-  // simple fraction ("1 1/2 tablets", "1/2 tablet"), or a fraction word
-  // ("half tablet", "half a tablet", "quarter tablet", "three-quarters of a
-  // tablet") — a half tablet is half the strength, so treating it as a
-  // whole tablet (the old behaviour, no match -> default qty 1) silently
-  // doubled the computed mg/kg. Order matters: the mixed-number alternative
-  // must come before the bare-number one so "1 1/2" isn't cut down to "1".
-  var QTY_TOKEN_RE = /(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|quarter|three[\s-]?quarters?)\s*(?:of\s+)?(?:an?\s+)?(?:tablets?|tabs?|capsules?|caps?)\b/i;
-  var QTY_WORDS = { half: 0.5, quarter: 0.25, 'three quarters': 0.75 };
+  // Quantity before tablet/capsule. Different vets write a non-whole count
+  // very differently, so all of these are accepted: a plain number ("2
+  // tablets"), a mixed or simple numeric fraction ("1 1/2 tablets", "1+1/2
+  // tablets", "1/2 tablet"), a fraction word ("half tablet", "half a
+  // tablet", "quarter tablet", "three-quarters of a tablet"), or a spelled-
+  // out whole-plus-fraction ("one and a half tablets", "one and quarter
+  // tablet", "two and three quarters tablets"). A half tablet is half the
+  // strength, so treating it as a whole tablet (the old behaviour, no match
+  // -> default qty 1) silently doubled the computed mg/kg. Order matters:
+  // each multi-word/multi-token alternative must come before the shorter
+  // ones it contains, or e.g. "1 1/2" would be cut down to just "1", or
+  // "one and a half" would never be tried because "half" alone matched
+  // first partway through the phrase.
+  var QTY_TOKEN_RE = /((?:one|two|three|four|five|six|seven|eight|nine|ten)\s+and\s+(?:an?\s+)?(?:half|quarter|three[\s-]?quarters?)|\d+(?:\.\d+)?\s*\+\s*\d+\/\d+|\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|quarter|three[\s-]?quarters?)\s*(?:of\s+)?(?:an?\s+)?(?:tablets?|tabs?|capsules?|caps?)\b/i;
+  var QTY_WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+  function fractionWordValue(w) {
+    if (w === 'half') return 0.5;
+    if (w === 'quarter') return 0.25;
+    if (/^three\s*quarters?$/.test(w)) return 0.75;
+    return null;
+  }
   function parseQtyToken(raw) {
     var s = String(raw || '').trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' ');
-    if (Object.prototype.hasOwnProperty.call(QTY_WORDS, s)) return QTY_WORDS[s];
+    var combo = /^(one|two|three|four|five|six|seven|eight|nine|ten)\s+and\s+(?:an?\s+)?(half|quarter|three\s*quarters?)$/.exec(s);
+    if (combo) return QTY_WORD_NUMBERS[combo[1]] + fractionWordValue(combo[2]);
+    var wordFrac = fractionWordValue(s);
+    if (wordFrac != null) return wordFrac;
+    var plus = /^(\d+(?:\.\d+)?)\s*\+\s*(\d+)\/(\d+)$/.exec(s);
+    if (plus) return parseFloat(plus[1]) + parseFloat(plus[2]) / parseFloat(plus[3]);
     var mixed = /^(\d+)\s+(\d+)\/(\d+)$/.exec(s);
     if (mixed) return parseFloat(mixed[1]) + parseFloat(mixed[2]) / parseFloat(mixed[3]);
     var frac = /^(\d+)\/(\d+)$/.exec(s);
