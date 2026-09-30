@@ -323,8 +323,9 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <!-- EXAM MODAL -->
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
   <div class="wrap" style="padding-top:0">
-    <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line)">
+    <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);flex-wrap:wrap">
       <button class="btn secondary" id="closeExamBtn">&larr; Back to list</button>
+      <b id="examStickyId" style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;text-align:center"></b>
       <span id="examProgress" style="font-size:12.5px;color:var(--ink-soft);font-weight:600;white-space:nowrap"></span>
     </div>
     <div class="card">
@@ -371,7 +372,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-30.1';
+const APP_VERSION = '2026-09-30.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -908,7 +909,7 @@ const EXOTIC_DDX = {
   heart: 'DDx: physiological/stress-related murmur vs cardiac disease.',
   gallop: 'DDx: gallop rhythm — cardiac disease vs severe systemic illness.'
 };
-function ddxBlurb(key, species, grade, approxAge){
+function ddxBlurb(key, species, grade, approxAge, noteText){
   if(species==='exotic' && EXOTIC_DDX[key]) return EXOTIC_DDX[key];
   const cat = species==='cat';
   /* Her rule: a young patient (either species) with a murmur points to a
@@ -929,8 +930,11 @@ function ddxBlurb(key, species, grade, approxAge){
     eyes: cat
       ? 'DDx: FHV-1 vs feline calicivirus vs Chlamydophila felis vs conjunctivitis vs corneal disease.'
       : 'DDx: conjunctivitis (bacterial/viral/allergic) vs KCS vs corneal disease vs foreign body.',
+    // Cryptococcosis is a sensitive DDx for cats — her rule: only name it when
+    // there's actual nasal swelling noted, not as a default on every runny/
+    // snotty nose.
     nose: cat
-      ? 'DDx: FHV-1/calicivirus/Chlamydophila (URI) vs cryptococcosis vs dental disease vs nasal foreign body.'
+      ? `DDx: FHV-1/calicivirus/Chlamydophila (URI) vs ${/swoll?en|swelling/i.test(noteText||'') ? 'cryptococcosis vs ' : ''}dental disease vs nasal foreign body.`
       : 'DDx: rhinitis (bacterial/viral/fungal) vs foreign body vs dental disease.',
     ears: 'DDx: otitis externa (bacterial/yeast/Otodectes) vs foreign body vs polyp.',
     teeth: 'DDx: periodontal disease secondary to plaque/calculus vs endodontic disease.',
@@ -1685,6 +1689,7 @@ function openExam(id){
   const a = state.animals.find(x=>x.id===id);
   document.getElementById('examTitle').textContent =
     `${speciesLabel(a)} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
+  document.getElementById('examStickyId').textContent = a.animalId||'(no ID)';
   {
     const total = state.animals.length;
     const remaining = state.animals.filter(x=>!x.registered && !x.doneElsewhere).length;
@@ -2568,7 +2573,7 @@ function computeProblemList(a){
     const note = (a.notes[f.key]||'').trim();
     if(!fieldNE && note && !a.assessmentDismissed[f.key]){
       const title = overrideTitle(a, f.key, `${f.label}: ${note}`);
-      const ddx = (a.assessmentOverrides[f.key] != null) ? a.assessmentOverrides[f.key] : ddxBlurb(f.key, a.species);
+      const ddx = (a.assessmentOverrides[f.key] != null) ? a.assessmentOverrides[f.key] : ddxBlurb(f.key, a.species, undefined, undefined, note);
       problems.push({id:f.key, title, ddx, custom:false});
     }
   });
