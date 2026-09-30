@@ -493,7 +493,7 @@ async function buildExactWorkbook(charts){
     `<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" name="${xmlEsc(s.name)}" sheetId="${s.num}" state="visible" r:id="rId${s.num}"/>`
   ).join('');
   const definedNamesXml = sheetMeta.map(s=>
-    `<definedName name="_xlnm.Print_Area" localSheetId="${s.num-1}">'${s.name.replace(/'/g,"''")}'!$A$1:$U$48</definedName>`
+    `<definedName name="_xlnm.Print_Area" localSheetId="${s.num-1}">'${s.name.replace(/'/g,"''")}'!$A$1:$U$43</definedName>`
   ).join('');
   const workbookXml = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr/><workbookProtection/><bookViews><workbookView visibility="visible" minimized="0" showHorizontalScroll="1" showVerticalScroll="1" showSheetTabs="1" tabRatio="600" firstSheet="0" activeTab="0" autoFilterDateGrouping="1"/></bookViews><sheets>${sheetsXml}</sheets><definedNames>${definedNamesXml}</definedNames><calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>`;
 
