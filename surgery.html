@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-30.2';
+const APP_VERSION = '2026-09-30.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -685,7 +685,7 @@ function normalizeAnimal(a){
     hcNotes:{}, hcDental:{grade:'0', desc:''},
     waiversRequired:'', waiversSelected:[],
     premedType:'standard', premedOther:'', dogPremedMl:'', dogPremedRoute:'IM',
-    surgType:'spey', surgType2:'', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'',
+    surgType:'spey', surgType2:'', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'', nextUp:false,
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
     scLayer:false, isoNotes:'',
     buprenorphineRoute:'IV', bupRequired:false, recoveryNotes:'',
@@ -2136,24 +2136,56 @@ function postopMedsLine(a){
   const txt = rows.map(r=> esc(r.name.toLowerCase()) + (r.chart==='press Register medication chart' ? ' ⚠ not on chart' : '')).join(' · ');
   return `<div class="sub">Post-op meds: ${txt}</div>`;
 }
-function groupedListHtml(animals){
+/* Cats and dogs use different ID schemes at this shelter (cat = 6-digit
+   shelter number, dog = 3 letters + 3 digits, e.g. "CZT656" — a normal dog
+   ID, not a data error). `a.species` is the primary signal; the ID pattern
+   is only a fallback for an animal whose species hasn't been confirmed yet
+   (e.g. straight off an unreviewed booking sheet), so it still lands in a
+   sensible group rather than "Species not yet set" whenever possible. */
+function animalSpeciesGroup(a){
+  if(a.species==='dog') return 'dog';
+  if(a.species==='cat') return 'cat';
+  const id = (a.animalId||'').trim();
+  if(/^[A-Za-z]{3}\d{3}$/.test(id)) return 'dog';
+  if(/^\d{6}$/.test(id)) return 'cat';
+  return 'other';
+}
+const SPECIES_GROUP_LABELS = {cat:'🐱 Cats', dog:'🐕 Dogs', other:'Species not yet set'};
+/* `opts.allowNext` shows the "Mark next" button (only makes sense on the
+   pending Shift List — an animal that's already Completed, or just being
+   looked up in the Exam picker, doesn't need a way to change who's next).
+   The ⭐ NEXT UP badge and the sort-to-top-of-its-group always apply
+   wherever the flag happens to be set, so it stays visible for awareness on
+   every list, not just the one that can change it. */
+function groupedListHtml(animals, opts){
+  opts = opts || {};
+  const groups = {cat:[], dog:[], other:[]};
+  animals.forEach(a=> groups[animalSpeciesGroup(a)].push(a));
   let html = '';
-  animals.forEach(a=>{
-    html += `
-    <div class="animal-card">
-      <div class="info">
-        <b>${esc(a.animalId||'(no ID)')}</b>
-        <div class="sub">${surgTypeFullLabel(a)} · ${listWeightHtml(a)}</div>
-        ${postopMedsLine(a)}
-        ${dueTreatmentsLine(a)}
+  ['cat','dog','other'].forEach(g=>{
+    const list = groups[g].slice();
+    if(!list.length) return;
+    list.sort((a,b)=> (b.nextUp?1:0) - (a.nextUp?1:0));   // nextUp first; otherwise keeps the incoming (alphabetical-by-ID) order
+    html += `<div class="list-group-hdr" style="font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.03em;margin:14px 0 6px">${SPECIES_GROUP_LABELS[g]} (${list.length})</div>`;
+    list.forEach(a=>{
+      html += `
+      <div class="animal-card" style="${a.nextUp?'border:2px solid var(--amber)':''}">
+        <div class="info">
+          ${a.nextUp ? '<div style="color:var(--amber);font-weight:700;font-size:11.5px;margin-bottom:2px">⭐ NEXT UP</div>' : ''}
+          <b>${esc(a.animalId||'(no ID)')}</b>
+          <div class="sub">${surgTypeFullLabel(a)} · ${listWeightHtml(a)}</div>
+          ${postopMedsLine(a)}
+          ${dueTreatmentsLine(a)}
+        </div>
+        <div>
+          <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+          ${opts.allowNext && !a.registered ? `<button class="btn small ${a.nextUp?'':'secondary'}" data-nextup="${a.id}">${a.nextUp?'✓ Next — tap to unmark':'Mark next'}</button>` : ''}
+          <button class="btn small secondary" data-open="${a.id}">Exam</button>
+          <button class="btn small rust" data-del="${a.id}">Remove</button>
+        </div>
       </div>
-      <div>
-        <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
-        <button class="btn small secondary" data-open="${a.id}">Exam</button>
-        <button class="btn small rust" data-del="${a.id}">Remove</button>
-      </div>
-    </div>
-  `;
+    `;
+    });
   });
   return html;
 }
@@ -2165,6 +2197,14 @@ function bindListButtons(){
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
       saveShift(); renderShiftList();
     }
+  }));
+  document.querySelectorAll('[data-nextup]').forEach(b=> b.addEventListener('click', ()=>{
+    const target = state.animals.find(a=>a.id===b.dataset.nextup);
+    if(!target) return;
+    const wasNext = !!target.nextUp;
+    state.animals.forEach(a=> a.nextUp = false);   // only one "next" at a time
+    if(!wasNext) target.nextUp = true;
+    saveShift(); renderShiftList();
   }));
 }
 function showTab(name){
@@ -2216,7 +2256,7 @@ function renderShiftList(){
   const completed = sorted.filter(a=>a.registered);
   const shiftQ = (document.getElementById('shiftSearchBox').value||'').trim().toLowerCase();
   const pendingMatches = pending.filter(a=>matchesIdSearch(a, shiftQ));
-  list.innerHTML = pendingMatches.length ? groupedListHtml(pendingMatches)
+  list.innerHTML = pendingMatches.length ? groupedListHtml(pendingMatches, {allowNext:true})
     : (pending.length ? '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>'
       : '<p style="font-size:13px;color:var(--ink-soft)">All animals registered to Word &amp; Excel — nice work.</p>');
   document.getElementById('completedCount').textContent = completed.length;
@@ -3484,6 +3524,7 @@ function bindExamForm(a){
       if(open.length && !confirm('These checks are not ticked off yet:\n\n- ' + open.join('\n- ') + '\n\nRegister anyway? (Press Cancel to go back and tick them.)')) return;
     }
     a.registered = !a.registered;
+    if(a.registered) a.nextUp = false;   // done — no longer "next"
     saveShift();
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); }
     openExam(a.id);
