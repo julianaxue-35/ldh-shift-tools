@@ -372,7 +372,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-30.3';
+const APP_VERSION = '2026-10-01.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2078,6 +2078,7 @@ function bindExamForm(a){
       // so it's never left silently un-annotated just because of fill order.
       if(a.currentMedDetail) a.currentMedDetail = MedChart.annotateMgPerKg(a.currentMedDetail, a.weight, a.species);
       if(a.medPlan) a.medPlan = MedChart.annotateMgPerKg(a.medPlan, a.weight, a.species);
+      syncFrozenNoteFields(a);
       refreshNote(a); saveShift(); openExam(a.id);
     });
     weightEl.addEventListener('input', ()=>{ a.weight = weightEl.value; });
@@ -2432,6 +2433,7 @@ function bindExamForm(a){
     btn.addEventListener('click', ()=>{
       a.waiversRequired = btn.dataset.waiversreq;
       if(a.waiversRequired==='NO') a.vetChat = 'NO'; // no waiver needed — no vet chat needed either
+      syncFrozenNoteFields(a);
       saveShift(); openExam(a.id);
     });
   });
@@ -2440,12 +2442,14 @@ function bindExamForm(a){
       const label = cb.dataset.waiveritem;
       if(cb.checked){ if(!a.waiversSelected.includes(label)) a.waiversSelected.push(label); }
       else { a.waiversSelected = a.waiversSelected.filter(x=>x!==label); }
+      syncFrozenNoteFields(a);
       saveShift(); refreshNote(a);
     });
   });
   body.querySelectorAll('[data-waiverremove]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       a.waiversSelected.splice(Number(btn.dataset.waiverremove), 1);
+      syncFrozenNoteFields(a);
       saveShift(); openExam(a.id);
     });
   });
@@ -2455,6 +2459,7 @@ function bindExamForm(a){
     const text = (input.value||'').trim();
     if(!text) return;
     if(!a.waiversSelected.includes(text)) a.waiversSelected.push(text);
+    syncFrozenNoteFields(a);
     saveShift();
     openExam(a.id);
   });
@@ -2470,6 +2475,7 @@ function bindExamForm(a){
   body.querySelectorAll('[data-curmed]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       a.currentMed = btn.dataset.curmed;
+      syncFrozenNoteFields(a);
       saveShift(); openExam(a.id);
     });
   });
@@ -2483,6 +2489,7 @@ function bindExamForm(a){
     // Copy into Plan as a starting draft, so she edits rather than retypes —
     // but only while Plan is still blank so it never clobbers her own edits.
     if(!a.medPlan || !a.medPlan.trim()) a.medPlan = a.currentMedDetail;
+    syncFrozenNoteFields(a);
     refreshNote(a); saveShift(); openExam(a.id);
   });
   const medPlanEl = document.getElementById('fld_medplan');
@@ -2718,6 +2725,35 @@ function assembleNote(a){
   return L.join('\n');
 }
 
+/* Once she's clicked Edit/Save on the note, assembleNote() is never
+   consulted again — refreshNote only ever shows the frozen a.noteEdited text
+   from then on, by design (so her own typed wording isn't silently
+   overwritten). But two fields kept updating correctly underneath
+   (a.currentMedDetail with its mg/kg annotation, a.waiversSelected) while the
+   frozen note just stopped reflecting either one — her report: the mg/kg
+   dose "didn't show up" and the waiver tags "didn't show up all the time",
+   both really the same cause. Rather than abandon the freeze (which would
+   silently discard any of her own custom wording elsewhere in the note),
+   surgically re-patch just these specific lines inside the frozen text —
+   same line-replace approach as medchart.js's setCellXml, scoped to the one
+   line it's about, nothing else in her edited text is touched. A line this
+   function doesn't find in a.noteEdited (e.g. she deleted it, or this is the
+   "not able to examine" note shape which has no Waivers lines at all) is
+   just left alone, never force-inserted. */
+function syncFrozenNoteFields(a){
+  if(a.noteEdited==null) return;
+  const fresh = assembleNote(a).split('\n');
+  const lines = a.noteEdited.split('\n');
+  let changed = false;
+  ['Current medication:', 'WAIVERS REQUIRED:', 'WAIVERS:'].forEach(prefix=>{
+    const freshLine = fresh.find(l=>l.startsWith(prefix));
+    const idx = lines.findIndex(l=>l.startsWith(prefix));
+    if(freshLine==null || idx===-1 || lines[idx]===freshLine) return;
+    lines[idx] = freshLine;
+    changed = true;
+  });
+  if(changed) a.noteEdited = lines.join('\n');
+}
 function refreshNote(a){
   const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
   document.getElementById('noteDisplay').textContent = noteText;
