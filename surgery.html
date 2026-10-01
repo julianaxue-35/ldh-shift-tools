@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-01.1';
+const APP_VERSION = '2026-10-01.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2522,7 +2522,13 @@ function waiversBlockHtml(a, idSuffix){
     h += `<p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Categories relevant to findings above are opened automatically — tick any that apply, or add your own below.</p>`;
     WAIVER_CATEGORIES.forEach(cat=>{
       h += `<details ${openCats.has(cat.key)?'open':''} style="margin-bottom:6px">
-        <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}</summary>
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--teal-dark);padding:4px 0">${esc(cat.label)}${(()=>{
+          /* ticked items show as tags on the category line itself, so what's
+             been chosen stays visible even when the category is collapsed —
+             same as Processing's waiver section. */
+          const ticked = cat.items.filter(it=>selected.includes(it));
+          return ticked.length ? `<span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:8px;vertical-align:middle">${ticked.map(it=>`<span style="background:var(--teal-dark);color:#fff;border-radius:12px;padding:1px 9px;font-size:11px;font-weight:600">${esc(it)}</span>`).join('')}</span>` : '';
+        })()}</summary>
         <div style="padding:4px 0 6px 4px">`;
       cat.items.forEach(item=>{
         h += `<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0">
@@ -3739,6 +3745,21 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
     saveShift();
   }
 });
+// Her report: typing in the note editor and refreshing before clicking the
+// Save toggle lost everything — unlike every other field here, which saves
+// itself the moment you click away. This is the same safety net, just for
+// the note editor too: a plain blur of the textarea persists whatever's
+// there as a.noteEdited right away, without forcing it back to display mode
+// (she might still be mid-edit) — so a refresh (or a sync push, which also
+// only ever fires from inside saveShift()) can never land between "she
+// finished typing a line" and "she remembered to tap Save".
+document.getElementById('noteEditArea').addEventListener('change', ()=>{
+  const a = state.animals.find(x=>x.id===state.openId);
+  const edit = document.getElementById('noteEditArea');
+  if(!a || edit.classList.contains('hidden')) return;
+  a.noteEdited = edit.value;
+  saveShift();
+});
 /* ShelterMate's paste target turns every plain-text line break into a full,
    visibly-spaced paragraph. Rich-text paste targets generally prefer
    text/html over text/plain when both are on the clipboard, so writing an
@@ -4038,7 +4059,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
 const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed','chipTickRemote'];
-const share = { client:null, on:false, base:{}, dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null };
+const share = { client:null, on:false, base:{}, dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
 // Number entry is closed off on stations that only RECEIVED the implanted tick from another device
 function chipEntryLocked(a){ return shareReady && share.on && !!a.chipTickRemote && !chipHasFullNumber(a); }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
@@ -4087,6 +4108,21 @@ function shareSchedulePush(){
   clearTimeout(share.pushTimer);
   share.pushTimer = setTimeout(sharePush, 800);
 }
+// A change sits in this 800ms debounce window before it's actually pushed —
+// a refresh, tab close, or navigating away inside that window silently drops
+// it, even though the local save already succeeded (her report: "doesn't
+// get transferred to the sync tablets"). `visibilitychange` fires when the
+// tab is hidden (backgrounded, refreshed, or closed) — reliably earlier and
+// more consistently than `beforeunload` in most browsers, and tolerates the
+// async push attempt much better. Not a guarantee on every possible exit
+// path (a hard crash, killing the browser process), but covers the normal
+// "I'm done, refresh/close/switch app" cases this was actually losing.
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState==='hidden' && share.on && share.pushTimer){
+    clearTimeout(share.pushTimer);
+    sharePush();
+  }
+});
 async function sharePush(){
   if(!share.on || !share.client) return;
   if(share.pushing){ share.dirty = true; return; }
@@ -4100,7 +4136,7 @@ async function sharePush(){
       const patch = base ? shareDiff(base, cur) : cur;
       if(patch===undefined) continue;
       const { error } = await share.client.rpc('merge_surgery_animal', {
-        p_id: a.id, p_shift_date: shareDate(), p_patch: patch,
+        p_id: a.id, p_shift_date: share.sessionDate, p_patch: patch,
         p_surg_type: cur.surgType || null, p_done: !!cur.registered
       });
       if(error) throw error;
@@ -4125,7 +4161,7 @@ async function sharePush(){
 async function sharePull(){
   if(!share.on || !share.client) return;
   try{
-    const { data, error } = await share.client.from('surgery_shift').select('id,data').eq('shift_date', shareDate());
+    const { data, error } = await share.client.from('surgery_shift').select('id,data').eq('shift_date', share.sessionDate);
     if(error) throw error;
     const changed = new Set();
     (data||[]).forEach(row=>{
@@ -4199,6 +4235,16 @@ async function shareStart(email, password){
     if(error) throw error;
   }
   share.on = true;
+  // Fixed once per connected session, NOT recomputed on every push/pull —
+  // a device left open past midnight (sharing still on) would otherwise
+  // silently start tagging its still-open, unfinished animals from
+  // yesterday under TODAY's date on its very next background sync, and any
+  // other station pulling "today's" list would suddenly see them appear
+  // (her report: "random animals from another day"). Turning sharing back
+  // off and on (or a fresh page load, which re-runs shareStart) is what
+  // actually starts a new day's shared session, matching the stale-shift-day
+  // warnings this tool already shows elsewhere for the exact same reason.
+  share.sessionDate = shareDate();
   try{ localStorage.setItem(LS_SHARE_ON, '1'); }catch(e){}
   shareShowUi(true); shareSetStatus('Sharing on — connecting…', true);
   // retention: clear anything older than 24h (the server also purges on a schedule)
