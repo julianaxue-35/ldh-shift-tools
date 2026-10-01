@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-01.2';
+const APP_VERSION = '2026-10-01.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -885,6 +885,22 @@ function checkStaleShiftBeforeChange(actionLabel){
 }
 function checkStaleShiftBeforeExport(){ return checkStaleShiftBeforeChange('export'); }
 function checkStaleShiftBeforeAdd(){ return checkStaleShiftBeforeChange('add'); }
+// Her ask: a list from a previous day shouldn't just sit there until she
+// happens to add an animal or export — those are the only two moments the
+// check above ever ran. Runs once, right on page load (before Share-this-
+// shift reconnects, so a stale local list is dealt with BEFORE any cloud
+// pull could land on top of it), so a leftover list is caught the moment
+// the tool is opened, not just when she takes some other action.
+function checkStaleShiftOnLoad(){
+  const shiftDate = localStorage.getItem(LS_SHIFT_DATE);
+  if(!state.animals.length || !shiftDate || shiftDate === todayStr()) return;
+  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now\nCancel = keep it for now (you can clear it later from the Shift List tab)`);
+  if(!wipe) return;
+  maybeBackupShift(true);
+  state.animals = [];
+  saveShift(); renderShiftList();
+  alert('Old list cleared.');
+}
 const state = { animals: loadShift(), openId: null };
 
 /* ---------- dose calc (verbatim from hqhvsn.html's calcDoses) ---------- */
@@ -2334,6 +2350,7 @@ document.getElementById('clearCompletedTabBtn').addEventListener('click', ()=>{
   document.getElementById('clearRegisteredBtn').click();
 });
 renderShiftList();
+checkStaleShiftOnLoad();
 
 window.addEventListener('storage', (e)=>{
   if(e.key !== LS_SHIFT) return;
