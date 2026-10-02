@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-01.3';
+const APP_VERSION = '2026-10-02.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -911,7 +911,7 @@ function calcDoses(w){
   return {
     weight:w, zml:zml,
     alfLow:+(w*0.1).toFixed(2), alfHigh:+(w*0.5).toFixed(2),
-    bupi:+(w*0.4).toFixed(2),
+    bupi:+(w*0.4).toFixed(2), bupiLow:+(w*0.2).toFixed(2),
     meloxSC:+(w*0.04).toFixed(2), meloxOral:+(w/10).toFixed(2),
     atip:+(zml/2).toFixed(2),
     bupren:+(w*0.0667).toFixed(2)
@@ -1216,7 +1216,7 @@ function tickSub(a, key){
     zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : zmdGivenMl(a)+'mL IM'+(ovNum(a.zmdMlOv)?' (adjusted from calculated '+d.zml+'mL)':''),
     'alfax-pre': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'alfax-intra': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
-    'bupi-ip': d.bupi+'mL (2mg/kg, 5mg/mL)',
+    'bupi-ip': d.bupiLow+'–'+d.bupi+'mL intraoperatively (1–2mg/kg, 5mg/mL)',
     'lido-dental': 'max '+(+(d.weight*0.1).toFixed(2))+'mL total for the whole procedure (2mg/kg, 20mg/mL) — all sites combined',
     'it-block': (+(d.weight*0.2).toFixed(2))+'mL total (1mg/kg, 5mg/mL) = '+(+(d.weight*0.1).toFixed(2))+'mL each testicle',
     atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : zmdAtipMl(a)+'mL IM (5mg/mL)',
@@ -2739,7 +2739,7 @@ function examFormHtml(a){
       isMmm(a) ? {l:'Midazolam', v:mmmCalc(a).mida, n:'5mg/mL · '+mmmRates(mmmRoute(a)).midaMgKg+'mg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
       isMmm(a) ? {l:'Medetomidine', v:mmmCalc(a).medet, n:'1mg/mL · '+mmmRates(mmmRoute(a)).medetMcgKg+'mcg/kg'+(mmmRoute(a)==='IV'?' (IV)':'')} : null,
       dogPropofol(a) ? {l:'Propofol IV (to effect)', v:propofolRange(doses.weight), n:'10mg/mL · 2–6mg/kg'} : {l:'Alfaxalone IV (PRN)', v:doses.alfLow+'–'+doses.alfHigh, n:'1-5mg/kg slow IV'},
-      hasBupi ? {l:'Bupivacaine IP', v:doses.bupi, n:'5mg/mL · 2mg/kg'} : null,
+      hasBupi ? {l:'Bupivacaine IP splash', v:doses.bupiLow+'–'+doses.bupi, n:'5mg/mL · 1–2mg/kg given intraoperatively'} : null,
       (isDog && a.surgType==='castrate') ? {l:'Intra-testicular block', v:+(doses.weight*0.2).toFixed(2), n:'bupivacaine 5mg/mL · 1mg/kg total · '+(+(doses.weight*0.1).toFixed(2))+'mL each testicle'} : null,
       hasProcedure(a,'dental') ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
       {l:'Meloxicam SC'+(usesPostWeight(a)?' (post-spey wt)':''), v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
