@@ -393,7 +393,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-09-30.3';
+const APP_VERSION = '2026-10-03.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -519,9 +519,9 @@ function normalizeAnimal(a){
      one place guaranteed to run against old data, not just new. Idempotent,
      so already-clean text is untouched. */
   a.history = reflowFreeText(a.history);
-  a.treatment = reflowFreeText(a.treatment);
+  a.treatment = reflowMedText(a.treatment);
   a.plan = reflowFreeText(a.plan);
-  a.currentMed = reflowFreeText(a.currentMed);
+  a.currentMed = reflowMedText(a.currentMed);
   a.exam.free = reflowFreeText(a.exam.free);
   a.otherReminders = a.otherReminders.map(t=> reflowFreeText(t));
   return a;
@@ -645,6 +645,24 @@ function reflowFreeText(text){
   });
   return out.join('\n').replace(/[ \t]{2,}/g, ' ').trim();
 }
+/* Medication lists are one drug per line — reflowFreeText would glue every
+   line onto the previous one (it treats non-bullet lines as wrapped
+   continuations), so "Gabapentin ... BID" + Enter + "Meloxicam ..." came out
+   as one run-on line in the note, Word and Excel. Keep her line breaks;
+   only trim, drop duplicate lines (same drug typed in both Current
+   medication and Treatment on import) and collapse blank-line runs. */
+function reflowMedText(text){
+  if(!text) return text;
+  const seen = new Set(), out = [];
+  String(text).split(/\r?\n/).forEach(raw=>{
+    const line = raw.replace(/[ \t]{2,}/g,' ').trim();
+    if(!line){ if(out.length && out[out.length-1]) out.push(''); return; }
+    const key = line.toLowerCase().replace(/\s+/g,' ');
+    if(seen.has(key)) return;
+    seen.add(key); out.push(line);
+  });
+  return out.join('\n').trim();
+}
 function formatRecheckDate(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr+'T00:00:00');
@@ -672,7 +690,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue','Awaiting sort'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
@@ -913,13 +931,13 @@ function addOrMergeFromRecheck(r){
     existing.history = reflowFreeText(sections.reasonHistory);
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
-  const importedTreatment = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
+  const importedTreatment = reflowMedText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   // A note's own "Current Medication:" section (now parsed out on its own,
   // see parseNoteSections) is what she actually means by "current
   // medication" — put it first, ahead of the Treatment/Assessment-derived
   // fallback that already existed, rather than instead of it, so nothing
   // that used to surface here stops surfacing.
-  const importedCurrentMed = reflowFreeText([sections.currentMed||'', importedTreatment].filter(Boolean).join('\n'));
+  const importedCurrentMed = reflowMedText([sections.currentMed||'', importedTreatment].filter(Boolean).join('\n'));
   if(importedCurrentMed && !existing.currentMed) existing.currentMed = importedCurrentMed;
   if(importedTreatment && !existing.treatment){ existing.treatment = importedTreatment; }
   else if(medLines.length){
@@ -1273,11 +1291,11 @@ document.getElementById('manualFlagAddBtn').addEventListener('click', ()=>{
 function makeAnimal(r){
   const sections = parseNoteSections(r.noteText || '');
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
-  const treatmentText = reflowFreeText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
+  const treatmentText = reflowMedText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
   // Same combination as the merge path above: her note's own "Current
   // Medication:" section, if it has one, ahead of the existing
   // Treatment/Assessment-derived fallback.
-  const currentMedText = reflowFreeText([sections.currentMed||'', treatmentText].filter(Boolean).join('\n'));
+  const currentMedText = reflowMedText([sections.currentMed||'', treatmentText].filter(Boolean).join('\n'));
   return {
     id: uid(),
     animalId: r.animalId || '',
@@ -1957,6 +1975,11 @@ function bind28DayExamForm(a){
     vhcEl.addEventListener('change', ()=>{ a.vhc = vhcEl.value; refreshNote(a); saveShift(); });
   }
 }
+function speciesSelectHtml(a){
+  return `<select class="plain" id="fld_species" style="width:100%">
+    <option value="" ${!a.species?'selected':''}>-</option><option value="cat" ${a.species==='cat'?'selected':''}>Cat</option><option value="dog" ${a.species==='dog'?'selected':''}>Dog</option>
+  </select>`;
+}
 function examFormHtml(a){
   let h = '';
   h += `<div class="two-col">
@@ -1973,7 +1996,10 @@ function examFormHtml(a){
     </div>
   </div>`;
   } else {
-    h += `<div style="margin-top:8px"><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>`;
+    h += `<div class="two-col" style="margin-top:8px">
+    <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
+    <div><label style="font-size:12px">Species</label><br>${speciesSelectHtml(a)}</div>
+  </div>`;
   }
 
   if(a.lastConsultDate){
@@ -2087,6 +2113,8 @@ function bindExamForm(a){
   const body = document.getElementById('examBody');
   if(a.template==='28day') bind28DayExamForm(a);
   const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', sex:'fld_sex', plan:'fld_plan'};
+  const speciesEl = document.getElementById('fld_species');
+  if(speciesEl) speciesEl.addEventListener('change', ()=>{ a.species = speciesEl.value; saveShift(); renderShiftList(); });
   Object.keys(map).forEach(k=>{
     const el = document.getElementById(map[k]);
     if(!el) return;
@@ -2116,24 +2144,33 @@ function bindExamForm(a){
      point it actually lands: any paste into one of these fields gets the
      whole field reflowed right after the paste completes. Idempotent —
      already-clean text passed through again is unchanged. */
-  function bindPasteReflow(elId, key, onObj){
+  function bindPasteReflow(elId, key, onObj, reflowFn){
+    reflowFn = reflowFn || reflowFreeText;
     const el = document.getElementById(elId);
     if(!el) return;
     const target = onObj || a;
     el.addEventListener('paste', ()=>{
       setTimeout(()=>{
-        el.value = reflowFreeText(el.value);
+        el.value = reflowFn(el.value);
         target[key] = el.value;
         refreshNote(a); saveShift();
       }, 0);
     });
   }
   bindPasteReflow('fld_history', 'history');
-  bindPasteReflow('fld_treatment', 'treatment');
-  bindPasteReflow('fld_currentMed', 'currentMed');
+  bindPasteReflow('fld_treatment', 'treatment', null, reflowMedText);
+  bindPasteReflow('fld_currentMed', 'currentMed', null, reflowMedText);
   bindPasteReflow('fld_plan', 'plan');
   bindPasteReflow('fld_examFree', 'free', a.exam);
   bindLiveText('fld_currentMed', 'currentMed');
+  /* mg/kg hint on Current medication too — annotated in place on blur, no
+     re-render (a re-render here swallowed the next click, see Treatment). */
+  const curMedEl = document.getElementById('fld_currentMed');
+  if(curMedEl) curMedEl.addEventListener('change', ()=>{
+    a.currentMed = MedChart.annotateMgPerKg(curMedEl.value, a.weight, a.species);
+    curMedEl.value = a.currentMed;
+    refreshNote(a); saveShift();
+  });
   bindLiveText('fld_assessmentNotes', 'assessmentNotes');
   bindLiveText('fld_examFree', 'free', a.exam);
 
@@ -2150,7 +2187,8 @@ function bindExamForm(a){
     treatmentEl.addEventListener('input', ()=>{ a.treatment = treatmentEl.value; refreshNote(a); });
     treatmentEl.addEventListener('change', ()=>{
       a.treatment = MedChart.annotateMgPerKg(treatmentEl.value, a.weight, a.species);
-      refreshNote(a); saveShift(); openExam(a.id);
+      treatmentEl.value = a.treatment;
+      refreshNote(a); saveShift();
     });
   }
 
@@ -2272,7 +2310,7 @@ function assembleNote(a){
   L.push('Reason / History:');
   L.push(a.history && a.history.trim() ? reflowFreeText(a.history.trim()) : '-');
   L.push('');
-  L.push(`Current medication: ${a.currentMed && a.currentMed.trim() ? reflowFreeText(a.currentMed.trim()) : '-'}`);
+  L.push(`Current medication: ${a.currentMed && a.currentMed.trim() ? reflowMedText(a.currentMed.trim()) : '-'}`);
   L.push('');
   L.push('Examination:');
   if(a.template==='28day'){
@@ -2332,7 +2370,7 @@ function assembleNote(a){
   L.push('');
   L.push('Treatment / Fees:');
   const treatmentLines = [];
-  if(a.treatment && a.treatment.trim()) treatmentLines.push(reflowFreeText(a.treatment.trim()));
+  if(a.treatment && a.treatment.trim()) treatmentLines.push(reflowMedText(a.treatment.trim()));
   (a.planItems||[]).forEach(pi=>{
     if(!pi.medName && !pi.recheckDate) return;
     const dateStr = pi.recheckDate ? ` (recheck ${formatRecheckDate(pi.recheckDate)})` : '';
