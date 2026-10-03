@@ -372,7 +372,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-01.1';
+const APP_VERSION = '2026-10-03.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1717,7 +1717,15 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%${!a.animalId?';border-color:var(--amber)':''}" placeholder="e.g. 1174501"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. Cat Room 1 / 01"></div>
   </div>
-  <div style="margin-top:8px"><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
+  <div class="two-col" style="margin-top:8px">
+    <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
+    <div><label style="font-size:12px">Species</label><br>
+      <select class="plain" id="fld_species" style="width:100%">
+        <option value="cat" ${a.species==='cat'?'selected':''}>Cat</option>
+        <option value="dog" ${a.species==='dog'?'selected':''}>Dog</option>
+        <option value="exotic" ${a.species==='exotic'?'selected':''}>Exotic</option>
+      </select></div>
+  </div>
   <div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>`;
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Current medication</div>
     <div class="opts">
@@ -2083,6 +2091,19 @@ function bindExamForm(a){
     });
     weightEl.addEventListener('input', ()=>{ a.weight = weightEl.value; });
   }
+  const speciesEl = document.getElementById('fld_species');
+  if(speciesEl) speciesEl.addEventListener('change', ()=>{
+    a.species = speciesEl.value;
+    /* Handling options and FAS are species-specific — drop a stale pick that
+       doesn't exist for the new species rather than leave it silently set. */
+    const opts = a.species==='cat' ? CAT_HANDLING_OPTIONS : (a.species==='exotic' ? EXOTIC_HANDLING_OPTIONS : DOG_HANDLING_OPTIONS);
+    if(a.handling && !opts.includes(a.handling)) a.handling = '';
+    if(a.species!=='cat') a.fasScore = '';
+    if(a.currentMedDetail) a.currentMedDetail = MedChart.annotateMgPerKg(a.currentMedDetail, a.weight, a.species);
+    if(a.medPlan) a.medPlan = MedChart.annotateMgPerKg(a.medPlan, a.weight, a.species);
+    syncFrozenNoteFields(a);
+    refreshNote(a); saveShift(); openExam(a.id); renderShiftList();
+  });
   const animalIdEl = document.getElementById('fld_animalid');
   if(animalIdEl) animalIdEl.addEventListener('change', ()=>{
     a.animalId = animalIdEl.value.trim(); saveShift(); openExam(a.id);

@@ -932,12 +932,10 @@ function addOrMergeFromRecheck(r){
   }
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const importedTreatment = reflowMedText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
-  // A note's own "Current Medication:" section (now parsed out on its own,
-  // see parseNoteSections) is what she actually means by "current
-  // medication" — put it first, ahead of the Treatment/Assessment-derived
-  // fallback that already existed, rather than instead of it, so nothing
-  // that used to surface here stops surfacing.
-  const importedCurrentMed = reflowMedText([sections.currentMed||'', importedTreatment].filter(Boolean).join('\n'));
+  // Her rule: Current medication is seeded from the previous consult's
+  // Treatment section only — the note's own "Current Medication:" section is
+  // ignored (it duplicated Treatment).
+  const importedCurrentMed = importedTreatment;
   if(importedCurrentMed && !existing.currentMed) existing.currentMed = importedCurrentMed;
   if(importedTreatment && !existing.treatment){ existing.treatment = importedTreatment; }
   else if(medLines.length){
@@ -1292,10 +1290,8 @@ function makeAnimal(r){
   const sections = parseNoteSections(r.noteText || '');
   const {assessmentLines, medLines} = splitAssessmentAndMeds(sections.assessment);
   const treatmentText = reflowMedText([sections.treatment||'', ...medLines].filter(Boolean).join('\n'));
-  // Same combination as the merge path above: her note's own "Current
-  // Medication:" section, if it has one, ahead of the existing
-  // Treatment/Assessment-derived fallback.
-  const currentMedText = reflowMedText([sections.currentMed||'', treatmentText].filter(Boolean).join('\n'));
+  // Seeded from Treatment only (same rule as the merge path above).
+  const currentMedText = treatmentText;
   return {
     id: uid(),
     animalId: r.animalId || '',
