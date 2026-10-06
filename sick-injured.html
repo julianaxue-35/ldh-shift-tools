@@ -268,6 +268,17 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   </div>
   <p id="exportEmptyMsg" style="font-size:12.5px;color:var(--ink-soft)">No animals in today's list yet — add one from Shift List first.</p>
 
+  <div class="card" id="handoverCard">
+    <h2>Hand over to a colleague</h2>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Leaving mid-shift? <b>Save handover file</b> packs the whole list — every note, medication, check and status — into one file. Send it to your colleague (email, Teams, AirDrop); they open this tool, tap <b>Load handover file</b>, and carry on exactly where you stopped. Animals already on their list are kept, and they're asked before any duplicate is replaced. Contains patient details — send only through approved channels and delete the file afterwards.</p>
+    <div class="row-actions">
+      <button class="btn" id="handoverSaveBtn">Save handover file</button>
+      <button class="btn secondary" id="handoverLoadBtn">Load handover file…</button>
+      <input type="file" id="handoverFileInput" accept=".json,application/json" style="display:none">
+    </div>
+    <p id="handoverMsg" style="font-size:12px;color:var(--ink-soft);margin-top:8px"></p>
+  </div>
+
   <div class="card" id="backupCard">
     <h2>Automatic backups</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Kept automatically in this browser roughly every 3 minutes, plus right before Clear list — restorable below if the list ever looks wrong or goes missing. This can't survive this device's browser storage being wiped entirely, so still export a copy above regularly for that.</p>
@@ -393,7 +404,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-03.1';
+const APP_VERSION = '2026-10-06.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2751,6 +2762,58 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
   const files = [await buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
   await runShareFlow(files, `Sick & Injured Notes — ${todayStr()}`, `Sick & Injured shift export — ${todayStr()}`);
+});
+
+/* ---------- Handover file (2026-10-06) ----------
+   Lossless hand-off of the whole shift list to a colleague: the file is
+   state.animals verbatim (same shape saveShift stores), wrapped with the tool
+   name so a Processing file can't be loaded into Sick & Injured or vice versa.
+   Loading runs every animal through normalizeAnimal (so a file from an older
+   or newer-by-a-field version still opens) and merges by Animal ID: new
+   animals are added, and a duplicate is only replaced after the colleague
+   confirms. Their current list is backed up first, so a load is undoable. */
+const HANDOVER_TOOL = 'sick-injured';
+function handoverMsg(t){ const m = document.getElementById('handoverMsg'); if(m) m.textContent = t; }
+document.getElementById('handoverSaveBtn').addEventListener('click', ()=>{
+  if(!state.animals.length){ alert('No animals in the list to hand over.'); return; }
+  const payload = {handover: HANDOVER_TOOL, appVersion: APP_VERSION, savedAt: new Date().toISOString(),
+                   savedBy: (document.getElementById('vetInit')||{}).value || '', animals: state.animals};
+  const stamp = new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  const file = new File([JSON.stringify(payload)], `SickInjured_Handover_${stamp}.json`, {type:'application/json'});
+  downloadFile(file);
+  handoverMsg(`Saved ${state.animals.length} animal(s). Send the file to your colleague, then delete it from Downloads once they've loaded it.`);
+});
+document.getElementById('handoverLoadBtn').addEventListener('click', ()=> document.getElementById('handoverFileInput').click());
+document.getElementById('handoverFileInput').addEventListener('change', async (ev)=>{
+  const f = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!f) return;
+  let data;
+  try{ data = JSON.parse(await f.text()); }catch(e){ alert('That file could not be read — it is not a handover file.'); return; }
+  if(!data || !Array.isArray(data.animals) || !data.handover){ alert('That file is not a handover file from this tool.'); return; }
+  if(data.handover !== HANDOVER_TOOL){ alert(`This handover file is from a different tool ("${data.handover}"). Open it in that tool instead.`); return; }
+  if(!checkStaleShiftBeforeAdd()) return;
+  let incoming;
+  try{ incoming = data.animals.map(normalizeAnimal); }catch(e){ alert('The file looks damaged and was not loaded: '+e.message); return; }
+  const key = a => (a.animalId||'').toString().trim().toLowerCase();
+  const byKey = new Map();
+  state.animals.forEach(a=>{ if(key(a)) byKey.set(key(a), a); });
+  const fresh = [], dups = [];
+  incoming.forEach(a=>{ (key(a) && byKey.has(key(a)) ? dups : fresh).push(a); });
+  let replace = false;
+  if(dups.length){
+    replace = confirm(`${dups.length} animal(s) in this file are already on your list (${dups.map(a=>a.animalId).slice(0,8).join(', ')}${dups.length>8?'…':''}).\n\nOK = replace yours with the handed-over version (your colleague's notes win)\nCancel = keep yours and skip those`);
+  }
+  if(!confirm(`Load handover from ${data.savedBy ? data.savedBy+' — ' : ''}${data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time'}?\n\n${fresh.length} new animal(s) will be added${dups.length ? `; ${dups.length} duplicate(s) will be ${replace?'replaced':'skipped'}` : ''}. Your current list is backed up first.`)) return;
+  maybeBackupShift(true);
+  fresh.forEach(a=>{ if(state.animals.some(x=>x.id===a.id)) a.id = uid(); state.animals.push(a); });
+  if(replace) dups.forEach(a=>{
+    const i = state.animals.findIndex(x=>key(x)===key(a));
+    if(i>=0){ a.id = state.animals[i].id; state.animals[i] = a; }
+  });
+  saveShift(); renderShiftList();
+  handoverMsg(`Loaded: ${fresh.length} added${dups.length ? `, ${dups.length} ${replace?'replaced':'skipped'}` : ''}. Check the Shift List and Completed tabs.`);
+  alert('Handover loaded — please look over the list before continuing.');
 });
 
 /* ---------- new-version banner ----------
