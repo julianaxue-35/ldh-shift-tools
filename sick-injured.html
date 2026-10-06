@@ -404,7 +404,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-06.1';
+const APP_VERSION = '2026-10-07.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2795,16 +2795,33 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   if(!checkStaleShiftBeforeAdd()) return;
   let incoming;
   try{ incoming = data.animals.map(normalizeAnimal); }catch(e){ alert('The file looks damaged and was not loaded: '+e.message); return; }
+  /* No double registration: an animal already registered on the sender's side
+     arrives as "Done by another vet" (kept for reference, excluded from the
+     colleague's Word/Excel exports, restorable with "Not done — put back"),
+     and every other animal arrives without the sender's dashboard-synced
+     flag so the usual "already registered elsewhere?" dashboard check runs
+     before the colleague registers it. */
+  let sentRegistered = 0;
+  incoming.forEach(a=>{
+    if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
+    a.dashSynced = false;
+  });
   const key = a => (a.animalId||'').toString().trim().toLowerCase();
   const byKey = new Map();
   state.animals.forEach(a=>{ if(key(a)) byKey.set(key(a), a); });
   const fresh = [], dups = [];
-  incoming.forEach(a=>{ (key(a) && byKey.has(key(a)) ? dups : fresh).push(a); });
+  const protectedDups = [];
+  incoming.forEach(a=>{
+    if(key(a) && byKey.has(key(a))){
+      const mine = byKey.get(key(a));
+      (mine.registered || mine.doneElsewhere ? protectedDups : dups).push(a);
+    } else fresh.push(a);
+  });
   let replace = false;
   if(dups.length){
     replace = confirm(`${dups.length} animal(s) in this file are already on your list (${dups.map(a=>a.animalId).slice(0,8).join(', ')}${dups.length>8?'…':''}).\n\nOK = replace yours with the handed-over version (your colleague's notes win)\nCancel = keep yours and skip those`);
   }
-  if(!confirm(`Load handover from ${data.savedBy ? data.savedBy+' — ' : ''}${data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time'}?\n\n${fresh.length} new animal(s) will be added${dups.length ? `; ${dups.length} duplicate(s) will be ${replace?'replaced':'skipped'}` : ''}. Your current list is backed up first.`)) return;
+  if(!confirm(`Load handover from ${data.savedBy ? data.savedBy+' — ' : ''}${data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time'}?\n\n${fresh.length} new animal(s) will be added${sentRegistered ? ` (${sentRegistered} of them already registered by the sender — they go under "Done by another vet" so they aren't registered twice)` : ''}${protectedDups.length ? `; ${protectedDups.length} already registered/done on your list are left untouched` : ''}${dups.length ? `; ${dups.length} duplicate(s) will be ${replace?'replaced':'skipped'}` : ''}. Your current list is backed up first.`)) return;
   maybeBackupShift(true);
   fresh.forEach(a=>{ if(state.animals.some(x=>x.id===a.id)) a.id = uid(); state.animals.push(a); });
   if(replace) dups.forEach(a=>{
@@ -2812,7 +2829,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
     if(i>=0){ a.id = state.animals[i].id; state.animals[i] = a; }
   });
   saveShift(); renderShiftList();
-  handoverMsg(`Loaded: ${fresh.length} added${dups.length ? `, ${dups.length} ${replace?'replaced':'skipped'}` : ''}. Check the Shift List and Completed tabs.`);
+  handoverMsg(`Loaded: ${fresh.length} added${protectedDups.length ? `, ${protectedDups.length} left untouched (already done on your list)` : ''}${dups.length ? `, ${dups.length} ${replace?'replaced':'skipped'}` : ''}. Check the Shift List and Completed tabs.`);
   alert('Handover loaded — please look over the list before continuing.');
 });
 
