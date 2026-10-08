@@ -404,7 +404,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-09.1';
+const APP_VERSION = '2026-10-09.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -423,6 +423,36 @@ function planExcerpt(text, maxLen) {
   if (!text) return '';
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
+}
+/* 2026-10-09 — Shelter board. A FLAGGED animal's Treatment and Plan go to the dashboard's Shelter board
+   (shape 6 "care": update-only, matched on animal ID, so it never creates a case) so shelter staff can read
+   what's being done against the animal's room and pen. Sent a couple of seconds after the vet stops typing,
+   and again only if the wording changes. Plan goes up without trailing sign-off initials. Never blocks or
+   breaks a local save — a failed send is simply retried on the next save. */
+const careSent = new Map();   // animal record id -> last treatment+plan sent
+let careTimer = null;
+function scheduleCareSync() {
+  clearTimeout(careTimer);
+  careTimer = setTimeout(syncCareNow, 2000);
+}
+function syncCareNow() {
+  state.animals.forEach(a => {
+    const title = String(a.animalId || '').trim();
+    if (!a.flagged || !title) return;
+    // an earlier, finished visit must not overwrite the open 2nd visit's wording for the same animal
+    if (a.registered && state.animals.some(x => x !== a && String(x.animalId || '').trim() === title && !x.registered)) return;
+    const treatment = (a.treatment || '').trim();
+    const plan = stripTrailingInitials((a.plan || '').trim());
+    const sig = treatment + '\u0001' + plan;
+    if ((careSent.get(a.id) ?? '') === sig) return;                  // unchanged since last send
+    if (!treatment && !plan && !careSent.has(a.id)) return;          // nothing written yet
+    careSent.set(a.id, sig);
+    fetch(SYNC_ENDPOINT, {
+      method: 'POST',
+      headers: { 'apikey': SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ care: { title, shift: 'sick_injured', treatment, plan } }),
+    }).then(r => { if (!r.ok) careSent.delete(a.id); }).catch(() => { careSent.delete(a.id); });
+  });
 }
 function syncCompletionToDashboard(a, shift, note) {
   fetch(SYNC_ENDPOINT, {
@@ -574,6 +604,7 @@ function saveShift(){
     localStorage.removeItem(LS_SHIFT_DATE);
   }
   maybeBackupShift(false);
+  scheduleCareSync();
 }
 // Gate for the export/share buttons — offers to clear a shift list still
 // holding animals from a previous day before exporting, so a vet picking
