@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-02.3';
+const APP_VERSION = '2026-10-08.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -858,7 +858,7 @@ function saveShift(){
     localStorage.removeItem(LS_SHIFT_DATE);
   }
   maybeBackupShift(false);
-  if(shareReady) shareSchedulePush();
+  if(shareReady){ shareNoteRemovals(); shareSchedulePush(); }
 }
 // Gate for the export/share buttons — offers to clear a shift list still
 // holding animals from a previous day before exporting, so someone picking
@@ -4242,7 +4242,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
 const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed','chipTickRemote'];
-const share = { client:null, on:false, base:{}, dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
+const share = { client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
 // Number entry is closed off on stations that only RECEIVED the implanted tick from another device
 function chipEntryLocked(a){ return shareReady && share.on && !!a.chipTickRemote && !chipHasFullNumber(a); }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
@@ -4250,6 +4250,29 @@ function confirmChipNumbersPresent(){
   const missing = state.animals.filter(a=>a.registered && a.ticks['microchip'] && a.ticks['microchip'].done && !chipHasFullNumber(a));
   if(!missing.length) return true;
   return confirm(`${missing.length} animal(s) (${missing.map(a=>a.animalId||'no ID').join(', ')}) show a microchip as implanted but have no number on THIS device — the Word file will say "implanted (number not recorded on this device)" for them.\n\nMicrochip numbers never leave the device they were typed on, so export from the device that scanned them if you need the number in the document.\n\nOK = export anyway, Cancel = go back.`);
+}
+/* Deleted-animal tombstones (2026-10-08). Report: "when I press delete the patients reappear".
+   Root cause: sharePull() treats ANY cloud row with no matching local animal as a NEW animal
+   from another station and re-adds it. A locally deleted animal stays in the cloud until
+   sharePush's delete succeeds, so a pull landing in that window (an 8s poll or realtime event
+   already in flight, a failed/blocked cloud delete, or a refresh — share.base is in-memory only)
+   resurrected it, and the next push then re-uploaded it for good. Fix: remember every id removed
+   here (persisted for the day), never pull those back, and keep retrying their cloud delete. */
+const LS_SHARE_DEL = 'ldh_surgery_share_deleted_v1';
+function shareDeletedLoad(){
+  try{ const o = JSON.parse(localStorage.getItem(LS_SHARE_DEL)||'null'); if(o && o.date===share.sessionDate && Array.isArray(o.ids)) return new Set(o.ids); }catch(e){}
+  return new Set();
+}
+function shareDeletedSave(){
+  try{ localStorage.setItem(LS_SHARE_DEL, JSON.stringify({date:share.sessionDate, ids:[...share.deleted]})); }catch(e){}
+}
+function shareNoteRemovals(){
+  if(!share.on) return;
+  const live = new Set(state.animals.map(a=>a.id));
+  let changed = false;
+  Object.keys(share.base).forEach(id=>{ if(!live.has(id) && !share.deleted.has(id)){ share.deleted.add(id); changed = true; } });
+  share.deleted.forEach(id=>{ if(live.has(id)){ share.deleted.delete(id); share.delConfirmed.delete(id); changed = true; } });   // restored from a backup
+  if(changed) shareDeletedSave();
 }
 function shareIsObj(v){ return v && typeof v==='object' && !Array.isArray(v); }
 function shareClone(v){ return JSON.parse(JSON.stringify(v)); }
@@ -4311,9 +4334,17 @@ async function sharePush(){
   if(share.pushing){ share.dirty = true; return; }
   share.pushing = true; share.dirty = false;
   try{
-    const liveIds = new Set();
+    shareNoteRemovals();
+    // animals removed locally (mistaken add, Remove, Clear list) leave the cloud too — done FIRST and
+    // one by one, so a failure on some other animal's upload can never stop a delete going through
+    let delErr = null;
+    for(const id of [...share.deleted]){
+      if(share.delConfirmed.has(id)) continue;
+      const { error } = await share.client.from('surgery_shift').delete().eq('id', id);
+      if(error){ delErr = delErr || error; continue; }
+      share.delConfirmed.add(id); delete share.base[id];
+    }
     for(const a of state.animals){
-      liveIds.add(a.id);
       if(a.cloudScrubbed) continue;
       const cur = stripForSync(a), base = share.base[a.id];
       const patch = base ? shareDiff(base, cur) : cur;
@@ -4325,13 +4356,7 @@ async function sharePush(){
       if(error) throw error;
       share.base[a.id] = cur;
     }
-    // animals removed locally (mistaken add, Clear list) leave the cloud too
-    for(const id of Object.keys(share.base)){
-      if(liveIds.has(id)) continue;
-      const { error } = await share.client.from('surgery_shift').delete().eq('id', id);
-      if(error) throw error;
-      delete share.base[id];
-    }
+    if(delErr) throw delErr;
     shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
   }catch(e){
     shareSetStatus('Sharing on — could not sync: ' + ((e && (e.message||e.code)) || 'unknown') + ' (your work is saved on this device; will retry)', false);
@@ -4349,6 +4374,7 @@ async function sharePull(){
     const changed = new Set();
     (data||[]).forEach(row=>{
       const remote = row.data;
+      if(share.deleted.has(row.id)) return;   // deleted on THIS device — never pull it back (cloud delete may still be pending)
       if(!remote || !Object.keys(remote).length) return; // scrubbed after export
       const local = state.animals.find(x=>x.id===row.id);
       if(!local){
@@ -4428,6 +4454,7 @@ async function shareStart(email, password){
   // actually starts a new day's shared session, matching the stale-shift-day
   // warnings this tool already shows elsewhere for the exact same reason.
   share.sessionDate = shareDate();
+  share.deleted = shareDeletedLoad(); share.delConfirmed = new Set();
   try{ localStorage.setItem(LS_SHARE_ON, '1'); }catch(e){}
   shareShowUi(true); shareSetStatus('Sharing on — connecting…', true);
   // retention: clear anything older than 24h (the server also purges on a schedule)
@@ -4444,7 +4471,7 @@ async function shareStop(){
   share.on = false;
   clearInterval(share.pollTimer); clearTimeout(share.pushTimer); clearTimeout(share.pullTimer);
   try{ if(share.channel && share.client) share.client.removeChannel(share.channel); }catch(e){}
-  share.channel = null; share.base = {};
+  share.channel = null; share.base = {}; share.deleted = new Set(); share.delConfirmed = new Set();
   try{ if(share.client) await share.client.auth.signOut(); }catch(e){}
   try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
   shareShowUi(false);
