@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-08.1';
+const APP_VERSION = '2026-10-09.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -672,7 +672,7 @@ function normalizeAnimal(a){
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
-    hr:'', rr:'Normal bronchovesicular sounds', mm:'Pink', crt:'<2s',
+    hr:'', rr:'Normal bronchovesicular sounds', mm:'Pink', crt:'<2s', bcs:'',
     caMurmur:false, caMurmurGrade:'1', caGallop:false, caArrhythmia:false, caPurring:false,
     hcPerformed:false,
     hcBehaviour:'', hcDesexKnown:'',
@@ -1221,9 +1221,21 @@ function preopDefFor(a, def){
     return def;
   }
   if(def.key!=='zmd') return def;
+  if(a.premedType==='other') return null;   // 'Other' premeds have their own tick inside the Premed section — no second (ZMD) tick
   if(isMmm(a)) return {key:'zmd', label:'Premed given ('+mmmRoute(a)+') — methadone + midazolam + medetomidine'};
   if(isPremix(a)) return {key:'zmd', label:'Premed given ('+premixRoute(a)+') — medetomidine + methadone premix'};
-  return a.species==='dog' ? null : def;
+  if(a.species==='dog') return {key:'zmd', label:'Premed given ('+(a.dogPremedRoute||'SC')+') — medetomidine + methadone premix'};   // 2026-10-09: dogs now log a premed time too
+  return def;
+}
+/* The premed tick for this animal (key + def), or null. 'Other' premeds use their own tick. */
+function premedTickDef(a){
+  if(a.premedType==='other') return {key:'premed-other', label:'Other premed given'};
+  return preopDefFor(a, {key:'zmd', label:'ZMD given IM'});
+}
+function premedTimeMissing(a){
+  const def = premedTickDef(a); if(!def) return false;
+  const t = a.ticks[def.key];
+  return !(t && t.done && t.time);
 }
 function tickSub(a, key){
   if(key==='vacc') return a.species==='dog' ? 'DHP (C3) — KC is intranasal (IN) only' : a.species==='rabbit' ? 'Filavac' : 'Tricat F3';
@@ -1838,9 +1850,10 @@ function tickHtml(a, def){
   return `<div class="tick ${t.done?'done':''}" data-tickkey="${def.key}">
     <div class="tick-box"><span class="tick-check">✓</span></div>
     <div><div class="tick-lbl">${esc(tickLabel(a, def))}</div>${sub?`<div class="tick-sub">${esc(sub)}</div>`:''}</div>
-    <div class="tick-time ${t.time?'':'hidden'}">🕐 ${esc(t.time)}</div>
+    <div class="tick-time ${t.time||isPremedKey(def.key)?'':'hidden'}" data-edittime="${def.key}" title="Tap to ${t.time?'adjust':'set'} the time">🕐 ${t.time?esc(t.time):'<u>add time</u>'}${t.time?' ✎':''}</div>
   </div>`;
 }
+function isPremedKey(k){ return k==='zmd' || k==='premed-other'; }
 /* Same tap-to-tick pattern as tickHtml, but for a free-form list she builds
    herself per animal (a.customTicks) rather than a fixed key from one of
    the PREOP/INTRAOP/POSTOP_TICKS arrays — so each item carries its own
@@ -2866,7 +2879,9 @@ function examFormHtml(a){
       <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic','Not able to be examined'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
     <div><label style="font-size:12px">CRT</label><br>
       <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s','Not able to be examined'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
-  </div>`;
+  </div>
+  <div style="margin-top:8px"><label style="font-size:12px">BCS (/5)</label><br>
+    <select class="plain" id="fld_bcs" style="width:100%"><option value="">-</option>${['1','1.5','2','2.5','3','3.5','4','4.5','5'].map(v=>`<option ${a.bcs===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
 
   h += needsBlockHtml(a);
 
@@ -3312,7 +3327,7 @@ function bindExamForm(a){
   });
   const hrNEBtn = document.getElementById('hrNEToggle');
   if(hrNEBtn) hrNEBtn.addEventListener('click', ()=>{ a.hrNE = !a.hrNE; saveShift(); openExam(a.id); });
-  bindChange('fld_hr','hr'); bindChange('fld_rr','rr'); bindChange('fld_mm','mm'); bindChange('fld_crt','crt');
+  bindChange('fld_hr','hr'); bindChange('fld_rr','rr'); bindChange('fld_mm','mm'); bindChange('fld_crt','crt'); bindChange('fld_bcs','bcs');
   ['zmdMlOv','premixMlOv','mmmMethOv','mmmMidaOv','mmmMedetOv','rabMedOv','rabKetOv','rabBupOv'].forEach(k=>{
     const el = document.getElementById('fld_'+k);
     if(el) el.addEventListener('change', ()=>{ a[k] = el.value; saveShift(); openExam(a.id); });
@@ -3507,6 +3522,23 @@ function bindExamForm(a){
     openExam(a.id);
   });
   bindChartDraft(a, body);
+  /* Tap a tick's time to correct it, or — for the premed — to enter it after the fact
+     (ticks are often forgotten at the time). Setting a time also marks the tick done. */
+  body.querySelectorAll('[data-edittime]').forEach(chip=>{
+    chip.addEventListener('click', (ev)=>{
+      ev.stopPropagation();
+      const key = chip.dataset.edittime;
+      if(!a.ticks[key]) a.ticks[key] = {done:false, time:''};
+      const cur = a.ticks[key].time || nowTime();
+      const ans = window.prompt('Time given (24-hour HH:MM, e.g. 09:30):', cur);
+      if(ans==null) return;
+      const m = String(ans).trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+      if(!m || +m[1]>23 || +m[2]>59){ alert('Please enter a time like 09:30.'); return; }
+      a.ticks[key].done = true;
+      a.ticks[key].time = String(+m[1]).padStart(2,'0')+':'+m[2];
+      saveShift(); openExam(a.id);
+    });
+  });
   body.querySelectorAll('[data-tickkey]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const key = btn.dataset.tickkey;
@@ -3707,6 +3739,7 @@ function bindExamForm(a){
     if(!a.registered){
       const open = (a.customTicks||[]).filter(c=>!c.done).map(c=>c.label);
       if(a.species==='dog' && a.surgType==='castrate' && !a.castMethod) open.push('Castration method (open or closed)');
+      if(premedTimeMissing(a)) open.push('Premed time (tap "add time" on the premed tick — it can be entered after the fact)');
       if(open.length && !confirm('These checks are not ticked off yet:\n\n- ' + open.join('\n- ') + '\n\nRegister anyway? (Press Cancel to go back and tick them.)')) return;
     }
     a.registered = !a.registered;
@@ -3728,7 +3761,7 @@ function assembleNote(a){
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
-  L.push(`HR: ${a.hrNE ? 'Not able to be examined' : (a.hr||'-')}  Resp: ${a.rr}  MM: ${a.mm}  CRT: ${a.crt}`);
+  L.push(`HR: ${a.hrNE ? 'Not able to be examined' : (a.hr||'-')}  Resp: ${a.rr}  MM: ${a.mm}  CRT: ${a.crt}${a.bcs ? `  BCS: ${a.bcs}/5` : ''}`);
   const cardiacParts = [];
   if(a.caMurmur) cardiacParts.push(`Murmur grade ${a.caMurmurGrade}/6`);
   if(a.caGallop) cardiacParts.push('Gallop rhythm');

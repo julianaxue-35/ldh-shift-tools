@@ -404,7 +404,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-07.1';
+const APP_VERSION = '2026-10-09.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -521,6 +521,7 @@ function normalizeAnimal(a){
   if(a.registered == null) a.registered = !!a.done;
   if(!Array.isArray(a.otherReminders)) a.otherReminders = [];
   if(a.species == null) a.species = '';
+  if(a.secondVisit == null) a.secondVisit = false;   // 2nd visit for the same animal (flagged again for a different problem)
   /* Root cause of "I fixed it but she still sees the old broken formatting":
      the reflow fix only ever ran at the moment text was newly imported or
      pasted — it never touched text already sitting in a record saved
@@ -811,9 +812,24 @@ function splitAssessmentLines(text){
 /* Vet sign-off initials (e.g. "ADL") appear as a short standalone token,
    usually the very last line of the note, after the Plan text — drop them
    rather than carrying them into the Plan field. */
+const NOT_INITIALS = new Set(['OK','NSF','NAD','WNL','BID','SID','TID','QID','PRN','EOD','SC','IM','IV','PO','TT','FIV','FELV','HC','DDX','TBC','ASAP','PE','BCS','VHC','DAP','LA','GA','HR','RR','CRT','MM','URI','FURI','UTI','CKD','IBD','SCP']);
+const INITIALS_TOKEN = '[A-Z]{2,5}';
+/* Vet sign-off initials (e.g. "ADL", "- JX", "(JX)", "ADL / JX", "JX 7/10", "Dr JX") appear as a short
+   token at the very end of a note — on their own line OR tacked on after the last plan sentence ("...recheck
+   3 days - JX"). The note gets the CURRENT vet's initials added at the bottom, so any carried-over sign-off
+   must go or the note ends with two sets. Never strips clinical abbreviations (NOT_INITIALS). */
 function stripTrailingInitials(text){
   const lines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean);
-  while(lines.length && /^[A-Z]{2,5}$/.test(lines[lines.length-1])) lines.pop();
+  const isInitials = tok => /^[A-Z]{2,5}$/.test(tok) && !NOT_INITIALS.has(tok);
+  const standalone = new RegExp('^[\\-–—(\\s]*(?:Dr\\.?\\s+)?(' + INITIALS_TOKEN + '(?:\\s*[\\/,&+]\\s*' + INITIALS_TOKEN + '|\\s+' + INITIALS_TOKEN + ')*)[)\\s.,]*(?:\\d{1,2}[\\/.]\\d{1,2}(?:[\\/.]\\d{2,4})?)?[\\s.]*$');
+  while(lines.length){
+    const m = lines[lines.length-1].match(standalone);
+    if(m && m[1].split(/[\s\/,&+]+/).every(isInitials)) lines.pop(); else break;
+  }
+  if(lines.length){
+    const inline = lines[lines.length-1].match(new RegExp('^(.*\\S)\\s+[\\-–—]\\s*(' + INITIALS_TOKEN + '(?:\\s*[\\/,&+]\\s*' + INITIALS_TOKEN + ')*)\\.?$'));
+    if(inline && inline[2].split(/[\s\/,&+]+/).every(isInitials)) lines[lines.length-1] = inline[1];
+  }
   return lines.join('\n');
 }
 /* Assessment should only ever be the problem + DDx (e.g. "FURI DDx viral vs
@@ -906,7 +922,9 @@ function idsOverlap(a,b){
 }
 function findExistingAnimal(idStr){
   if(!idStr) return null;
-  return state.animals.find(a=>idsOverlap(a.animalId, idStr)) || null;
+  const matches = state.animals.filter(a=>idsOverlap(a.animalId, idStr));
+  // Prefer a visit that is still open, so a later flag/import lands on the open visit rather than a finished one.
+  return matches.find(a=>!a.registered && !a.doneElsewhere) || matches[0] || null;
 }
 
 /* Appends a reference-note label to an animal's otherReminders, skipping it
@@ -983,7 +1001,20 @@ function flagHistoryLabel(r){
 }
 function addOrMergeFromFlag(r){
   const label = flagHistoryLabel(r);
-  const existing = findExistingAnimal(r.animalId);
+  let existing = findExistingAnimal(r.animalId);
+  /* 2026-10-09: an animal flagged AGAIN later in the day for a different problem, after its first visit
+     was already registered (or done by another vet), gets its OWN open visit — merging the new flag
+     into the finished record would have hidden it in Completed and it would never be seen or exported.
+     Both visits then stay on the list, each with its own note. */
+  if(existing && (existing.registered || existing.doneElsewhere)){
+    const done = existing;
+    if(state.animals.some(x=>idsOverlap(x.animalId, r.animalId) && x.history && x.history.includes(label.trim()))) return;   // this flag is already on the list
+    const a2 = makeAnimal({animalId:r.animalId, location:done.location||r.location, weight:done.weight||'', noteText:'', otherReminders:[]});
+    a2.history = label; a2.flagged = true; a2.secondVisit = true;
+    a2.species = done.species || r.species || ''; a2.sex = done.sex || a2.sex;
+    state.animals.push(a2);
+    return;
+  }
   if(!existing){
     const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
     a.history = label;
@@ -1386,7 +1417,7 @@ function groupedListHtml(animals){
       </div>
       <div>
         ${a.ppeRequired==='YES' ? '<span class="badge" style="background:var(--rust-soft);color:var(--rust);margin-right:4px">PPE</span>' : ''}
-        <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+        ${a.secondVisit ? '<span class="badge" style="background:var(--amber-soft,#fdf0d5);color:#8a5a00;margin-right:4px" title="Second visit for this animal today — its own note">2nd visit</span>' : ''}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -1401,8 +1432,10 @@ function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
-      removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'sick_injured');
+      const gone = state.animals.find(a=>a.id===b.dataset.del);
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
+      // another visit of the same animal still on the list owns the dashboard case
+      if(!(gone && state.animals.some(x=>x.animalId===gone.animalId && x.location===gone.location))) removeFromDashboard(gone, 'sick_injured');
       saveShift(); renderShiftList();
     }
   }));
@@ -1463,7 +1496,7 @@ let elsewhereStatus = '';
 function elsewhereKey(title, loc){ return String(title||'').trim().toLowerCase() + '|' + String(loc||'').trim().toLowerCase(); }
 async function pullDoneElsewhere(manual){
   const items = state.animals
-    .filter(a=>!a.registered && !a.doneElsewhere && String(a.animalId||'').trim() && String(a.location||'').trim())
+    .filter(a=>!a.registered && !a.doneElsewhere && !a.flagged && !a.secondVisit && String(a.animalId||'').trim() && String(a.location||'').trim())
     .map(a=>({title:String(a.animalId).trim(), location:String(a.location).trim()}));
   const say = (t)=>{ elsewhereStatus = t; if(manual) renderShiftList(); };
   if(!items.length){ say('Nothing to check.'); return; }
@@ -1478,7 +1511,7 @@ async function pullDoneElsewhere(manual){
     const done = new Set((data.done||[]).map(d=>elsewhereKey(d.title, d.location)));
     let moved = 0;
     state.animals.forEach(a=>{
-      if(!a.registered && !a.doneElsewhere && done.has(elsewhereKey(a.animalId, a.location))){ a.doneElsewhere = true; moved++; }
+      if(!a.registered && !a.doneElsewhere && !a.flagged && !a.secondVisit && done.has(elsewhereKey(a.animalId, a.location))){ a.doneElsewhere = true; moved++; }
     });
     const t = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
     elsewhereStatus = `Checked ${t} — ${moved ? moved+' moved to "Done by another vet"' : 'nothing new'}.`;
@@ -1492,6 +1525,8 @@ async function pullDoneElsewhere(manual){
    device already sent its own completion, when offline, or on any error.) */
 async function confirmNotDoneElsewhere(a){
   if(a.dashSynced) return true;
+  // A flagged / 2nd-visit record is a DIFFERENT problem from any earlier registered visit today — never treat that as a duplicate.
+  if(a.flagged || a.secondVisit) return true;
   const title = String(a.animalId||'').trim(), loc = String(a.location||'').trim();
   if(!title || !loc) return true;
   try{
@@ -2388,7 +2423,7 @@ function assembleNote(a){
   L.push('Pathway / Plan / Waivers:');
   const planLines = [];
   if(a.pathway) planLines.push(`Pathway: ${a.pathway}`);
-  if(a.plan && a.plan.trim()) planLines.push(reflowFreeText(a.plan.trim()));
+  if(a.plan && a.plan.trim()){ const pl = reflowFreeText(stripTrailingInitials(a.plan.trim())); if(pl) planLines.push(pl); }   // the note signs off with the current vet's initials once — never a carried-over/typed second set
   L.push(planLines.length ? planLines.join('\n') : '-');
   L.push('');
   L.push(vetInitEl.value || '');
@@ -2817,19 +2852,30 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
       (mine.registered || mine.doneElsewhere ? protectedDups : dups).push(a);
     } else fresh.push(a);
   });
+  /* Sick & Injured only: the same animal can legitimately be on both lists for a DIFFERENT problem
+     (flagged again later in the day). Offer to keep both visits, each with its own note. */
+  let keepBoth = [];
+  if(HANDOVER_TOOL === 'sick-injured'){
+    const cand = dups.concat(protectedDups).filter(a=>!a.doneElsewhere);
+    if(cand.length && confirm(`${cand.length} animal(s) in this file are already on your list (${cand.map(a=>a.animalId).slice(0,8).join(', ')}${cand.length>8?'…':''}).\n\nWas any of them flagged again for a DIFFERENT problem? If so keep both visits, so each gets its own note.\n\nOK = keep BOTH (handed-over one is added as a "2nd visit")\nCancel = no, decide replace / skip next`)){
+      keepBoth = cand;
+      [dups, protectedDups].forEach(arr=>{ for(let i=arr.length-1;i>=0;i--) if(keepBoth.includes(arr[i])) arr.splice(i,1); });
+    }
+  }
   let replace = false;
   if(dups.length){
     replace = confirm(`${dups.length} animal(s) in this file are already on your list (${dups.map(a=>a.animalId).slice(0,8).join(', ')}${dups.length>8?'…':''}).\n\nOK = replace yours with the handed-over version (your colleague's notes win)\nCancel = keep yours and skip those`);
   }
-  if(!confirm(`Load handover from ${data.savedBy ? data.savedBy+' — ' : ''}${data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time'}?\n\n${fresh.length} new animal(s) will be added${sentRegistered ? ` (${sentRegistered} of them already registered by the sender — they go under "Done by another vet" so they aren't registered twice)` : ''}${protectedDups.length ? `; ${protectedDups.length} already registered/done on your list are left untouched` : ''}${dups.length ? `; ${dups.length} duplicate(s) will be ${replace?'replaced':'skipped'}` : ''}. Your current list is backed up first.`)) return;
+  if(!confirm(`Load handover from ${data.savedBy ? data.savedBy+' — ' : ''}${data.savedAt ? new Date(data.savedAt).toLocaleString() : 'unknown time'}?\n\n${fresh.length} new animal(s) will be added${keepBoth.length ? ` plus ${keepBoth.length} kept as a 2nd visit alongside your existing one` : ''}${sentRegistered ? ` (${sentRegistered} of them already registered by the sender — they go under "Done by another vet" so they aren't registered twice)` : ''}${protectedDups.length ? `; ${protectedDups.length} already registered/done on your list are left untouched` : ''}${dups.length ? `; ${dups.length} duplicate(s) will be ${replace?'replaced':'skipped'}` : ''}. Your current list is backed up first.`)) return;
   maybeBackupShift(true);
+  keepBoth.forEach(a=>{ a.secondVisit = true; a.id = uid(); state.animals.push(a); });
   fresh.forEach(a=>{ if(state.animals.some(x=>x.id===a.id)) a.id = uid(); state.animals.push(a); });
   if(replace) dups.forEach(a=>{
     const i = state.animals.findIndex(x=>key(x)===key(a));
     if(i>=0){ a.id = state.animals[i].id; state.animals[i] = a; }
   });
   saveShift(); renderShiftList();
-  handoverMsg(`Loaded: ${fresh.length} added${protectedDups.length ? `, ${protectedDups.length} left untouched (already done on your list)` : ''}${dups.length ? `, ${dups.length} ${replace?'replaced':'skipped'}` : ''}. Check the Shift List and Completed tabs.`);
+  handoverMsg(`Loaded: ${fresh.length} added${keepBoth.length ? `, ${keepBoth.length} kept as 2nd visit` : ''}${protectedDups.length ? `, ${protectedDups.length} left untouched (already done on your list)` : ''}${dups.length ? `, ${dups.length} ${replace?'replaced':'skipped'}` : ''}. Check the Shift List and Completed tabs.`);
   alert('Handover loaded — please look over the list before continuing.');
 });
 
