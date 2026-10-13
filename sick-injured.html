@@ -204,7 +204,6 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="row-actions">
       <button class="btn" id="parseXlsxBtn">Parse Excel</button>
       <button class="btn secondary" id="manualAddBtn">Add one manually</button>
-      <button class="btn secondary" id="add28DayBtn">+ 28-day health check (court hold)</button>
     </div>
     <div id="parsedWrap"></div>
 
@@ -404,7 +403,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.2';
+const APP_VERSION = '2026-10-13.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1235,15 +1234,6 @@ document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   saveShift();
   renderShiftList();
 });
-document.getElementById('add28DayBtn').addEventListener('click', ()=>{
-  if(!checkStaleShiftBeforeAdd()) return;
-  const a = makeAnimal({animalId:'', location:'', weight:'', sex:'', noteText:'', otherReminders:[]});
-  a.template = '28day';
-  state.animals.push(a);
-  saveShift();
-  renderShiftList();
-  openExam(a.id);
-});
 
 /* ---------- AA Flag Log import (Location / SM Number / Presenting Problem) ----------
    Header wording isn't fixed to one exact export, so match column headers by
@@ -1773,6 +1763,8 @@ function chartDraftHtml(a, draft, planText){
         <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
           <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}" style="width:100%"></div>
       </div>
+      <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
+        <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -1809,7 +1801,7 @@ function bindChartDraft(a, body){
   if(planEl) planEl.addEventListener('input', ()=>{ chartDraftPlans[a.id] = planEl.value; });
   body.querySelectorAll('[data-setallstart]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      draft.forEach(m=>{ m.startOption = btn.dataset.setallstart; });
+      draft.forEach(m=>{ m.startOption = btn.dataset.setallstart; if(!m.labelEdited) m.labelText = MedChart.buildLabelSentence(m); });
       openExam(a.id);
     });
   });
@@ -1820,6 +1812,12 @@ function bindChartDraft(a, body){
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
       else draft[i][field] = el.value;
+      if(field==='labelText'){ draft[i].labelEdited = true; }
+      else if(!draft[i].labelEdited){
+        draft[i].labelText = MedChart.buildLabelSentence(draft[i]);
+        const le = body.querySelector('[data-mfield="labelText"][data-mi="'+i+'"]');
+        if(le) le.value = draft[i].labelText;
+      }
     });
   });
   body.querySelectorAll('[data-delmedrow]').forEach(btn=>{

@@ -202,6 +202,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="row-actions">
       <button class="btn" id="parseXlsxBtn">Parse Excel</button>
       <button class="btn secondary" id="manualAddBtn">Add one manually</button>
+      <button class="btn secondary" id="add28DayBtn">+ 28-day health check (court hold)</button>
     </div>
     <div id="parsedWrap"></div>
   </div>
@@ -383,7 +384,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.2';
+const APP_VERSION = '2026-10-13.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -974,6 +975,327 @@ function todayStr(){
 }
 function esc(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+/* ---------- 28-day health check (court hold dogs) ----------
+   Ported from Sick & Injured 2026-10-13 (she wants these dogs on the
+   Processing list, not S&I). Same form and same note layout as the S&I
+   template: History, Current medication, multi-system exam, Assessment,
+   Treatment, PPE, Plan, Pathway. Reuses the animal's own nsf / notes /
+   dental / heart / desex / bcs / vhc / testes / pregnant fields, so every
+   other part of Processing (lists, exports, handover) treats it as a dog. */
+const PE_FIELDS_28DAY = [
+  {key:'eyes', label:'Eyes'}, {key:'nose', label:'Nose'}, {key:'ears', label:'Ears'},
+  {key:'teeth', label:'Teeth', special:'teeth'}, {key:'skin', label:'Skin'},
+  {key:'heart', label:'Heart', special:'heart'}, {key:'lungs', label:'Lungs'},
+  {key:'abdomen', label:'Abdomen'}, {key:'ortho', label:'Ortho'}, {key:'neuro', label:'Neurological'}
+];
+const PATHWAY_OPTIONS_28 = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue','Awaiting sort'];
+/* Text pasted from Excel/ShelterMate arrives hard-wrapped mid-sentence.
+   A line starting "- " begins a new item; any other line directly under
+   it is that item's wrapped continuation and gets joined on. Blank lines
+   stay as paragraph breaks. Idempotent. */
+function reflowFreeText(text){
+  if(!text) return text;
+  const out = [];
+  String(text).split(/\r?\n/).forEach(raw=>{
+    const line = raw.trim();
+    if(!line){ out.push(''); return; }
+    const isNewItem = /^[-•*]\s/.test(line) || !out.length || !out[out.length-1];
+    if(isNewItem) out.push(line);
+    else out[out.length-1] = out[out.length-1] + ' ' + line;
+  });
+  return out.join('\n').replace(/[ \t]{2,}/g, ' ').trim();
+}
+/* Medication lists: one drug per line is kept; hard-wrapped "- " bullets are
+   rejoined; duplicate lines dropped; blank-line runs collapsed. */
+function reflowMedText(text){
+  if(!text) return text;
+  const seen = new Set(), out = [];
+  const src = String(text);
+  const hasBullets = /^\s*[-•*]\s/m.test(src);
+  let bulletOpen = false;
+  src.split(/\r?\n/).forEach(raw=>{
+    const line = raw.replace(/[ \t]{2,}/g,' ').trim();
+    if(!line){ bulletOpen = false; if(out.length && out[out.length-1]) out.push(''); return; }
+    if(hasBullets){
+      if(/^[-•*]\s/.test(line)) bulletOpen = true;
+      else if(bulletOpen && out.length && out[out.length-1]){ out[out.length-1] += ' ' + line; return; }
+    }
+    const key = line.toLowerCase().replace(/\s+/g,' ');
+    if(seen.has(key)) return;
+    seen.add(key); out.push(line);
+  });
+  return out.join('\n').trim();
+}
+function add28DayAnimal(){
+  const a = makeAnimal({animalId:'', location:'', dueDate:'', species:'dog', ageYears:'', sex:''});
+  a.template = '28day';
+  a.history = ''; a.curMed28 = ''; a.assess28 = ''; a.treat28 = ''; a.plan28 = '';
+  a.ppeRequired = ''; a.visualOnly = false;
+  state.animals.push(a);
+  return a;
+}
+function examination28DayHtml(a){
+  let h = `<div class="pe-field"><div class="lbl">Examination</div>`;
+  h += `<div class="opts" style="margin-bottom:10px">
+    <button type="button" class="opt-btn ${a.visualOnly?'selected abn':''}" data-visualonly="1">Visual check only — not safely handleable</button>
+  </div>`;
+  if(a.visualOnly){
+    h += `<div class="warn" style="margin-bottom:10px">Visual exam only recorded below — fill in what you can observe without handling; leave the rest as NSF/blank.</div>`;
+  }
+  PE_FIELDS_28DAY.forEach(f=>{
+    if(f.special==='teeth'){
+      h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Teeth</div><div class="opts">`;
+      ['0','1','2','3','4'].forEach(g=>{
+        h += `<button type="button" class="opt-btn ${a.dental.grade===g?'selected':''}" data-dentalgrade="${g}">${g}</button>`;
+      });
+      h += `</div><textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea></div>`;
+      return;
+    }
+    if(f.special==='heart'){
+      const normal = !a.heart.murmur && !a.heart.gallop;
+      h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Heart</div>
+        <div class="opts">
+          <button type="button" class="opt-btn ${normal?'selected':''}" data-heartnormal="1">Normal heart sounds</button>
+          <button type="button" class="opt-btn ${a.heart.murmur?'selected abn':''}" data-heartmurmur="1">Heart murmur</button>
+          <button type="button" class="opt-btn ${a.heart.gallop?'selected abn':''}" data-heartgallop="1">Gallop rhythm</button>
+        </div>`;
+      if(a.heart.murmur){
+        h += `<div class="opts" style="margin-top:6px">`;
+        ['1/6','2/6','3/6','4/6','5/6','6/6'].forEach(g=>{
+          h += `<button type="button" class="opt-btn ${a.heart.grade===g?'selected abn':''}" data-heartgrade="${g}">${g}</button>`;
+        });
+        h += `</div>`;
+      }
+      h += `<textarea class="free-input" id="heart_free" placeholder="Additional cardiovascular notes (optional)...">${esc(a.heart.free||'')}</textarea></div>`;
+      return;
+    }
+    const isNsf = a.nsf[f.key] !== false;
+    h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">${f.label}</div>
+      <button type="button" class="opt-btn ${isNsf?'selected':''}" data-nsfkey="${f.key}">NSF</button>
+      <textarea class="free-input" data-noteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.notes[f.key]||'')}</textarea></div>`;
+  });
+  h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Desexing status</div>
+    <select class="plain" id="fld_desex28" style="width:100%"><option value="">-</option><option ${a.desex==='DESEXED'?'selected':''}>DESEXED</option><option ${a.desex==='ENTIRE'?'selected':''}>ENTIRE</option></select></div>`;
+  h += `<div class="pe-field"><div class="lbl">Urogenital</div>`;
+  if(a.sex==='M'){
+    if(a.desex==='ENTIRE'){
+      h += `<div class="opts">`;
+      [['Bilateral','Testicles descended bilaterally',false],['R only','R testicle descended',true],['L only','L testicle descended',true],['None','No testicles present',true]].forEach(([v,label,abn])=>{
+        h += `<button type="button" class="opt-btn ${a.testes===v?'selected':''}${abn?' abn':''}" data-testes="${v}">${label}</button>`;
+      });
+      h += `</div>`;
+    } else {
+      h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Desexed — testes assessment not applicable.</div>`;
+    }
+  } else if(a.sex==='F'){
+    h += `<div class="opts">
+      <button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button>
+      <button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button>
+    </div>`;
+  } else {
+    h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
+  }
+  h += `</div>`;
+  h += `<div class="pe-field"><div class="lbl">BCS / VHC</div>
+    <div class="two-col">
+      <div><input class="plain" id="fld_bcs28" style="width:100%" value="${esc(a.bcs)}" placeholder="BCS /5"></div>
+      <div><input class="plain" id="fld_vhc28" style="width:100%" value="${esc(a.vhc)}" placeholder="VHC /6"></div>
+    </div></div></div>`;
+  return h;
+}
+function examFormHtml28(a){
+  let h = `<div class="two-col">
+    <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%"></div>
+    <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%"></div>
+  </div>
+  <div class="two-col" style="margin-top:8px">
+    <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
+    <div><label style="font-size:12px">Sex</label><br>
+      <select class="plain" id="fld_sex28" style="width:100%">
+        <option value="" ${!a.sex?'selected':''}>-</option><option value="M" ${a.sex==='M'?'selected':''}>M</option><option value="F" ${a.sex==='F'?'selected':''}>F</option><option value="U" ${a.sex==='U'?'selected':''}>U</option>
+      </select></div>
+  </div>`;
+  h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Reason / History</div>
+    <textarea class="free-input" id="fld_history28" style="min-height:100px">${esc(a.history||'')}</textarea></div>`;
+  h += `<div class="pe-field"><div class="lbl">Current medication</div>
+    <textarea class="free-input" id="fld_curmed28" placeholder="e.g. Famvir 0.5ml PO BID, Doxybrom 0.1ml PO BID...">${esc(a.curMed28||'')}</textarea></div>`;
+  h += examination28DayHtml(a);
+  h += `<div class="pe-field"><div class="lbl">Assessment</div>
+    <textarea class="free-input" id="fld_assess28" style="min-height:70px">${esc(a.assess28||'')}</textarea></div>`;
+  h += `<div class="pe-field"><div class="lbl">Treatment</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Current and today's medication — dose, route, frequency (e.g. "Doxycycline 50mg PO BID").</p>
+    <textarea class="free-input" id="fld_treat28" style="min-height:80px">${esc(a.treat28||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+  </div>`;
+  if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
+  h += `<div class="pe-field"><div class="lbl">PPE Required</div>
+    <div class="opts">
+      <button type="button" class="opt-btn ${a.ppeRequired==='YES'?'selected abn':''}" data-ppe="YES">Yes</button>
+      <button type="button" class="opt-btn ${a.ppeRequired==='NO'?'selected':''}" data-ppe="NO">No</button>
+    </div></div>`;
+  h += `<div class="pe-field"><div class="lbl">Plan</div>
+    <textarea class="free-input" id="fld_plan28">${esc(a.plan28||'')}</textarea></div>`;
+  h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>
+    <select class="plain" id="fld_pathway28" style="width:100%">
+      <option value="">-</option>
+      ${PATHWAY_OPTIONS_28.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
+    </select></div>`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
+  return h;
+}
+function bindExamForm28(a){
+  const body = document.getElementById('examBody');
+  const bindText = (id, set, opts)=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    opts = opts || {};
+    el.addEventListener('input', ()=>{ set(el.value); refreshNote(a); });
+    el.addEventListener('change', ()=>{
+      let v = el.value;
+      if(opts.annotate){ v = MedChart.annotateMgPerKg(v, a.weight, 'dog'); el.value = v; }
+      set(v); refreshNote(a); saveShift();
+    });
+    if(opts.reflow) el.addEventListener('paste', ()=>{
+      setTimeout(()=>{ el.value = opts.reflow(el.value); set(el.value); refreshNote(a); saveShift(); }, 0);
+    });
+  };
+  const idEl = document.getElementById('fld_animalid');
+  if(idEl) idEl.addEventListener('change', ()=>{ a.animalId = idEl.value.trim(); saveShift(); openExam(a.id); });
+  const locEl = document.getElementById('fld_location');
+  if(locEl) locEl.addEventListener('change', ()=>{ a.location = locEl.value.trim(); refreshNote(a); saveShift(); });
+  const wEl = document.getElementById('fld_weight');
+  if(wEl){
+    wEl.addEventListener('input', ()=>{ a.weight = wEl.value; });
+    wEl.addEventListener('change', ()=>{
+      a.weight = wEl.value;
+      a.curMed28 = MedChart.annotateMgPerKg(a.curMed28||'', a.weight, 'dog');
+      a.treat28 = MedChart.annotateMgPerKg(a.treat28||'', a.weight, 'dog');
+      refreshNote(a); saveShift(); openExam(a.id);
+    });
+  }
+  const sexEl = document.getElementById('fld_sex28');
+  if(sexEl) sexEl.addEventListener('change', ()=>{ a.sex = sexEl.value; saveShift(); openExam(a.id); });
+  bindText('fld_history28', v=>{ a.history = v; }, {reflow: reflowFreeText});
+  bindText('fld_curmed28', v=>{ a.curMed28 = v; }, {annotate:true, reflow: reflowMedText});
+  bindText('fld_assess28', v=>{ a.assess28 = v; }, {reflow: reflowFreeText});
+  bindText('fld_treat28', v=>{ a.treat28 = v; }, {annotate:true, reflow: reflowMedText});
+  bindText('fld_plan28', v=>{ a.plan28 = v; }, {reflow: reflowFreeText});
+  const pathEl = document.getElementById('fld_pathway28');
+  if(pathEl) pathEl.addEventListener('change', ()=>{ a.pathway = pathEl.value; refreshNote(a); saveShift(); });
+  body.querySelectorAll('[data-ppe]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.ppeRequired = a.ppeRequired===btn.dataset.ppe ? '' : btn.dataset.ppe;
+      saveShift(); openExam(a.id);
+    });
+  });
+  const visualBtn = body.querySelector('[data-visualonly]');
+  if(visualBtn) visualBtn.addEventListener('click', ()=>{ a.visualOnly = !a.visualOnly; saveShift(); openExam(a.id); });
+  const dentalDesc = document.getElementById('dental_desc');
+  if(dentalDesc){
+    dentalDesc.addEventListener('input', ()=>{ a.dental.desc = dentalDesc.value; refreshNote(a); });
+    dentalDesc.addEventListener('change', ()=>{ a.dental.desc = dentalDesc.value; refreshNote(a); saveShift(); });
+  }
+  body.querySelectorAll('[data-dentalgrade]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.dental.grade = btn.dataset.dentalgrade; saveShift(); openExam(a.id); });
+  });
+  const heartFree = document.getElementById('heart_free');
+  if(heartFree){
+    heartFree.addEventListener('input', ()=>{ a.heart.free = heartFree.value; refreshNote(a); });
+    heartFree.addEventListener('change', ()=>{ a.heart.free = heartFree.value; refreshNote(a); saveShift(); });
+  }
+  const hn = body.querySelector('[data-heartnormal]');
+  if(hn) hn.addEventListener('click', ()=>{ a.heart.murmur = false; a.heart.gallop = false; a.heart.grade = ''; saveShift(); openExam(a.id); });
+  const hm = body.querySelector('[data-heartmurmur]');
+  if(hm) hm.addEventListener('click', ()=>{ a.heart.murmur = !a.heart.murmur; if(!a.heart.murmur) a.heart.grade = ''; saveShift(); openExam(a.id); });
+  const hg = body.querySelector('[data-heartgallop]');
+  if(hg) hg.addEventListener('click', ()=>{ a.heart.gallop = !a.heart.gallop; saveShift(); openExam(a.id); });
+  body.querySelectorAll('[data-heartgrade]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.heart.grade = a.heart.grade===btn.dataset.heartgrade ? '' : btn.dataset.heartgrade; saveShift(); openExam(a.id); });
+  });
+  body.querySelectorAll('[data-nsfkey]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ const k = btn.dataset.nsfkey; a.nsf[k] = !(a.nsf[k] !== false); saveShift(); openExam(a.id); });
+  });
+  body.querySelectorAll('[data-noteskey]').forEach(el=>{
+    const k = el.dataset.noteskey;
+    el.addEventListener('input', ()=>{ a.notes[k] = el.value; refreshNote(a); });
+    el.addEventListener('change', ()=>{ a.notes[k] = el.value; refreshNote(a); saveShift(); });
+  });
+  const desexEl = document.getElementById('fld_desex28');
+  if(desexEl) desexEl.addEventListener('change', ()=>{ a.desex = desexEl.value; saveShift(); openExam(a.id); });
+  body.querySelectorAll('[data-testes]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.testes = btn.dataset.testes; saveShift(); openExam(a.id); });
+  });
+  body.querySelectorAll('[data-pregnant]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.pregnant = btn.dataset.pregnant; saveShift(); openExam(a.id); });
+  });
+  bindText('fld_bcs28', v=>{ a.bcs = v; });
+  bindText('fld_vhc28', v=>{ a.vhc = v; });
+  const regChartBtn = body.querySelector('[data-regchart]');
+  if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
+    const parsed = MedChart.parseMedPlan(a.treat28||'');
+    if(!parsed.length){ alert('Type the medication into Treatment above first.'); return; }
+    chartDrafts[a.id] = parsed;
+    if(chartDraftPlans[a.id] == null) chartDraftPlans[a.id] = (a.assess28||'').replace(/\s*\n\s*/g,'; ').trim();
+    openExam(a.id);
+  });
+  bindChartDraft(a, body);
+  const markBtn = document.getElementById('markDoneBtn');
+  if(markBtn) markBtn.addEventListener('click', async ()=>{
+    if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
+    a.registered = !a.registered;
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
+    saveShift(); openExam(a.id);
+  });
+}
+function assembleNote28(a){
+  const L = [];
+  L.push('28-DAY HEALTH CHECK (COURT HOLD)');
+  L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
+  L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
+  if(a.ppeRequired) L.push(`PPE Required: ${a.ppeRequired}`);
+  L.push('');
+  L.push('Reason / History:');
+  L.push(a.history && a.history.trim() ? reflowFreeText(a.history.trim()) : '-');
+  L.push('');
+  L.push(`Current medication: ${a.curMed28 && a.curMed28.trim() ? reflowMedText(a.curMed28.trim()) : '-'}`);
+  L.push('');
+  L.push('Examination:');
+  if(a.visualOnly) L.push('VISUAL CHECK ONLY — not safely handleable.');
+  L.push(`Desexing status: ${a.desex||'-'}`);
+  PE_FIELDS_28DAY.forEach(f=>{
+    if(f.special==='teeth'){ L.push(`Teeth: Dental Grade ${a.dental.grade||'0'}/4  ${a.dental.desc||''}`); return; }
+    if(f.special==='heart'){
+      const parts=[];
+      if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` (${a.heart.grade})`:''));
+      if(a.heart.gallop) parts.push('Gallop rhythm');
+      if(!parts.length) parts.push('Normal heart sounds');
+      if(a.heart.free && a.heart.free.trim()) parts.push(a.heart.free.trim());
+      L.push(`Heart: ${parts.join(', ')}`);
+      return;
+    }
+    const isNsf = a.nsf[f.key] !== false;
+    L.push(`${f.label}: ${isNsf ? 'NSF' : (a.notes[f.key]||'-')}`);
+  });
+  if(a.sex==='M') L.push(`Testes: ${a.desex==='DESEXED' ? 'Desexed' : (a.testes||'-')}`);
+  else if(a.sex==='F') L.push(`Pregnant: ${a.pregnant||'-'}`);
+  L.push(`BCS: ${a.bcs||'-'}    VHC: ${a.vhc||'-'}`);
+  L.push('');
+  L.push('Assessment:');
+  L.push(a.assess28 && a.assess28.trim() ? reflowFreeText(a.assess28.trim()) : '-');
+  L.push('');
+  L.push('Treatment / Fees:');
+  L.push(a.treat28 && a.treat28.trim() ? reflowMedText(a.treat28.trim()) : '-');
+  L.push('');
+  L.push('Pathway / Plan / Waivers:');
+  const planLines = [];
+  if(a.pathway) planLines.push(`Pathway: ${a.pathway}`);
+  if(a.plan28 && a.plan28.trim()) planLines.push(reflowFreeText(a.plan28.trim()));
+  L.push(planLines.length ? planLines.join('\n') : '-');
+  L.push('');
+  L.push(vetInitEl.value || '');
+  return L.join('\n');
+}
+
 /* ---------- init top bar ---------- */
 document.getElementById('topMeta').textContent = todayStr();
 const vetInitEl = document.getElementById('vetInit');
@@ -1238,6 +1560,13 @@ function renderParsedTable(rows){
   document.getElementById('confirmAddBtn').addEventListener('click', confirmAdd);
 }
 
+document.getElementById('add28DayBtn').addEventListener('click', ()=>{
+  if(!checkStaleShiftBeforeAdd()) return;
+  const a = add28DayAnimal();
+  saveShift();
+  renderShiftList();
+  openExam(a.id);
+});
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
   const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:'', sex:''};
@@ -1612,6 +1941,8 @@ function chartDraftHtml(a, draft, planText){
         <div style="flex:1;min-width:110px"><label style="font-size:11px">Route</label>
           <input type="text" class="plain" data-mfield="route" data-mi="${i}" value="${esc(m.route)}" style="width:100%"></div>
       </div>
+      <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
+        <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -1648,7 +1979,7 @@ function bindChartDraft(a, body){
   if(planEl) planEl.addEventListener('input', ()=>{ chartDraftPlans[a.id] = planEl.value; });
   body.querySelectorAll('[data-setallstart]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      draft.forEach(m=>{ m.startOption = btn.dataset.setallstart; });
+      draft.forEach(m=>{ m.startOption = btn.dataset.setallstart; if(!m.labelEdited) m.labelText = MedChart.buildLabelSentence(m); });
       openExam(a.id);
     });
   });
@@ -1659,6 +1990,12 @@ function bindChartDraft(a, body){
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
       else draft[i][field] = el.value;
+      if(field==='labelText'){ draft[i].labelEdited = true; }
+      else if(!draft[i].labelEdited){
+        draft[i].labelText = MedChart.buildLabelSentence(draft[i]);
+        const le = body.querySelector('[data-mfield="labelText"][data-mi="'+i+'"]');
+        if(le) le.value = draft[i].labelText;
+      }
     });
   });
   body.querySelectorAll('[data-delmedrow]').forEach(btn=>{
@@ -1699,7 +2036,7 @@ function openExam(id){
   showTab('exam');
   const a = state.animals.find(x=>x.id===id);
   document.getElementById('examTitle').textContent =
-    `${speciesLabel(a)} Physical Exam \u2014 ${a.animalId||'(no ID)'}`;
+    `${a.template==='28day' ? '28-Day Health Check' : speciesLabel(a)+' Physical Exam'} \u2014 ${a.animalId||'(no ID)'}`;
   document.getElementById('examStickyId').textContent = a.animalId||'(no ID)';
   {
     const total = state.animals.length;
@@ -1722,6 +2059,7 @@ document.getElementById('closeExamBtn').addEventListener('click', ()=>{
 });
 
 function examFormHtml(a){
+  if(a.template==='28day') return examFormHtml28(a);
   const fields = peFields(a.species);
   let h = '';
   h += `<div class="two-col">
@@ -2076,6 +2414,7 @@ function examFormHtml(a){
 }
 
 function bindExamForm(a){
+  if(a.template==='28day'){ bindExamForm28(a); return; }
   const body = document.getElementById('examBody');
   const map = {
     vhc:'fld_vhc',
@@ -2664,6 +3003,7 @@ function computeProblemList(a){
 
 
 function assembleNote(a){
+  if(a.template==='28day') return assembleNote28(a);
   const L = [];
   L.push(`${speciesLabel(a).toUpperCase()} PHYSICAL EXAM`);
   L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
@@ -2877,7 +3217,8 @@ document.getElementById('copyNoteBtn').addEventListener('click', async ()=>{
    separation at all). A real `<w:br w:type="page"/>` is a native Word
    instruction, not a hint a filter can ignore. */
 const NOTE_SECTION_HEADERS = new Set([
-  'Physical Exam:', 'ASSESSMENT:', 'NOT ABLE TO BE EXAMINED THIS SHIFT'
+  'Physical Exam:', 'ASSESSMENT:', 'NOT ABLE TO BE EXAMINED THIS SHIFT',
+  '28-DAY HEALTH CHECK (COURT HOLD)', 'Reason / History:', 'Examination:', 'Assessment:', 'Treatment / Fees:', 'Pathway / Plan / Waivers:'
 ]);
 function wordParagraph(text, opts){
   opts = opts || {};

@@ -185,6 +185,53 @@
       .filter(Boolean);
   }
 
+  // ---- Full-sentence label (2026-10-13) ----
+  // "gabapentin 0.3ml po bid" -> "Gabapentin 0.3ml orally twice daily, review
+  // due 20/10". Built from fields already on the med row (no new typing); the
+  // review date is a date she typed in the line ("until/review 20/10"), else
+  // the first day after the last dose (start + days). Meloxicam always
+  // carries "Must be given with food."
+  var ROUTE_WORDS = {
+    'PO': 'orally', 'Ophthalmic (eye)': 'in the eye', 'Transdermal': 'transdermally',
+    'Otic (ear)': 'in the ear', 'Subcutaneous': 'subcutaneously',
+    'Transmucosal': 'transmucosally', 'Injectable': 'by injection'
+  };
+  function routeWords(route) {
+    if (!route) return '';
+    return ROUTE_WORDS[route] || String(route).toLowerCase();
+  }
+  function freqWords(freq) {
+    return freq === 'BID' ? 'twice daily' : (freq === 'SID' ? 'once daily' : (freq || ''));
+  }
+  function needsFood(med) {
+    return med.drugKey === 'meloxicam' || /must be given with food/i.test(med.drugWarning || '') ||
+      /\bmeloxicam\b|\bmetacam\b/i.test(med.drugLabel || '');
+  }
+  function reviewDateText(med, baseDate) {
+    var m = /\b(?:review|re-?check|until|till|to|by)\s+(?:due\s+)?(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?/i.exec(med.rawText || '');
+    if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);
+    var days = parseInt(med.days, 10);
+    if (!days) return '';
+    var d = new Date(baseDate || Date.now());
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + (med.startOption === 'today' ? 0 : 1) + days);
+    return d.getDate() + '/' + (d.getMonth() + 1);
+  }
+  function buildLabelSentence(med, baseDate) {
+    var head = [med.drugLabel, med.doseText, routeWords(med.route), freqWords(med.freq)]
+      .filter(Boolean).join(' ').trim();
+    if (!head) return '';
+    var review = reviewDateText(med, baseDate);
+    var out = head + (review ? ', review due ' + review : '');
+    if (needsFood(med)) out += '. Must be given with food.';
+    return out;
+  }
+  // The label that goes out: her own wording if she edited it, else rebuilt
+  // from the current fields (so editing a saved chart never leaves it stale).
+  function labelFor(med, baseDate) {
+    return (med.labelEdited && med.labelText) ? med.labelText : buildLabelSentence(med, baseDate);
+  }
+
   // Returns one entry per line of the Plan text. Every field the
   // parser couldn't confidently detect still gets a sane editable
   // default (never left silently blank in the preview), plus a
@@ -215,7 +262,7 @@
       var warningParts = [];
       if (drug && drug.warning) warningParts.push(drug.warning);
       if (s8) warningParts.push('SCHEDULE 8 DRUG — sign out at ' + DDBOOK_URL);
-      return {
+      var row = {
         rawText: line,
         drugKey: drug ? drug.key : '',
         drugLabel: drug ? (drug.label + (formSuffix ? ' ' + formSuffix : '') + (strength ? ' ' + strength : '')) : fallbackLabel,
@@ -227,8 +274,11 @@
         drugWarning: warningParts.join('  |  '),
         s8: s8,
         matched: !!drug,
-        warnings: warnings
+        warnings: warnings,
+        labelEdited: false
       };
+      row.labelText = buildLabelSentence(row);
+      return row;
     });
   }
 
@@ -395,10 +445,11 @@
       var box = BOXES[i];
       xml = setCellXml(xml, box.med, m.drugLabel || '');
       xml = setCellXml(xml, box.days, parseInt(m.days, 10) || 0);
-      xml = setCellXml(xml, box.warn, m.drugWarning || '');
+      var reviewTxt = reviewDateText(m, chart.createdAt ? new Date(chart.createdAt) : new Date());
+      xml = setCellXml(xml, box.warn, [m.drugWarning || '', reviewTxt ? 'Review due ' + reviewTxt : ''].filter(Boolean).join('  |  '));
       xml = setCellXml(xml, box.dose, 'Dose: ' + (m.doseText || ''));
-      xml = setCellXml(xml, box.freq, 'Freq: ' + m.freq);
-      xml = setCellXml(xml, box.route, 'Route: ' + m.route);
+      xml = setCellXml(xml, box.freq, 'Freq: ' + freqWords(m.freq));
+      xml = setCellXml(xml, box.route, 'Route: ' + routeWords(m.route));
       var grid = computeGrid(m, gridShift(m, exported));
       for (var d = 0; d < 14; d++) {
         var amRow = GRID_ROWS[d], pmRow = amRow + 1;
@@ -483,10 +534,9 @@
   var SYNC_APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
   var SYNC_SECRET = '0150e5d82a61630d053ce71513eb80f35524504de454adbe374a0d7e79662103';
   function buildDashboardLabel(chart) {
+    var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     return (chart.meds || []).map(function (m) {
-      var line = [m.drugLabel, m.doseText, m.route, m.freq].filter(Boolean).join(' ');
-      if (m.days) line += ' x' + m.days + 'd';
-      return line.trim();
+      return labelFor(m, base);
     }).filter(Boolean).join('; ');
   }
   function syncChartToDashboard(chart) {
@@ -798,6 +848,8 @@
     TEMPLATE_SHEET_PART: TEMPLATE_SHEET_PART,
     MAX_MEDS_PER_SHEET: MAX_MEDS_PER_SHEET,
     parseMedPlan: parseMedPlan,
+    buildLabelSentence: buildLabelSentence,
+    labelFor: labelFor,
     computeGrid: computeGrid,
     medStartOffset: medStartOffset,
     chartBaseOffset: chartBaseOffset,
