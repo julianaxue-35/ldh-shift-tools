@@ -404,7 +404,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-09.2';
+const APP_VERSION = '2026-10-13.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -697,9 +697,21 @@ function reflowFreeText(text){
 function reflowMedText(text){
   if(!text) return text;
   const seen = new Set(), out = [];
-  String(text).split(/\r?\n/).forEach(raw=>{
+  const src = String(text);
+  /* Bulleted lists ("- drug ...") copied from a narrow source arrive
+     hard-wrapped mid-sentence; a non-bullet line directly under a bullet
+     item is that item's wrapped continuation, so join it back on. Only
+     active when the text uses bullets, so plain one-drug-per-line lists
+     keep their line breaks. */
+  const hasBullets = /^\s*[-•*]\s/m.test(src);
+  let bulletOpen = false;
+  src.split(/\r?\n/).forEach(raw=>{
     const line = raw.replace(/[ \t]{2,}/g,' ').trim();
-    if(!line){ if(out.length && out[out.length-1]) out.push(''); return; }
+    if(!line){ bulletOpen = false; if(out.length && out[out.length-1]) out.push(''); return; }
+    if(hasBullets){
+      if(/^[-•*]\s/.test(line)) bulletOpen = true;
+      else if(bulletOpen && out.length && out[out.length-1]){ out[out.length-1] += ' ' + line; return; }
+    }
     const key = line.toLowerCase().replace(/\s+/g,' ');
     if(seen.has(key)) return;
     seen.add(key); out.push(line);
