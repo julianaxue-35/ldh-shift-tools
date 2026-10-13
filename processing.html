@@ -383,7 +383,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.1';
+const APP_VERSION = '2026-10-13.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2910,7 +2910,7 @@ async function buildWordFile(){
       if(li>0) runs += '<w:r><w:br/></w:r>';
       if(!line.trim()) return;
       const hdr = NOTE_SECTION_HEADERS.has(line.trim());
-      runs += `<w:r>${hdr?'<w:rPr><w:b/></w:rPr>':''}<w:t xml:space="preserve">${wordXmlEscape(line)}</w:t></w:r>`;
+      runs += `<w:r>${hdr?'<w:rPr><w:b/></w:rPr>':''}<w:t xml:space="preserve">${esc(line)}</w:t></w:r>`;
     });
     paras += `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>${runs}</w:p>`;
   });
