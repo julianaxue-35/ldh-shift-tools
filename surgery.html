@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.1';
+const APP_VERSION = '2026-10-15.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -708,6 +708,7 @@ function normalizeAnimal(a){
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
   if(!a.hcNotExaminedFields || typeof a.hcNotExaminedFields!=='object') a.hcNotExaminedFields = {};
   if(!Array.isArray(a.vitals)) a.vitals = [];
+  if(!Array.isArray(a.intraMeds)) a.intraMeds = [];   // other medications given during surgery: [{id, drug, time}]
   if(!Array.isArray(a.postopVitals)) a.postopVitals = [];
   if(!Array.isArray(a.customTicks)) a.customTicks = [];
   /* 2026-09-19 restructure: "what this animal needs" is now one explicit
@@ -2654,7 +2655,8 @@ function openExam(id){
   state.openId = id;
   showTab('exam');
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`;
-  document.getElementById('examStickyId').textContent = a.animalId||'(no ID)';
+  document.getElementById('examStickyId').textContent = (a.animalId||'(no ID)') +
+    (parseFloat(a.weight)>0 ? ' — ' + a.weight + ' kg' + (usesPostWeight(a) ? ' (post-op ' + a.postWeight + ' kg)' : '') : '');
   {
     const total = state.animals.length;
     const remaining = state.animals.filter(x=>!x.registered).length;
@@ -3116,6 +3118,17 @@ function examFormHtml(a){
   if(a.ticks['alfax-intra'] && a.ticks['alfax-intra'].done){
     h += `<div style="margin-top:6px"><label style="font-size:12px">${inductionName(a)} top-up given (mL)</label><br><input class="plain" id="fld_alfaxIntraMl" type="number" step="0.01" value="${esc(a.alfaxIntraMl||'')}" style="width:100%"></div>`;
   }
+  h += `<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px"><div class="lbl" style="margin-bottom:4px">Other medications given during surgery</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Anything not in the list above — type the drug, dose and route, and the time given. Add a line for each dose (e.g. repeat IV antibiotic doses).</p>`;
+  a.intraMeds.forEach(m=>{
+    h += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap" data-imrow="${esc(m.id)}">
+      <input class="plain" data-imfield="drug" data-imid="${esc(m.id)}" value="${esc(m.drug||'')}" placeholder="e.g. Cefazolin 22mg/kg (0.4mL) IV" style="flex:1 1 220px;min-width:180px">
+      <input class="plain" type="time" data-imfield="time" data-imid="${esc(m.id)}" value="${esc(m.time||'')}" style="width:110px" aria-label="Time given">
+      <button type="button" class="btn small secondary" data-imrepeat="${esc(m.id)}" title="Add another dose of the same medication, timed now">Repeat dose</button>
+      <button type="button" class="btn small rust" data-imdel="${esc(m.id)}" aria-label="Remove medication">&times;</button>
+    </div>`;
+  });
+  h += `<button type="button" class="btn small secondary" id="addIntraMedBtn">+ Add medication</button></div>`;
   h += `<div style="margin-top:8px"><label style="font-size:12px">Isoflurane / anaesthetic adjustments</label><br><input class="plain" id="fld_isoNotes" value="${esc(a.isoNotes||'')}" placeholder="e.g. Iso increased to 2.5% at 10:15" style="width:100%"></div>
   </div>`;
 
@@ -3689,6 +3702,35 @@ function bindExamForm(a){
     a.surgNotes = buildTemplate(a); saveShift(); openExam(a.id);
   });
 
+  const addIntraMedBtn = document.getElementById('addIntraMedBtn');
+  if(addIntraMedBtn) addIntraMedBtn.addEventListener('click', ()=>{
+    a.intraMeds.push({id: uid(), drug:'', time: nowTime()});
+    saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-imrepeat]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const src = a.intraMeds.find(x=>x.id===btn.dataset.imrepeat);
+      if(!src) return;
+      a.intraMeds.splice(a.intraMeds.indexOf(src)+1, 0, {id: uid(), drug: src.drug, time: nowTime()});
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-imdel]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.intraMeds = a.intraMeds.filter(x=>x.id!==btn.dataset.imdel);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-imfield]').forEach(el=>{
+    const upd = ()=>{
+      const m = a.intraMeds.find(x=>x.id===el.dataset.imid);
+      if(!m) return;
+      m[el.dataset.imfield] = el.value;
+      refreshNote(a);
+    };
+    el.addEventListener('input', upd);
+    el.addEventListener('change', ()=>{ upd(); saveShift(); });
+  });
   const addVitalsBtn = document.getElementById('addVitalsBtn');
   if(addVitalsBtn) addVitalsBtn.addEventListener('click', ()=>{
     a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', iso:'0', o2:'4', temp:'', etco2:'', bp:''});
@@ -3874,6 +3916,11 @@ function assembleNote(a){
     if(!intraopShown(a, def) && !(a.ticks[def.key] && a.ticks[def.key].done)) return;
     const t = a.ticks[def.key];
     if(t && t.done){ anyIntra = true; L.push(`- ${tickLabel(a, def)} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
+  });
+  a.intraMeds.forEach(m=>{
+    if(!m.drug || !m.drug.trim()) return;
+    anyIntra = true;
+    L.push(`- ${m.drug.trim()}${m.time ? ' ('+m.time+')' : ''}`);
   });
   if(!anyIntra) L.push('-');
   if(a.alfaxIntraMl) L.push(`  ${inductionName(a)} top-up given: ${a.alfaxIntraMl}mL`);
