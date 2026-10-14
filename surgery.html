@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-15.1';
+const APP_VERSION = '2026-10-15.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1814,7 +1814,14 @@ function renderEmgLog(a){
 
 /* IV fluid therapy: cats 3mL/kg/h, dogs 5mL/kg/h by default (editable) — the
    pump rate in mL/h is calculated for the nurses. On unless switched off. */
-function ivftOn(a){ return a.ivftOn !== false; }
+/* Routine desexing (spey / castrate, any species) defaults to NO IV fluids; every other
+   procedure — including pregnant speys — defaults to IVFT on. An explicit toggle always wins. */
+const IVFT_OFF_BY_DEFAULT_TYPES = ['spey','spey-flank','castrate','cryptorchid'];
+function ivftOn(a){
+  if(a.ivftOn === true || a.ivftOn === false) return a.ivftOn;
+  const routine = t => IVFT_OFF_BY_DEFAULT_TYPES.includes(t);
+  return !(routine(a.surgType) && (!a.surgType2 || routine(a.surgType2)));
+}
 function ivftDefaultRate(a){ return a.species==='dog' ? 5 : isRabbit(a) ? 10 : 3; }
 function ivftRateKg(a){
   const r = parseFloat(a.ivftRate);
@@ -1929,7 +1936,13 @@ document.getElementById('topMeta').textContent = todayStr();
 const vetInitEl = document.getElementById('vetInit');
 const nurseInitEl = document.getElementById('nurseInit');
 vetInitEl.value = localStorage.getItem(LS_INIT) || '';
-vetInitEl.addEventListener('change', ()=> localStorage.setItem(LS_INIT, vetInitEl.value.trim()));
+vetInitEl.addEventListener('change', ()=>{ localStorage.setItem(LS_INIT, vetInitEl.value.trim()); shareInitialsChanged(); });
+/* Nurse initials: kept for the rest of TODAY only (a stale nurse must never carry into tomorrow's notes). */
+const LS_NURSE_INIT = 'ldh_surgery_nurseinit_v1';
+function shareTodayKey(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function saveNurseInit(v){ try{ localStorage.setItem(LS_NURSE_INIT, JSON.stringify({d: shareTodayKey(), v})); }catch(e){} }
+try{ const n = JSON.parse(localStorage.getItem(LS_NURSE_INIT)||'null'); if(n && n.d===shareTodayKey() && n.v) nurseInitEl.value = n.v; }catch(e){}
+nurseInitEl.addEventListener('change', ()=>{ saveNurseInit(nurseInitEl.value.trim()); shareInitialsChanged(); });
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
@@ -3915,7 +3928,7 @@ function assembleNote(a){
   INTRAOP_TICKS.forEach(def=>{
     if(!intraopShown(a, def) && !(a.ticks[def.key] && a.ticks[def.key].done)) return;
     const t = a.ticks[def.key];
-    if(t && t.done){ anyIntra = true; L.push(`- ${tickLabel(a, def)} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
+    if(t && t.done){ anyIntra = true; L.push(`- ${tickLabel(a, def)} (${t.time})${def.key!=='lido-dental' && tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }   // dental lignocaine: the whole-procedure maximum stays on the form, not in the note
   });
   a.intraMeds.forEach(m=>{
     if(!m.drug || !m.drug.trim()) return;
@@ -4330,7 +4343,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
 const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed','chipTickRemote'];
-const share = { client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
+const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
 // Number entry is closed off on stations that only RECEIVED the implanted tick from another device
 function chipEntryLocked(a){ return shareReady && share.on && !!a.chipTickRemote && !chipHasFullNumber(a); }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
@@ -4369,6 +4382,15 @@ function stripForSync(a){
   const c = shareClone(a);
   SHARE_LOCAL_ONLY_KEYS.forEach(k=>{ delete c[k]; });
   c.microchipImplanted = !!(a.ticks && a.ticks.microchip && a.ticks.microchip.done);
+  /* Today's vet / nurse initials ride along on the animal rows so another station that has none set
+     can pick them up. Sent only when they were just set/changed here (or on a brand-new row); otherwise
+     the last-synced values are echoed back unchanged so a pull never turns into a push (no ping-pong). */
+  const b = share.base[a.id], vet = vetInitEl.value.trim(), nurse = nurseInitEl.value.trim();
+  [['syncVet', vet], ['syncNurse', nurse]].forEach(([k, cur])=>{
+    const prev = b ? b[k] : undefined;
+    const val = (share.initialsPending || !b) ? (cur || prev) : prev;
+    if(val) c[k] = val; else delete c[k];
+  });
   return c;
 }
 // Returns only what differs between base and cur (removed keys -> null), or undefined if identical.
@@ -4396,6 +4418,11 @@ function shareApply(target, patch){
 function shareSetStatus(text, ok){
   const el = document.getElementById('shareStatus'); if(!el) return;
   el.textContent = text; el.style.color = ok===false ? '#b5730a' : '';
+}
+function shareInitialsChanged(){
+  if(!share.on) return;
+  share.initialsPending = true;
+  shareSchedulePush();
 }
 function shareSchedulePush(){
   if(!share.on) return;
@@ -4445,6 +4472,7 @@ async function sharePush(){
       share.base[a.id] = cur;
     }
     if(delErr) throw delErr;
+    share.initialsPending = false;
     shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
   }catch(e){
     shareSetStatus('Sharing on — could not sync: ' + ((e && (e.message||e.code)) || 'unknown') + ' (your work is saved on this device; will retry)', false);
@@ -4479,6 +4507,15 @@ async function sharePull(){
         share.base[row.id] = shareClone(remote);
       }
     });
+    /* Initials set on another station: adopt them only if THIS device has none (never overwrite someone's own). */
+    {
+      const rows = (data||[]).map(r=>r.data).filter(Boolean);
+      const rv = rows.map(d=>d.syncVet).find(Boolean), rn = rows.map(d=>d.syncNurse).find(Boolean);
+      let adopted = false;
+      if(rv && !vetInitEl.value.trim()){ vetInitEl.value = rv; try{ localStorage.setItem(LS_INIT, rv); }catch(e){} adopted = true; }
+      if(rn && !nurseInitEl.value.trim()){ nurseInitEl.value = rn; saveNurseInit(rn); adopted = true; }
+      if(adopted && state.openId){ const oa = state.animals.find(x=>x.id===state.openId); if(oa && document.getElementById('noteDisplay')) refreshNote(oa); }
+    }
     if(changed.size){
       localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
       renderShiftList();
@@ -4542,6 +4579,7 @@ async function shareStart(email, password){
   // actually starts a new day's shared session, matching the stale-shift-day
   // warnings this tool already shows elsewhere for the exact same reason.
   share.sessionDate = shareDate();
+  share.initialsPending = !!(vetInitEl.value.trim() || nurseInitEl.value.trim());   // turning sharing on sends this device's initials too
   share.deleted = shareDeletedLoad(); share.delConfirmed = new Set();
   try{ localStorage.setItem(LS_SHARE_ON, '1'); }catch(e){}
   shareShowUi(true); shareSetStatus('Sharing on — connecting…', true);
