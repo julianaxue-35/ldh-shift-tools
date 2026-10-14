@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-15.4';
+const APP_VERSION = '2026-10-15.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1239,6 +1239,13 @@ function premedTimeMissing(a){
   const t = a.ticks[def.key];
   return !(t && t.done && t.time);
 }
+/* Dog premed (medetomidine + methadone premix): the tick must show the dose picked in the Premed section
+   (rate x weight, or the typed volume) and its route — NOT the cat ZMD formula. */
+function dogPremedSub(a){
+  const g = dogPremedGivenMl(a);
+  if(g==null) return 'volume not chosen yet — pick the dose in the Premed section';
+  return g+'mL '+(a.dogPremedRoute||'SC')+(a.dogPremedRate && a.dogPremedRate!=='custom' ? ' ('+a.dogPremedRate+'mL/kg)' : '');
+}
 function tickSub(a, key){
   if(key==='vacc') return a.species==='dog' ? 'DHP (C3) — KC is intranasal (IN) only' : a.species==='rabbit' ? 'Filavac' : 'Tricat F3';
   const d = calcDoses(a.weight);
@@ -1247,7 +1254,7 @@ function tickSub(a, key){
   const meloxSC = meloxSCDose(postWeight(a), a.species, a.meloxOral);
   const dp = calcDoses(postWeight(a)) || d;
   const map = {
-    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : zmdGivenMl(a)+'mL IM'+(ovNum(a.zmdMlOv)?' (adjusted from calculated '+d.zml+'mL)':''),
+    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : (a.species==='dog' && a.premedType==='standard') ? dogPremedSub(a) : zmdGivenMl(a)+'mL IM'+(ovNum(a.zmdMlOv)?' (adjusted from calculated '+d.zml+'mL)':''),
     'alfax-pre': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'alfax-intra': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'bupi-ip': d.bupiLow+'–'+d.bupi+'mL intraoperatively (1–2mg/kg, 5mg/mL)',
