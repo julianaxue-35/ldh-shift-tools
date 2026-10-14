@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-15.3';
+const APP_VERSION = '2026-10-15.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2360,13 +2360,38 @@ function onMedInputsHtml(a){
     <input class="plain" data-onmedlast="${esc(a.id)}" value="${esc(a.onMedLast||'')}" placeholder="Last dose given (e.g. 14/10 8am)" aria-label="Last dose given" style="flex:1 1 150px;min-width:130px;font-size:12px;padding:4px 6px">
   </div>`;
 }
+/* Drugs this animal is currently on according to medication charts registered on THIS device by
+   Sick & Injured / Processing (same Animal ID, course still running today). Surgery's own post-op
+   charts are excluded — those start after this surgery. */
+function activeChartMeds(a){
+  const id = String(a.animalId||'').trim().toLowerCase();
+  if(!id || !window.MedChart) return [];
+  const today = new Date(); today.setHours(0,0,0,0);
+  const out = [];
+  try{
+    MedChart.loadCharts().forEach(c=>{
+      if(c.sourceTool==='surgery' || String(c.animalId||'').trim().toLowerCase()!==id) return;
+      const base = new Date(c.createdAt || Date.now()); base.setHours(0,0,0,0);
+      (c.meds||[]).forEach(m=>{
+        const days = parseInt(m.days,10) || 0;
+        const start = new Date(base); start.setDate(start.getDate() + (m.startOption==='today' ? 0 : 1));
+        const end = new Date(start); end.setDate(end.getDate() + days);   // first day after the last dose
+        if(today >= start && today < end && m.drugLabel && !out.includes(m.drugLabel)) out.push(m.drugLabel);
+      });
+    });
+  }catch(e){}
+  return out;
+}
 function onMedBannerHtml(a){
-  const meds = (a.onMed||'').trim();
-  if(!meds) return '';
+  const typed = (a.onMed||'').trim();
   const last = (a.onMedLast||'').trim();
+  const typedLow = typed.toLowerCase();
+  const charted = activeChartMeds(a).filter(n=> !typedLow.includes(n.toLowerCase().split(' ')[0]));
+  const meds = [typed].concat(charted).filter(Boolean).join(', ');
+  if(!meds && !last) return '';
   return `<div style="background:#fff3cd;border:2px solid #b5730a;color:#5c3a00;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;font-weight:700;text-transform:uppercase">
-    💊 ON ${esc(meds)}, LAST DOSE GIVEN ${last ? esc(last) : '— NOT RECORDED'}
-    <div style="font-size:11px;font-weight:400;text-transform:none;margin-top:2px">Change this on the Shift list.</div></div>`;
+    💊 ON ${meds ? esc(meds) : 'MEDICATION (DRUG NOT RECORDED)'}, LAST DOSE GIVEN ${last ? esc(last) : '— NOT RECORDED'}
+    <div style="font-size:11px;font-weight:400;text-transform:none;margin-top:2px">${charted.length ? 'Includes medication from this animal\'s registered chart. ' : ''}Change the details on the Shift list.</div></div>`;
 }
 function groupedListHtml(animals, opts){
   opts = opts || {};
