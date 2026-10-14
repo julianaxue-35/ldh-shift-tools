@@ -552,7 +552,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-15.2';
+const APP_VERSION = '2026-10-15.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -688,6 +688,7 @@ function normalizeAnimal(a){
     surgType:'spey', surgType2:'', surgStart:'', surgEnd:'', surgNotes:'', surgComment:'', nextUp:false,
     cryptoSide:'left', cryptoLocLeft:'inguinal', cryptoLocRight:'inguinal', cryptoContra:true,
     scLayer:false, isoNotes:'',
+    onMed:'', onMedLast:'',   // 'on medication' banner: drug(s) + when the last dose was given (typed on the shift list)
     buprenorphineRoute:'IV', bupRequired:false, recoveryNotes:'',
     vaccGiven:false, fivDone:false, fivResult:'', dogPremedRate:'',
     meloxOral:false, meloxTiming:'AM',
@@ -2352,6 +2353,21 @@ const SPECIES_GROUP_LABELS = {cat:'🐱 Cats', dog:'🐕 Dogs', rabbit:'🐰 Rab
    The ⭐ NEXT UP badge and the sort-to-top-of-its-group always apply
    wherever the flag happens to be set, so it stays visible for awareness on
    every list, not just the one that can change it. */
+/* "On medication" entry on each shift-list card — drives the banner shown when the patient is opened. */
+function onMedInputsHtml(a){
+  return `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+    <input class="plain" data-onmed="${esc(a.id)}" value="${esc(a.onMed||'')}" placeholder="On medication (e.g. meloxicam)" aria-label="On medication" style="flex:1 1 150px;min-width:130px;font-size:12px;padding:4px 6px">
+    <input class="plain" data-onmedlast="${esc(a.id)}" value="${esc(a.onMedLast||'')}" placeholder="Last dose given (e.g. 14/10 8am)" aria-label="Last dose given" style="flex:1 1 150px;min-width:130px;font-size:12px;padding:4px 6px">
+  </div>`;
+}
+function onMedBannerHtml(a){
+  const meds = (a.onMed||'').trim();
+  if(!meds) return '';
+  const last = (a.onMedLast||'').trim();
+  return `<div style="background:#fff3cd;border:2px solid #b5730a;color:#5c3a00;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:14px;font-weight:700;text-transform:uppercase">
+    💊 ON ${esc(meds)}, LAST DOSE GIVEN ${last ? esc(last) : '— NOT RECORDED'}
+    <div style="font-size:11px;font-weight:400;text-transform:none;margin-top:2px">Change this on the Shift list.</div></div>`;
+}
 function groupedListHtml(animals, opts){
   opts = opts || {};
   const groups = {cat:[], dog:[], rabbit:[], other:[]};
@@ -2371,6 +2387,7 @@ function groupedListHtml(animals, opts){
           <div class="sub">${surgTypeFullLabel(a)} · ${listWeightHtml(a)}</div>
           ${postopMedsLine(a)}
           ${dueTreatmentsLine(a)}
+          ${a.registered ? '' : onMedInputsHtml(a)}
         </div>
         <div>
           <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
@@ -2385,6 +2402,17 @@ function groupedListHtml(animals, opts){
   return html;
 }
 function bindListButtons(){
+  [['data-onmed','onMed'],['data-onmedlast','onMedLast']].forEach(([attr, field])=>{
+    document.querySelectorAll('['+attr+']').forEach(el=>{
+      el.addEventListener('input', ()=>{
+        const an = state.animals.find(x=>x.id===el.getAttribute(attr));
+        if(!an) return;
+        an[field] = el.value;
+        document.querySelectorAll('['+attr+'="'+an.id+'"]').forEach(o=>{ if(o!==el) o.value = el.value; });   // same animal shown on two tabs
+        saveShift();
+      });
+    });
+  });
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
@@ -2425,6 +2453,7 @@ function matchesIdSearch(a, q){
   return (a.animalId||'').toLowerCase().includes(q);
 }
 function renderShiftList(){
+  { const ae = document.activeElement; if(ae && ae.dataset && (ae.dataset.onmed!==undefined || ae.dataset.onmedlast!==undefined)) return; }   // never rebuild the list under a field being typed in
   const list = document.getElementById('animalList');
   const hasAnimals = state.animals.length>0;
   document.getElementById('shiftCount').textContent = state.animals.length;
@@ -2841,7 +2870,7 @@ function examFormHtml(a){
   syncMeloxPlanItem(a);
   syncGabaChart(a);
   syncBupChart(a, false);
-  let h = '';
+  let h = onMedBannerHtml(a);
   if(a.needs && a.needs.bloods && !a.bloodsTaken) h += `<div class="warn" style="margin-bottom:10px;font-size:14px"><b>🩸 BLOODS REQUIRED — take BEFORE premed.</b> Tick "Bloods taken" under Needed for this animal once done.</div>`;
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
