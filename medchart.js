@@ -532,7 +532,6 @@
   var DASHBOARD_SHIFT = { 'sick-injured': 'sick_injured', processing: 'processing', surgery: 'surgery' };
   var SYNC_ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
   var SYNC_APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
-  var SYNC_SECRET = '0150e5d82a61630d053ce71513eb80f35524504de454adbe374a0d7e79662103';
   function buildDashboardLabel(chart) {
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     return (chart.meds || []).map(function (m) {
@@ -545,9 +544,8 @@
       if (!shift || !chart.animalId || !chart.location) return;
       var label = buildDashboardLabel(chart);
       if (!label) return;
-      fetch(SYNC_ENDPOINT, {
+      LDHSync.fetch({
         method: 'POST',
-        headers: { apikey: SYNC_APIKEY, 'x-sync-secret': SYNC_SECRET, 'Content-Type': 'application/json' },
         body: JSON.stringify({ chart: { title: chart.animalId, location: chart.location || 'Location TBC', shift: shift, med_label: label, med_chart_done: true } })
       }).catch(function () {});
     } catch (e) { /* never let the sync attempt break the local save */ }

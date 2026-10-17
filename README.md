@@ -10,7 +10,7 @@ Three offline, single-file HTML shift-recording tools for The Lost Dogs' Home Cr
 
 ## How it works
 
-Each tool is a self-contained HTML file — no server, no build, no install. All shift data (animals, exam notes, weights) is stored **only in the browser's local storage on the device that opened it**; nothing is sent anywhere. Export to Word (`.doc`) and Excel (`.xlsx`/`.csv`) downloads a file to the device, and each tool also has a **Share / Email** button that hands both files to the device's native share sheet (needs the page opened over `https://`, which GitHub Pages provides — it does not work if the raw file is opened locally).
+Each tool is a self-contained HTML file — no server, no build, no install. Full shift records (animals, exam notes, weights) are stored **only in the browser's local storage on the device that opened it**. To keep the Shift Ops dashboard live, the tools send it a short summary per animal (animal ID, location, shift, done status, and for flagged animals a brief medication, treatment and plan note) through the sync Edge Function. Export to Word (`.doc`) and Excel (`.xlsx`/`.csv`) downloads a file to the device, and each tool also has a **Share / Email** button that hands both files to the device's native share sheet (needs the page opened over `https://`, which GitHub Pages provides — it does not work if the raw file is opened locally).
 
 Each tool has its own **Clear list** button — once a shift's Word/Excel has been sent, clear the list so the next shift starts empty.
 
@@ -20,7 +20,9 @@ All three are responsive for phone/tablet use: a top tab bar (Shift List / Exam 
 
 ## Access
 
-Gated client-side with an access code (shared with the other LDH internal tools) so the public GitHub Pages URL isn't casually discoverable. This is not real security — it only deters accidental discovery, since the code and gate logic are visible in the page source. Don't put anything more sensitive than routine shift/clinical notes through it.
+One LDH access code opens all the tools and the dashboard. The code is **not** stored in this repo: the gate checks it against the dashboard server (the sync Edge Function's `SYNC_SECRET`), then remembers it on that phone, where it doubles as the dashboard sync code (`sync-code.js`). The Vet and Nurse dashboard pages each have an extra passcode on top.
+
+To change codes, see `supabase/rotate-codes.sql` in the ldh-shift-ops repo. When the LDH code changes, every phone is asked for the new code on its next sync. This is lightweight protection, suited to routine shift notes; it stops casual access, not a determined attacker.
 
 ## Colour coding
 
