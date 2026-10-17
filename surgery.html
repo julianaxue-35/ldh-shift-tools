@@ -553,7 +553,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-17.1';
+const APP_VERSION = '2026-10-17.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1335,7 +1335,7 @@ function rabSurgTypeFor(t){
 function rabbitTemplate(a){
   const proc = a.surgType;
   if(proc==='spey'){
-    return 'Pre-GA exam:\nheart and lung sound good, normal faecal output.\nnormal gut sound.\nno other concerns.\ngood teeth\nabdominal palpation performed, no fetuses found.\n\n'
+    return 'Pre-GA exam:\nheart and lung sound good, normal faecal output.\nnormal gut sound.\nno other concerns.\nabdominal palpation performed, no fetuses found.\n\n'
       + 'Anaesthesia:\npreoxygenation was done by offering O2 at 2% through a mask.\nISO then increase by 0.5% every 5 minutes until 1% throughout the surgery\nsurgical plane was then achieved. surgical site was clipped and scrubbed in a sterile manner.\nHR remained ~___ bpm, and RR ~___ bpm throughout surgery.\nIVC placed in the ___ ear lateral ear vein.\nEmla applied in the ___ ear prior to tattooing\n\n'
       + 'Surgical Procedure:\nMidline spey performed.\nA 1cm long incision was made over the mid abdominal area, in between the two nipples, just slightly caudal to the umbilicus. The skin was incised with a size 15 scalpel blade. The underlying tissue was blunt dissected with a pair of metzenbaum scissors, the muscle layer was then cut opened with the metzenbaum scissors.\nThe uterus was found, which the ovaries were ligated with 3/0 PDS in a single encircling suture pattern.\nThe same procedure was repeated for the other ovary.\nThe cervix was also ligated with a single millers knot, the cervix was then transacted, the stump was then ligated with 3/0 PDS as a transfixing suture.\nAbdominal bleeding was not noted, and the muscle layer was closed with 3/0 PDS in a continuous suture pattern.\nskin layer was closed with 3/0 PDS in an inverted Intradermal suture pattern.\n\n'
       + 'Bupivacaine splash was applied over the muscle layer.\n\nNo suture removal is required.\n\n'
