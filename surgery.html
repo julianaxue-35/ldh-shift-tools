@@ -553,7 +553,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-15.6';
+const APP_VERSION = '2026-10-17.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -669,7 +669,7 @@ function formatRecheckDate(dateStr){
    ever shows, which looks like "nothing happens" with no visible error. */
 function normalizeAnimal(a){
   const defaults = {
-    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'',
+    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
@@ -3084,6 +3084,18 @@ function examFormHtml(a){
     })() : ''}
   </div>`;
 
+  if(isRabbit(a)){
+    h += `<div class="sechdr">Rabbit dental check (incisors &amp; molars)</div><div class="pe-field">`;
+    [['rabIncisors','Incisors'],['rabMolars','Molars']].forEach(([k,lbl])=>{
+      h += `<div style="margin-bottom:10px"><label style="font-size:12px">${lbl}</label><br>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <button type="button" class="opt-btn ${a[k]==='NAD'?'selected':''}" data-rabdent="${k}:NAD">NAD</button>
+          <button type="button" class="opt-btn ${a[k]==='ABN'?'selected':''}" data-rabdent="${k}:ABN">Abnormal (describe)</button>
+        </div>
+        ${a[k]==='ABN' ? `<textarea class="free-input" id="fld_${k}Txt" placeholder="Describe the abnormalities, e.g. overgrown / malocclusion / spurs…" style="margin-top:6px">${esc(a[k+'Txt']||'')}</textarea>` : ''}</div>`;
+    });
+    h += `</div>`;
+  }
   h += `<div class="sechdr">Pre-op &amp; Set-up (time is recorded when ticked)</div>`;
   PREOP_TICKS.forEach(def0=>{
     const def = preopDefFor(a, def0); if(!def) return;
@@ -3432,6 +3444,14 @@ function bindExamForm(a){
   bindChange('fld_age','age');
   bindChange('fld_murmurGrade','caMurmurGrade');
   bindChange('fld_premedOther','premedOther');
+  bindChange('fld_rabIncisorsTxt','rabIncisorsTxt'); bindChange('fld_rabMolarsTxt','rabMolarsTxt');
+  body.querySelectorAll('[data-rabdent]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const [k,v] = btn.dataset.rabdent.split(':');
+      a[k] = (a[k]===v) ? '' : v;   // tap again to clear
+      saveShift(); openExam(a.id);
+    });
+  });
   const premixRouteEl = document.getElementById('fld_premixRoute');
   if(premixRouteEl) premixRouteEl.addEventListener('change', ()=>{ a.premixRoute = premixRouteEl.value; saveShift(); openExam(a.id); });
   const mmmRouteEl = document.getElementById('fld_mmmRoute');
@@ -3933,6 +3953,13 @@ function assembleNote(a){
     const t = a.ticks[def.key];
     if(t && t.done){ anyPreop = true; L.push(`- ${tickLabel(a, def)} (${t.time})${tickSub(a,def.key) ? ' — '+tickSub(a,def.key) : ''}`); }
   });
+  if(isRabbit(a)){
+    [['Incisors',a.rabIncisors,a.rabIncisorsTxt],['Molars',a.rabMolars,a.rabMolarsTxt]].forEach(([lbl,v,t])=>{
+      if(!v) return;
+      anyPreop = true;
+      L.push(`- Dental check — ${lbl}: ${v==='NAD' ? 'NAD' : ((t||'').trim() || 'abnormal (not described)')}`);
+    });
+  }
   if(!anyPreop) L.push('-');
   (a.customTicks||[]).forEach(ct=>{ L.push(isRecheckTick(ct) ? (ct.done ? `- ${ct.label}: ${recheckResultText(ct)} (${ct.time})` : `- ${ct.label}: not recorded`) : (ct.done ? `- ${ct.label} (${ct.time})` : `- ${ct.label}: not marked done`)); });
   // (the Comment box is deliberately NOT written into the medical note)
