@@ -63,20 +63,44 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 </div>
 <script>
 (function () {
-  var PASS = 'LDH2026';
+  /* 2026-10-17 security fix: the access code is no longer in the source.
+     It is checked against the dashboard server (the sync Edge Function's
+     SYNC_SECRET), and the same LDH code is remembered on this phone as the
+     dashboard sync code. If the code is changed on the server, the next
+     sync is refused, the stored code is cleared and this gate asks again. */
+  var ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
+  var APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
+  var OK_KEY = 'ldhGateOk_v2', SYNC_KEY = 'ldh_sync_code_v1';
   var body = document.body;
   var gate = document.getElementById('ldh-gate');
+  function ls(k, v) {
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+  }
   function unlock() {
     body.classList.remove('ldh-locked');
     gate.classList.add('hidden');
-    localStorage.setItem('ldhGateOk', '1');
   }
-  if (localStorage.getItem('ldhGateOk') === '1') { unlock(); return; }
+  try { localStorage.removeItem('ldhGateOk'); } catch (e) {}
+  if (ls(OK_KEY) === '1' && ls(SYNC_KEY)) { unlock(); return; }
   var input = document.getElementById('ldh-gate-input');
   var err = document.getElementById('ldh-gate-err');
+  function fail(msg) { err.textContent = msg; err.style.display = 'block'; input.value = ''; input.focus(); }
   function check() {
-    if (input.value === PASS) unlock();
-    else { err.style.display = 'block'; input.value = ''; input.focus(); }
+    var code = input.value.trim();
+    if (!code) return;
+    /* An empty status check: the server answers 401 for a wrong code and
+       400 ("needs at least one item") for a correct one. Reads nothing. */
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { apikey: APIKEY, 'x-sync-secret': code, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: { shift: 'processing', items: [] } })
+    }).then(function (res) {
+      if (res.status === 401) { fail('Incorrect code. Try again.'); return; }
+      if (res.status !== 400 && !res.ok) { fail('Could not check the code right now. Try again shortly.'); return; }
+      ls(OK_KEY, '1'); ls(SYNC_KEY, code); unlock();
+    }).catch(function () {
+      fail('Could not check the code (no internet connection). Try again when online.');
+    });
   }
   document.getElementById('ldh-gate-btn').addEventListener('click', check);
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') check(); });
@@ -86,7 +110,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
 <div class="wrap">
   <h1>LDH Shift Tools</h1>
-  <p class="sub">Offline shift-recording tools — enter animals, work through the exam, export Word &amp; Excel. Everything is stored only in this browser until you export or share it.</p>
+  <p class="sub">Shift-recording tools: enter animals, work through the exam, export Word &amp; Excel. Full exam notes stay on this phone until you export or share them.</p>
 
   <a class="card surgery" href="surgery.html">
     <h2>Surgery Notes</h2>
@@ -113,7 +137,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p>Live, shared view of flagged cases, shift progress, and disease surveillance across the team — separate sign-in required (not the access code above).</p>
   </a>
 
-  <p class="footnote">Each tool works standalone and offline once loaded — bookmark or "Add to Home Screen" on a phone/tablet for one-tap access. Data stays on the device until you export (Word/Excel) or use Share/Email; nothing is sent anywhere else.</p>
+  <p class="footnote">Each tool keeps working offline once loaded. Bookmark it or use "Add to Home Screen" on a phone or tablet for one-tap access. Full exam notes stay on this device until you export (Word/Excel) or use Share/Email. To keep the live dashboard up to date, the tools also send it a short summary for each animal: animal ID, location, shift, whether it is done, and for flagged animals a brief medication, treatment and plan note.</p>
 </div>
 
 <!-- ip-notice-footer -->
