@@ -429,6 +429,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="dash-sync.js"></script>
 <script src="aa-share.js"></script>
 <script src="medchart.js"></script>
 <script>
@@ -616,7 +617,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.1';
+const APP_VERSION = '2026-10-19.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -664,37 +665,17 @@ function syncCareNow() {
     }).then(r => { if (!r.ok) careSent.delete(a.id); }).catch(() => { careSent.delete(a.id); });
   });
 }
-function syncCompletionToDashboard(a, shift, note) {
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
-  }).catch(() => {});
-}
+function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note); }
 /* 2026-09-25: removing an animal from the shift list also removes its case
    from the dashboard (so the dashboard's counts don't keep a case that was
    deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
    Function reject with a 400 rather than mistaking it for a completion. */
-function removeFromDashboard(a, shift) {
-  if (!a || !a.animalId || !a.location) return;
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ delete: { title: a.animalId, location: a.location, shift } }),
-  }).catch(() => {});
-}
+function removeFromDashboard(a, shift) { DashSync.remove(a, shift); }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
    loaded, not just completions — insert-only server-side, so this can
    never un-complete something already registered. Lets the dashboard show
    "X of Y" instead of just "X done, total unknown". */
-function syncListToDashboard(animals, shift) {
-  const items = animals
-    .map(a => ({ title: a.animalId, location: a.location, shift }))
-    .filter(it => it.title && it.location);
-  if (!items.length) return;
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ items }),
-  }).catch(() => {});
-}
+function syncListToDashboard(animals, shift) { DashSync.addToList(animals, shift); }
 const LS_SHIFT = 'ldh_sickinjured_shift_v1';
 const LS_SHIFT_DATE = LS_SHIFT + '_date'; // the day this shift list was started — flags a list left over from a previous day
 const LS_BACKUP = LS_SHIFT + '_backups';
@@ -1461,7 +1442,7 @@ function renderParsedTable(rows){
         addOrMergeFromRecheck(r);
       }
     });
-    if(parsedAddToDashboard) syncListToDashboard(rows, 'sick_injured');
+    if(parsedAddToDashboard){ syncListToDashboard(rows, 'sick_injured'); markDashSynced(rows, false); } else markDashSynced(rows, true);
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -1583,7 +1564,7 @@ function renderParsedFlagTable(rows){
   function confirmFlagAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
     rows.forEach(r=> addOrMergeFromFlag(r));
-    syncListToDashboard(rows, 'sick_injured');
+    syncListToDashboard(rows, 'sick_injured'); markDashSynced(rows, false);
     saveShift();
     renderShiftList();
     document.getElementById('flagXlsxInput').value = '';
@@ -1705,6 +1686,16 @@ function groupedListHtml(animals){
     </div>`;
   }).join('');
 }
+// Animals created from parsed rows: remember the case the dashboard now holds (so a later edit of the ID or location
+// moves it instead of leaving an orphan), or note that the animal was deliberately kept off the dashboard.
+function markDashSynced(rows, off){
+  rows.forEach(r=>{
+    const t = String(r.animalId||'').trim(); if(!t) return;
+    state.animals.filter(a=>String(a.animalId||'').trim()===t && DashSync.loc(a)===DashSync.loc(r)).forEach(a=>{
+      if(off){ a.dashOff = true; } else { a.dashTitle = t; a.dashLoc = DashSync.loc(a); a.dashOff = false; }
+    });
+  });
+}
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
@@ -1753,6 +1744,7 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
+    DashSync.removeUnfinished(state.animals, 'sick_injured');   // unfinished animals come off the dashboard too (registered ones stay as completed)
     state.animals = [];
     AAShare.setOn(AA_TOOL, false);
     saveShift(); renderShiftList();
@@ -2449,7 +2441,15 @@ function bindExamForm(a){
     const el = document.getElementById(map[k]);
     if(!el) return;
     el.addEventListener('change', ()=>{
-      a[k]=el.value; refreshNote(a); saveShift();
+      a[k]=el.value; refreshNote(a);
+      if(k==='animalId' || k==='location'){
+        // keep the dashboard in step; another visit of the same animal on the list may still own the old case
+        DashSync.rekey(a, 'sick_injured', {
+          keepOld: (t, l)=> state.animals.some(x=>x!==a && String(x.animalId||'').trim()===t && DashSync.loc(x)===l),
+          note: x=> x.flagged ? planExcerpt(x.plan, 140) : undefined
+        });
+      }
+      saveShift();
       if(k==='sex' && a.template==='28day') openExam(a.id);
     });
     el.addEventListener('input', ()=>{ a[k]=el.value; refreshNote(a); });
