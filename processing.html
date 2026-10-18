@@ -416,6 +416,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="dash-sync.js"></script>
 <script src="aa-share.js"></script>
 <script src="medchart.js"></script>
 <script>
@@ -423,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.1';
+const APP_VERSION = '2026-10-19.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -443,37 +444,17 @@ function planExcerpt(text, maxLen) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
 }
-function syncCompletionToDashboard(a, shift, note) {
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ title: a.animalId, location: a.location, shift, note: note || undefined }),
-  }).catch(() => {});
-}
+function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note); }
 /* 2026-09-25: removing an animal from the shift list also removes its case
    from the dashboard (so the dashboard's counts don't keep a case that was
    deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
    Function reject with a 400 rather than mistaking it for a completion. */
-function removeFromDashboard(a, shift) {
-  if (!a || !a.animalId || !a.location) return;
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ delete: { title: a.animalId, location: a.location, shift } }),
-  }).catch(() => {});
-}
+function removeFromDashboard(a, shift) { DashSync.remove(a, shift); }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
    loaded, not just completions — insert-only server-side, so this can
    never un-complete something already registered. Lets the dashboard show
    "X of Y" instead of just "X done, total unknown". */
-function syncListToDashboard(animals, shift) {
-  const items = animals
-    .map(a => ({ title: a.animalId, location: a.location, shift }))
-    .filter(it => it.title && it.location);
-  if (!items.length) return;
-  LDHSync.fetch({
-    method: 'POST',
-    body: JSON.stringify({ items }),
-  }).catch(() => {});
-}
+function syncListToDashboard(animals, shift) { DashSync.addToList(animals, shift); }
 /* ---------- share with Admission AA (2026-10-18) ---------- */
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
@@ -1374,9 +1355,9 @@ function bindExamForm28(a){
     });
   };
   const idEl = document.getElementById('fld_animalid');
-  if(idEl) idEl.addEventListener('change', ()=>{ a.animalId = idEl.value.trim(); saveShift(); openExam(a.id); });
+  if(idEl) idEl.addEventListener('change', ()=>{ a.animalId = idEl.value.trim(); DashSync.rekey(a, 'processing'); saveShift(); openExam(a.id); });
   const locEl = document.getElementById('fld_location');
-  if(locEl) locEl.addEventListener('change', ()=>{ a.location = locEl.value.trim(); refreshNote(a); saveShift(); });
+  if(locEl) locEl.addEventListener('change', ()=>{ a.location = locEl.value.trim(); DashSync.rekey(a, 'processing'); refreshNote(a); saveShift(); });
   const wEl = document.getElementById('fld_weight');
   if(wEl){
     wEl.addEventListener('input', ()=>{ a.weight = wEl.value; });
@@ -1797,7 +1778,7 @@ function renderParsedTable(rows){
       state.animals.push(a);
       return a;
     });
-    if(parsedAddToDashboard) syncListToDashboard(added, 'processing');
+    if(parsedAddToDashboard) syncListToDashboard(added, 'processing'); else added.forEach(a=>{ a.dashOff = true; });   // chose not to add these to the dashboard: leave them off it
     saveShift();
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
@@ -1992,6 +1973,7 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here \u2014 export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
+    DashSync.removeUnfinished(state.animals, 'processing');   // unfinished animals come off the dashboard too (registered ones stay as completed)
     state.animals = [];
     AAShare.setOn(AA_TOOL, false);
     saveShift(); renderShiftList();
@@ -2707,11 +2689,11 @@ function bindExamForm(a){
   });
   const animalIdEl = document.getElementById('fld_animalid');
   if(animalIdEl) animalIdEl.addEventListener('change', ()=>{
-    a.animalId = animalIdEl.value.trim(); saveShift(); openExam(a.id);
+    a.animalId = animalIdEl.value.trim(); DashSync.rekey(a, 'processing'); saveShift(); openExam(a.id);
   });
   const locationEl = document.getElementById('fld_location');
   if(locationEl) locationEl.addEventListener('change', ()=>{
-    a.location = locationEl.value.trim(); refreshNote(a); saveShift();
+    a.location = locationEl.value.trim(); DashSync.rekey(a, 'processing'); refreshNote(a); saveShift();
   });
   const dupBtn = document.getElementById('duplicateBtn');
   if(dupBtn) dupBtn.addEventListener('click', ()=>{
