@@ -78,3 +78,34 @@ test('normalize also drops a bare first-line Date (Sick & Injured notes) but kee
   assert.equal(A.normalize('Date: 19/10/26\nReason: limping', []), A.normalize('Date: 18/10/26\nReason: limping', []));
   assert.equal(A.normalize('Reason: limping\nDate: 2 days ago', []), 'Reason: limping\nDate: 2 days ago');
 });
+
+test('check() asks which cards are still waiting; offline or a bad reply is null, never "entered"', async () => {
+  const sent = [];
+  const ok = (j) => async (o) => { sent.push(JSON.parse(o.body)); return { ok: true, json: async () => j }; };
+  const set = await A.check([{ kind: 'processing_note', animal_id: 'a1' }, { kind: 'processing_note', animal_id: ' ' }], ok({ ok: true, pending: ['processing_note|A1'] }));
+  assert.deepEqual(sent[0], { aa_check: { items: [{ kind: 'processing_note', animal_id: 'a1' }] } });
+  assert.deepEqual(set, { 'processing_note|A1': true });
+  assert.equal(await A.check([{ kind: 'si_note', animal_id: 'x' }], async () => null), null);
+  assert.equal(await A.check([{ kind: 'si_note', animal_id: 'x' }], async () => ({ ok: false, json: async () => ({}) })), null);
+  assert.equal(await A.check([{ kind: 'si_note', animal_id: 'x' }], ok({ ok: true })), null);
+  assert.equal(await A.check([{ kind: 'si_note', animal_id: 'x' }], async () => { throw new Error('offline'); }), null);
+  assert.equal(await A.check([], ok({})), null);
+});
+test('applyCheck marks sent items entered when their card is gone, and waiting again if it reappears', () => {
+  const list = [{ animalId: 'a1', aaSentAt: 'x' }, { animalId: 'a2', aaSentAt: 'x' }, { animalId: 'a3', aaSentAt: '' }, { animalId: 'a4', aaSentAt: 'x', aaEnteredAt: 'old' }];
+  const n = A.applyCheck(list, 'processing_note', { 'processing_note|A2': true, 'processing_note|A4': true }, 'NOW');
+  assert.equal(list[0].aaEnteredAt, 'NOW');
+  assert.ok(!list[1].aaEnteredAt);
+  assert.ok(!list[2].aaEnteredAt, 'never-sent items are never marked entered');
+  assert.equal(list[3].aaEnteredAt, '', 'a card that reappeared (updated after the AA ticked) is waiting again');
+  assert.equal(n, 2);
+});
+test('badge says where each animal has got to', () => {
+  const sig = A.sig('n');
+  assert.equal(A.badge({ registered: false }, 'n'), '');
+  assert.equal(A.badge({ registered: true, animalId: '' }, 'n'), 'No ID');
+  assert.equal(A.badge({ registered: true, animalId: 'a' }, 'n'), 'NOT SENT');
+  assert.equal(A.badge({ registered: true, animalId: 'a', aaSentAt: 'x', aaSig: sig }, 'n'), 'Sent to AA');
+  assert.equal(A.badge({ registered: true, animalId: 'a', aaSentAt: 'x', aaSig: sig, aaEnteredAt: 'y' }, 'n'), 'Entered in ShelterMate');
+  assert.equal(A.badge({ registered: true, animalId: 'a', aaSentAt: 'x', aaSig: sig, aaEnteredAt: 'y' }, 'changed'), 'NOT SENT');
+});

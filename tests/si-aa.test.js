@@ -25,7 +25,7 @@ async function start(animals, { online = true, shared = false, refuse = '' } = {
     route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body.aa ? { ok: true } : {}) });
   });
   await ctx.addInitScript((seed) => {
-    localStorage.setItem('ldhGateOk_v2', '1'); localStorage.setItem('ldh_sync_code_v1', 'test');
+    localStorage.setItem('ldhGateOk_v2', '1'); localStorage.setItem('ldh_processing_vetinit_v1', 'jx'); localStorage.setItem('ldh_processing_vetinit_v1_day', new Date().toLocaleDateString('en-CA')); localStorage.setItem('ldh_sync_code_v1', 'test');
     localStorage.setItem('ldh_sickinjured_shift_v1', JSON.stringify(seed.animals));
     localStorage.setItem('ldh_sickinjured_shift_v1_date', new Date().toLocaleDateString('en-AU',{day:'2-digit',month:'short',year:'numeric'}));
     if (seed.shared) localStorage.setItem('ldh_aa_share_sick_injured', '1');

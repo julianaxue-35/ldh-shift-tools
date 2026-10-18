@@ -667,6 +667,14 @@
     list[i] = Object.assign({}, list[i], patch);
     saveCharts(list);
   }
+  // Read-back: mark charts entered (card gone) or waiting again, and save the change.
+  function aaApplyCheck(tool, pending, nowISO) {
+    var list = aaCharts(tool).filter(function (c) { return c.aaSentAt; });
+    var before = list.map(function (c) { return c.aaEnteredAt || ''; });
+    var n = global.AAShare.applyCheck(list, 'med_chart', pending, nowISO, function (c) { return c.animalId; });
+    list.forEach(function (c, i) { if ((c.aaEnteredAt || '') !== before[i]) aaPatchChart(c.id, { aaEnteredAt: c.aaEnteredAt || '' }); });
+    return n;
+  }
   function aaNotify() { if (typeof aaListener === 'function') { try { aaListener(); } catch (e) { /* display only */ } } }
   function aaBlobToB64(blob) {
     return new Promise(function (res, rej) {
@@ -691,7 +699,7 @@
     return buildWorkbook([chart]).then(aaBlobToB64).then(function (b64) {
       body.aa.payload = { lines: lines, xlsx_b64: b64 };
       return global.AAShare.send(body).then(function (ok) {
-        if (ok) { aaPatchChart(chart.id, { aaSentAt: new Date().toISOString(), aaSig: sig, aaErr: '' }); return true; }
+        if (ok) { aaPatchChart(chart.id, { aaSentAt: new Date().toISOString(), aaSig: sig, aaErr: '', aaEnteredAt: '' }); return true; }
         return fail(global.AAShare.lastError() || 'Not sent.');
       });
     }, function () { return fail("Couldn't build the Excel chart to send."); }).then(done, function () { return done(false); });
@@ -1018,6 +1026,8 @@
     deleteChart: deleteChart,
     buildWorkbook: buildWorkbook,
     aaChartStatus: aaChartStatus,
+    aaChartSig: aaChartSig,
+    aaApplyCheck: aaApplyCheck,
     aaChartSummary: aaChartSummary,
     aaCharts: aaCharts,
     aaChartsToSend: aaChartsToSend,
