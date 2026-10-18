@@ -41,3 +41,5 @@ On the Incomplete tab of both Processing and Sick & Injured, **Share this shift 
 A send only counts once the dashboard confirms it saved. Anything else shows as **NOT SENT** (or "changed since sent" if the note was edited afterwards) with a Resend button, a red bar stays up, and Export / Share / Clear ask first if anything is unsent. Nothing is queued in the background. Clear list turns the switch off.
 
 Roll out in order: migration 0018 → deploy the updated Edge Function code (the live function is named `clever-endpoint`; its source is `supabase/functions/sync-completion` in the dashboard repo) → dashboard → these tools. Tests: `node --test tests/*.test.mjs` and `NODE_PATH=<playwright path> node tests/processing-aa.test.js` and `tests/si-aa.test.js`.
+
+**Medication charts (phase 2c):** with the share switch on, saving or editing a chart in Processing or Sick & Injured sends it to the AA page as a `med_chart` card (drug lines; a re-save updates the same card). Surgery and manual charts are never sent. Status, red bar, Resend and the export/Clear warnings cover charts too. Test: `NODE_PATH=<playwright path> node tests/chart-aa.test.js`.

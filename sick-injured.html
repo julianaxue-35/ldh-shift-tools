@@ -461,7 +461,7 @@ async function aaSendAnimal(a){
 }
 function aaRegisterHint(){ return AAShare.isOn(AA_TOOL) ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA — finish the notes first.</div>' : ''; }
 function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
-function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); }
+function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); MedChart.aaChartsToSend(AA_TOOL).forEach(MedChart.aaSendChart); }
 // Undoing a registration or deleting an animal cannot unsend its card, so say so.
 function aaWarnRetract(a){
   if(a && a.aaSentAt) alert(`Notes for ${a.animalId || 'this animal'} were already sent to the Admission AA. That card stays on their page: tell them to ignore or remove it.`);
@@ -475,6 +475,8 @@ function renderAaShare(){
   const sum = document.getElementById('aaShareSummary'), row = document.getElementById('aaResendRow');
   if(!on){ bar.classList.add('hidden'); list.innerHTML = ''; sum.textContent = ''; row.classList.add('hidden'); return; }
   const s = AAShare.summary(state.animals, aaSigText);
+  const cs = MedChart.aaChartSummary(AA_TOOL);
+  s.sent += cs.sent; s.unsent += cs.unsent;
   sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '');
   list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaSigText(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
     const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (a.aaErr ? ' \u2014 ' + a.aaErr : ''));
@@ -484,15 +486,24 @@ function renderAaShare(){
       ${st === 'noid' ? '' : `<button class="btn small aa-resend" data-id="${esc(a.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending\u2026' : 'Resend'}</button>`}
     </div>`;
   }).join('');
-  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaSigText).length);
+  list.innerHTML += MedChart.aaCharts(AA_TOOL).map(c=>({c, st:MedChart.aaChartStatus(c)})).filter(x=>x.st !== 'sent').map(({c, st})=>{
+    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (c.aaErr ? ' \u2014 ' + c.aaErr : ''));
+    const busy = MedChart.aaIsSending(c.id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
+      <span><b>${esc(c.animalId || '(no ID)')}</b> \u2014 medication chart \u2014 ${esc(label)}</span>
+      ${st === 'noid' ? '' : `<button class="btn small aa-resend-chart" data-id="${esc(c.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending\u2026' : 'Resend'}</button>`}
+    </div>`;
+  }).join('');
+  row.classList.toggle('hidden', !(AAShare.needsSend(state.animals, aaSigText).length || MedChart.aaChartsToSend(AA_TOOL).length));
   if(s.unsent){ bar.textContent = `${s.unsent} item${s.unsent>1?'s':''} not sent to the Admission AA \u2014 open Shift List to resend.`; bar.classList.remove('hidden'); }
   else bar.classList.add('hidden');
 }
 function aaGuard(action){
   if(!AAShare.isOn(AA_TOOL)) return true;
   const s = AAShare.summary(state.animals, aaSigText);
+  s.unsent += MedChart.aaChartSummary(AA_TOOL).unsent;
   if(!s.unsent) return true;
-  return confirm(`${s.unsent} animal(s) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
+  return confirm(`${s.unsent} item(s) (notes or medication charts) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
 }
 document.getElementById('aaShareToggle').addEventListener('change', (e)=>{
   AAShare.setOn(AA_TOOL, e.target.checked);
@@ -503,6 +514,11 @@ document.getElementById('aaShareList').addEventListener('click', (e)=>{
   const b = e.target.closest('.aa-resend'); if(!b) return;
   const a = state.animals.find(x=>x.id === b.dataset.id); if(a) aaSendAnimal(a);
 });
+document.getElementById('aaShareList').addEventListener('click', (e)=>{
+  const b = e.target.closest('.aa-resend-chart'); if(!b) return;
+  const c = MedChart.loadCharts().find(x=>x.id === b.dataset.id); if(c) MedChart.aaSendChart(c);
+});
+MedChart.onAaChange(renderAaShare);
 document.getElementById('aaResendAll').addEventListener('click', aaSendPending);
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
@@ -514,7 +530,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-18.1';
+const APP_VERSION = '2026-10-18.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
