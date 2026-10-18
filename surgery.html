@@ -578,7 +578,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-17.2';
+const APP_VERSION = '2026-10-19.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -611,6 +611,21 @@ function syncCompletionToDashboard(a, shift, note) {
     body: JSON.stringify({ title: a.animalId, location: syncLoc(a), shift, note: note || undefined }),
   }).catch(() => {});
 }
+/* 2026-10-19: surgery stats. Each registered surgery is reported to the dashboard with ONLY the species and the
+   procedure(s): no animal ID, name or notes. Registering sends it; un-registering removes it. Because a failed send
+   is silent, the whole registered list is re-sent when the page opens and whenever the phone comes back online;
+   the dashboard stores one row per record id, so repeats change nothing. */
+function syncSurgeryLog(a) {
+  if (!a || !a.id) return;
+  const body = a.registered
+    ? { source_id: String(a.id), species: a.species || '', surg_type: a.surgType || '', surg_type2: a.surgType2 || '', registered: true }
+    : { source_id: String(a.id), registered: false };
+  if (a.registered && !body.surg_type) return;
+  LDHSync.fetch({ method: 'POST', body: JSON.stringify({ surgery_log: body }) }).catch(() => {});
+}
+function syncSurgeryLogAll() { state.animals.filter(a => a.registered).forEach(syncSurgeryLog); }
+window.addEventListener('online', syncSurgeryLogAll);
+setTimeout(syncSurgeryLogAll, 2000);
 /* 2026-09-25: removing an animal from the shift list also removes its case
    from the dashboard (so the dashboard's counts don't keep a case that was
    deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
@@ -3913,6 +3928,7 @@ function bindExamForm(a){
     if(a.registered) a.nextUp = false;   // done — no longer "next"
     saveShift();
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); }
+    syncSurgeryLog(a);
     openExam(a.id);
     renderShiftList();
   });
