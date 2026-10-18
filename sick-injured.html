@@ -218,6 +218,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
+<div id="aaRedBar" class="hidden" style="position:sticky;top:0;z-index:50;background:#b3261e;color:#fff;padding:10px 14px;font-size:14px;font-weight:600"></div>
 
 <div class="wrap tab-panel" id="tabShift">
 
@@ -240,6 +241,17 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       </div>
       <div id="parsedFlagWrap"></div>
     </div>
+  </div>
+
+  <div class="card" id="aaShareCard">
+    <label style="display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer">
+      <input type="checkbox" id="aaShareToggle" style="width:20px;height:20px">
+      Share this shift with Admission AA
+    </label>
+    <p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;line-height:1.5">While this is on, each animal you register is sent to the Admission AA as a task to enter in ShelterMate. Finish the notes <b>before</b> you register. Off = nothing is sent.</p>
+    <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
+    <div id="aaShareList"></div>
+    <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
   </div>
 
   <div class="card" id="shiftListCard">
@@ -416,8 +428,82 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="aa-share.js"></script>
 <script src="medchart.js"></script>
 <script>
+/* ---------- share with Admission AA (2026-10-18) ---------- */
+const AA_TOOL = 'sick_injured';
+const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
+// The signature ignores the Date/Vet/Nurse line and the closing initials, so a nurse change or midnight is not an "edit".
+const aaSigText = a => AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
+const aaSending = new Set();
+function aaFileToB64(file){
+  return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
+}
+async function aaSendAnimal(a){
+  if(aaSending.has(a.id)) return;
+  const idNow = String(a.animalId || '').trim();
+  if(a.aaSentId && idNow && a.aaSentId.toUpperCase() !== idNow.toUpperCase()){
+    if(!confirm(`Notes for ${a.aaSentId} were already sent to the Admission AA. Sending under ${idNow} adds a NEW card, and the old ${a.aaSentId} card stays until the Admission AA removes it.\n\nSend as ${idNow}? (Tell the Admission AA to remove the ${a.aaSentId} card.)`)) return;
+  }
+  aaSending.add(a.id);
+  renderAaShare();
+  try{
+    const noteText = aaNoteOf(a);
+    const sigNow = AAShare.sig(aaSigText(a));
+    let docxB64 = '';
+    try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
+    const body = AAShare.buildBody({kind:'si_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || ''});
+    if(!body) return;
+    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; saveShift(); }
+    else { a.aaErr = AAShare.lastError(); }
+  } finally { aaSending.delete(a.id); renderAaShare(); }
+}
+function aaRegisterHint(){ return AAShare.isOn(AA_TOOL) ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA — finish the notes first.</div>' : ''; }
+function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
+function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); }
+// Undoing a registration or deleting an animal cannot unsend its card, so say so.
+function aaWarnRetract(a){
+  if(a && a.aaSentAt) alert(`Notes for ${a.animalId || 'this animal'} were already sent to the Admission AA. That card stays on their page: tell them to ignore or remove it.`);
+}
+function renderAaShare(){
+  if(AAShare.isOn(AA_TOOL) && !state.animals.length) AAShare.setOn(AA_TOOL, false);   // an empty list means the shift is over
+  const on = AAShare.isOn(AA_TOOL);
+  const toggle = document.getElementById('aaShareToggle');
+  if(toggle) toggle.checked = on;
+  const bar = document.getElementById('aaRedBar'), list = document.getElementById('aaShareList');
+  const sum = document.getElementById('aaShareSummary'), row = document.getElementById('aaResendRow');
+  if(!on){ bar.classList.add('hidden'); list.innerHTML = ''; sum.textContent = ''; row.classList.add('hidden'); return; }
+  const s = AAShare.summary(state.animals, aaSigText);
+  sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '');
+  list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaSigText(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
+    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (a.aaErr ? ' \u2014 ' + a.aaErr : ''));
+    const busy = aaSending.has(a.id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
+      <span><b>${esc(a.animalId || '(no ID)')}</b> \u2014 ${esc(label)}</span>
+      ${st === 'noid' ? '' : `<button class="btn small aa-resend" data-id="${esc(a.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending\u2026' : 'Resend'}</button>`}
+    </div>`;
+  }).join('');
+  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaSigText).length);
+  if(s.unsent){ bar.textContent = `${s.unsent} item${s.unsent>1?'s':''} not sent to the Admission AA \u2014 open Shift List to resend.`; bar.classList.remove('hidden'); }
+  else bar.classList.add('hidden');
+}
+function aaGuard(action){
+  if(!AAShare.isOn(AA_TOOL)) return true;
+  const s = AAShare.summary(state.animals, aaSigText);
+  if(!s.unsent) return true;
+  return confirm(`${s.unsent} animal(s) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
+}
+document.getElementById('aaShareToggle').addEventListener('change', (e)=>{
+  AAShare.setOn(AA_TOOL, e.target.checked);
+  if(e.target.checked) aaSendPending();
+  renderAaShare();
+});
+document.getElementById('aaShareList').addEventListener('click', (e)=>{
+  const b = e.target.closest('.aa-resend'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.id); if(a) aaSendAnimal(a);
+});
+document.getElementById('aaResendAll').addEventListener('click', aaSendPending);
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 // In-memory only — a parsed-but-not-yet-saved medication chart, keyed
@@ -428,7 +514,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.3';
+const APP_VERSION = '2026-10-18.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -544,6 +630,10 @@ function listBackups(){
    the exam modal, the symptom is just "pressing Exam does nothing," with no
    visible error. Root-caused via reproduction 2026-09-04 (animal 1173889). */
 function normalizeAnimal(a){
+  if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
+  if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
+  if(a.aaSentId == null) a.aaSentId = null;   // the animal ID the card was sent under
+  if(a.aaErr == null) a.aaErr = '';           // why the last send was refused, if it was
   if(!a.exam || typeof a.exam !== 'object') a.exam = {demeanour:'', eating:'', urinating:'', defecating:'', free:''};
   if(typeof a.examination === 'string' && a.examination.trim() && !a.exam.free) a.exam.free = a.examination;
   ['demeanour','eating','urinating','defecating','free'].forEach(k=>{ if(a.exam[k]==null) a.exam[k]=''; });
@@ -1486,6 +1576,7 @@ function bindListButtons(){
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       const gone = state.animals.find(a=>a.id===b.dataset.del);
+      aaWarnRetract(gone);
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
       // another visit of the same animal still on the list owns the dashboard case
       if(!(gone && state.animals.some(x=>x.animalId===gone.animalId && x.location===gone.location))) removeFromDashboard(gone, 'sick_injured');
@@ -1514,6 +1605,7 @@ document.getElementById('mainTabbar').addEventListener('click', e=>{
 const clearCompletedTabBtn = document.getElementById('clearCompletedTabBtn');
 if(clearCompletedTabBtn) clearCompletedTabBtn.addEventListener('click', ()=> document.getElementById('clearRegisteredBtn').click());
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Clear')) return;
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
   if(confirm(`Remove all ${registeredCount} registered animal(s) from the list? Only do this once you've actually exported/emailed them — animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
@@ -1523,10 +1615,12 @@ document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   }
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Clear')) return;
   if(!state.animals.length){ alert('The list is already empty.'); return; }
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
     state.animals = [];
+    AAShare.setOn(AA_TOOL, false);
     saveShift(); renderShiftList();
     const note = document.getElementById('shareExportNote');
     if(note) note.textContent = '';
@@ -1663,6 +1757,7 @@ function renderShiftList(){
   renderElsewhere(elsewhere);
   bindListButtons();
   renderBackupList();
+  renderAaShare();
 }
 function renderBackupList(){
   const wrap = document.getElementById('backupList');
@@ -2206,7 +2301,7 @@ function examFormHtml(a){
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
   return h;
 }
 
@@ -2386,6 +2481,7 @@ function bindExamForm(a){
   if(markBtn) markBtn.addEventListener('click', async ()=>{
     if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;
+    if(!a.registered) aaWarnRetract(a);
     if(a.registered) a.dashSynced = true;
     saveShift();
     if(a.registered){
@@ -2396,6 +2492,7 @@ function bindExamForm(a){
         alert('Saved to register.');
       }
       syncCompletionToDashboard(a, 'sick_injured', a.flagged ? planExcerpt(a.plan, 140) : undefined);   // only flagged animals feed a one-line plan back to the dashboard
+      aaAfterRegister(a);
     }
     openExam(a.id);
     renderShiftList();
@@ -2593,14 +2690,15 @@ function wordParagraph(text, opts){
   return `<w:p><w:pPr>${spacing}</w:pPr><w:r>${rPrXml}<w:t xml:space="preserve">${wordXmlEscape(text)}</w:t></w:r></w:p>`;
 }
 const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-async function buildWordFile(){
-  const toExport = sortedAnimals().filter(a=>a.registered);
+async function buildWordFile(opts){
+  const only = opts && opts.only;   // one-animal file for the Admission AA
+  const toExport = only ? only : sortedAnimals().filter(a=>a.registered);
   // Animals still sitting in the Shift List, never registered at all —
   // distinct from the Incomplete bucket (those WERE opened). Matches the
   // Excel export's "Not Completed" sheet — a trailer list here too, so
   // whoever picks up the shift next can see what's outstanding without
   // opening the app.
-  const pending = sortedAnimals().filter(a=>!a.registered && !a.doneElsewhere);
+  const pending = only ? [] : sortedAnimals().filter(a=>!a.registered && !a.doneElsewhere);
   if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Sick & Injured Notes — ${todayStr()}`, {bold:true, size:32, after:200});
   toExport.forEach((a,i)=>{
@@ -2723,6 +2821,7 @@ async function runShareFlow(files, title, text){
   alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
 }
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
+  if(!aaGuard('Export')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const file = await buildWordFile();
   if(!file){ alert('There are no animals in this shift yet — add some first.'); return; }
@@ -2852,6 +2951,7 @@ function buildExcelFile(){
   return new File([blob], `SickInjured_Summary_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Export')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const file = buildExcelFile();
   if(!file){ alert('No animals in the shift list.'); return; }
@@ -2859,6 +2959,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   showClearReminder();
 });
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
+  if(!aaGuard('Share')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const files = [await buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet — add animals and register at least one to Word & Excel first.'); return; }
@@ -2906,6 +3007,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   incoming.forEach(a=>{
     if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
     a.dashSynced = false;
+    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = '';   // the sender's send stamps do not apply to this phone
   });
   const key = a => (a.animalId||'').toString().trim().toLowerCase();
   const byKey = new Map();

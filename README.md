@@ -33,3 +33,11 @@ Surgery is blue, Sick & Injured is orange, Processing is green — otherwise ide
 © 2026 Juliana Xue. All rights reserved. This work is the intellectual property of Juliana Xue and
 may not be copied, modified, distributed or used without her express written permission, except by
 her current employer for as long as she remains engaged there.
+
+## Share with Admission AA (Processing and Sick & Injured, 2026-10-18)
+
+On the Incomplete tab of both Processing and Sick & Injured, **Share this shift with Admission AA** is off by default. While it is on, each animal you register is sent to the Admission AA page as a task to enter in ShelterMate (notes text plus a one-animal Word file). Finish the notes before you register. Animals already registered when you switch on are sent straight away.
+
+A send only counts once the dashboard confirms it saved. Anything else shows as **NOT SENT** (or "changed since sent" if the note was edited afterwards) with a Resend button, a red bar stays up, and Export / Share / Clear ask first if anything is unsent. Nothing is queued in the background. Clear list turns the switch off.
+
+Roll out in order: migration 0018 → deploy the updated Edge Function code (the live function is named `clever-endpoint`; its source is `supabase/functions/sync-completion` in the dashboard repo) → dashboard → these tools. Tests: `node --test tests/*.test.mjs` and `NODE_PATH=<playwright path> node tests/processing-aa.test.js` and `tests/si-aa.test.js`.
