@@ -455,8 +455,14 @@
       var grid = computeGrid(m, gridShift(m, exported));
       for (var d = 0; d < 14; d++) {
         var amRow = GRID_ROWS[d], pmRow = amRow + 1;
-        xml = setCellXml(xml, box.grid + amRow, grid.am[d] || '');
-        xml = setCellXml(xml, box.grid + pmRow, grid.pm[d] || '');
+        var am = grid.am[d] || '', pm = grid.pm[d] || '';
+        // Saturday and Sunday: staff only work until the AM, so a day is charted ONCE (the AM). A PM dose on
+        // those days is not charted (marked with a dash so it isn't mistaken for a missed tick); a PM-only
+        // dose is moved to the AM.
+        var dow = new Date(Date.UTC(1899, 11, 30) + (startSerial + dayOffset + d) * 86400000).getUTCDay();
+        if ((dow === 0 || dow === 6) && pm) { if (!am) am = pm; pm = '\u2014'; }
+        xml = setCellXml(xml, box.grid + amRow, am);
+        xml = setCellXml(xml, box.grid + pmRow, pm);
       }
     });
     return xml;
