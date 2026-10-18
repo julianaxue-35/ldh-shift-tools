@@ -550,11 +550,77 @@
       }).catch(function () {});
     } catch (e) { /* never let the sync attempt break the local save */ }
   }
+  // ---------- Admission AA hand-off (2026-10-18) ----------
+  // With the "Share this shift with Admission AA" switch on in Processing or Sick & Injured, saving (or editing) a
+  // chart sends it to the Admission AA page as its own card (one live card per animal per day, so a re-save UPDATES it).
+  // Sent only counts when the dashboard confirms (AAShare.send); otherwise the chart is NOT SENT and the tool shows
+  // it in the red bar with a Resend button. Surgery and manual charts are never sent.
+  var AA_TOOL_OF = { processing: 'processing', 'sick-injured': 'sick_injured' };
+  var aaSendingCharts = {};
+  var aaListener = null;
+  function aaToolFor(chart) { return (chart && AA_TOOL_OF[chart.sourceTool]) || null; }
+  function aaChartLines(chart) {
+    var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
+    return (chart.meds || []).map(function (m) { return labelFor(m, base); }).filter(Boolean);
+  }
+  function aaChartSig(chart) { return global.AAShare.sig(aaChartLines(chart).join('\n')); }
+  function aaChartStatus(chart) {
+    if (!String(chart.animalId == null ? '' : chart.animalId).trim()) return 'noid';
+    if (!chart.aaSentAt) return 'notsent';
+    return chart.aaSig === aaChartSig(chart) ? 'sent' : 'stale';
+  }
+  function aaToday(chart) { return localDay(new Date(chart.createdAt || Date.now())) === localDay(new Date()); }
+  // Charts this tool is responsible for right now: its own, saved today.
+  function aaCharts(tool) {
+    return loadCharts().filter(function (c) { return aaToolFor(c) === tool && aaToday(c); });
+  }
+  function aaChartSummary(tool) {
+    var s = { sent: 0, unsent: 0, noid: 0 };
+    aaCharts(tool).forEach(function (c) {
+      var st = aaChartStatus(c);
+      if (st === 'sent') s.sent++; else { s.unsent++; if (st === 'noid') s.noid++; }
+    });
+    return s;
+  }
+  function aaChartsToSend(tool) {
+    return aaCharts(tool).filter(function (c) { var st = aaChartStatus(c); return st === 'notsent' || st === 'stale'; });
+  }
+  function aaPatchChart(id, patch) {
+    var list = loadCharts(), i = list.findIndex(function (c) { return c.id === id; });
+    if (i === -1) return;
+    list[i] = Object.assign({}, list[i], patch);
+    saveCharts(list);
+  }
+  function aaNotify() { if (typeof aaListener === 'function') { try { aaListener(); } catch (e) { /* display only */ } } }
+  function aaSendChart(chart) {
+    if (!global.AAShare || !chart || aaSendingCharts[chart.id]) return Promise.resolve(false);
+    var lines = aaChartLines(chart);
+    var body = global.AAShare.buildBody({ kind: 'med_chart', animal: chart, noteText: '', sentBy: chart.vetInCharge || '' });
+    if (!body || !lines.length) return Promise.resolve(false);
+    body.aa.payload = { lines: lines };
+    aaSendingCharts[chart.id] = true;
+    aaNotify();
+    var sig = aaChartSig(chart);
+    return global.AAShare.send(body).then(function (ok) {
+      if (ok) aaPatchChart(chart.id, { aaSentAt: new Date().toISOString(), aaSig: sig, aaErr: '' });
+      else aaPatchChart(chart.id, { aaErr: global.AAShare.lastError() || 'Not sent.' });
+      return ok;
+    }).then(function (ok) { delete aaSendingCharts[chart.id]; aaNotify(); return ok; },
+            function () { delete aaSendingCharts[chart.id]; aaNotify(); return false; });
+  }
+  function aaAutoSend(chart) {
+    try {
+      var tool = aaToolFor(chart);
+      if (tool && global.AAShare && global.AAShare.isOn(tool)) aaSendChart(chart);
+    } catch (e) { /* never let the AA hand-off break the local save */ }
+  }
+
   function addChart(chart) {
     var list = loadCharts();
     list.push(chart);
     saveCharts(list);
     syncChartToDashboard(chart);
+    aaAutoSend(chart);
     return chart;
   }
   function deleteChart(id) {
@@ -573,6 +639,7 @@
     list[idx] = Object.assign({}, list[idx], patch);
     saveCharts(list);
     syncChartToDashboard(list[idx]);
+    aaAutoSend(list[idx]);
     return list[idx];
   }
   // Finds a previously-saved chart for the same underlying animal
@@ -861,6 +928,13 @@
     addChart: addChart,
     updateChart: updateChart,
     deleteChart: deleteChart,
+    aaChartStatus: aaChartStatus,
+    aaChartSummary: aaChartSummary,
+    aaCharts: aaCharts,
+    aaChartsToSend: aaChartsToSend,
+    aaSendChart: aaSendChart,
+    aaIsSending: function (id) { return !!aaSendingCharts[id]; },
+    onAaChange: function (fn) { aaListener = fn; },
     findChartBySourceAnimal: findChartBySourceAnimal,
     maxMeds: MAX_MEDS_PER_SHEET,
     upsertAutoMed: upsertAutoMed,
