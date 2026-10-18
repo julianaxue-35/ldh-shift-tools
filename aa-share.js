@@ -18,9 +18,9 @@
   // closing initials. Changing the nurse at lunch, or crossing midnight, must not make every sent note look edited.
   function normalize(text, strip) {
     var drop = (strip || []).map(function (v) { return String(v == null ? '' : v).trim(); }).filter(Boolean);
-    return String(text == null ? '' : text).split('\n').filter(function (line) {
+    return String(text == null ? '' : text).split('\n').filter(function (line, i) {
       var t = line.trim();
-      if (/^Date: .*Vet: .*Nurse: /.test(t)) return false;
+      if (/^Date: .*Vet: .*Nurse: /.test(t) || (i === 0 && /^Date: /.test(t))) return false;
       return drop.indexOf(t) === -1;
     }).join('\n');
   }

@@ -72,3 +72,9 @@ test('send keeps the server reason for a refusal in lastError', async () => {
   await A.send({ aa: {} }, async () => { throw new Error('offline'); });
   assert.match(A.lastError(), /connect|offline/i);
 });
+
+test('normalize also drops a bare first-line Date (Sick & Injured notes) but keeps later lines starting with Date', () => {
+  assert.equal(A.normalize('Date: 18/10/26\nReason: limping', []), 'Reason: limping');
+  assert.equal(A.normalize('Date: 19/10/26\nReason: limping', []), A.normalize('Date: 18/10/26\nReason: limping', []));
+  assert.equal(A.normalize('Reason: limping\nDate: 2 days ago', []), 'Reason: limping\nDate: 2 days ago');
+});
