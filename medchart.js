@@ -421,7 +421,9 @@
   // Builds one patched copy of the real template's sheet XML for a
   // single animal chart. Only the cells listed above are ever touched.
   function patchSheetXml(templateXml, chart) {
-    var xml = templateXml;
+    // The template's cursor points at a frozen pane (pane="bottomLeft") the sheet doesn't have, which made Excel
+    // say "We found a problem with some content" and repair the View. Drop the stray reference.
+    var xml = templateXml.replace(/(<selection\b[^>]*?)\s+pane="[^"]*"/g, '$1');
     if (chart.animalId) xml = setCellXml(xml, HEADER_CELLS.patientId, 'Patient ID: ' + chart.animalId);
     if (chart.location) xml = setCellXml(xml, HEADER_CELLS.location, 'Location: ' + chart.location);
     if (chart.weight) xml = setCellXml(xml, 'B8', parseFloat(chart.weight) || chart.weight);
