@@ -252,6 +252,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
     <div id="aaShareList"></div>
     <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
+    <div class="row-actions" style="margin-top:8px"><button class="btn small secondary" id="aaCheckBtn">Check what the AA has entered</button> <button class="btn small" id="aaEndCheckBtn">End-of-shift check</button></div>
   </div>
 
   <div class="card" id="shiftListCard">
@@ -455,7 +456,7 @@ async function aaSendAnimal(a){
     try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
     const body = AAShare.buildBody({kind:'si_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || ''});
     if(!body) return;
-    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; saveShift(); }
+    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; a.aaEnteredAt = ''; saveShift(); }
     else { a.aaErr = AAShare.lastError(); }
   } finally { aaSending.delete(a.id); renderAaShare(); }
 }
@@ -477,7 +478,7 @@ function renderAaShare(){
   const s = AAShare.summary(state.animals, aaSigText);
   const cs = MedChart.aaChartSummary(AA_TOOL);
   s.sent += cs.sent; s.unsent += cs.unsent;
-  sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '');
+  sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '') + (aaCountsLine() ? ` · ${aaCountsLine()} entered in ShelterMate` : '');
   list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaSigText(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
     const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (a.aaErr ? ' \u2014 ' + a.aaErr : ''));
     const busy = aaSending.has(a.id);
@@ -520,6 +521,91 @@ document.getElementById('aaShareList').addEventListener('click', (e)=>{
 });
 MedChart.onAaChange(renderAaShare);
 document.getElementById('aaResendAll').addEventListener('click', aaSendPending);
+/* ---------- Entered in ShelterMate read-back, end-of-shift check, start-of-shift initials (2026-10-19) ---------- */
+const AA_KIND = AA_TOOL === 'processing' ? 'processing_note' : 'si_note';
+const LS_ENDCHECK = 'ldh_aa_endcheck_' + AA_TOOL;
+let aaCheckedAt = '';
+async function aaCheckEntered(manual){
+  const sentNotes = state.animals.filter(a=>a.aaSentAt && String(a.aaSentId || a.animalId || '').trim());
+  const charts = MedChart.aaCharts(AA_TOOL).filter(c=>c.aaSentAt);
+  const pairs = sentNotes.map(a=>({kind:AA_KIND, animal_id:a.aaSentId || a.animalId})).concat(charts.map(c=>({kind:'med_chart', animal_id:c.animalId})));
+  if(!pairs.length){ if(manual) alert('Nothing has been sent to the Admission AA yet.'); return false; }
+  const pending = await AAShare.check(pairs);
+  if(!pending){ if(manual) alert("Couldn't reach the dashboard just now, so nothing has been changed. Try again when you have a connection."); return false; }
+  const now = new Date().toISOString();
+  let n = AAShare.applyCheck(sentNotes, AA_KIND, pending, now, a=>a.aaSentId || a.animalId);
+  n += MedChart.aaApplyCheck(AA_TOOL, pending, now);
+  aaCheckedAt = now;
+  if(n) saveShift();
+  renderShiftList(); renderAaShare();
+  return true;
+}
+function aaCountsLine(){
+  const notes = state.animals.filter(a=>a.registered && AAShare.status(a, aaSigText(a)) === 'sent');
+  const cs = MedChart.aaCharts(AA_TOOL).filter(c=>MedChart.aaChartStatus(c) === 'sent');
+  return notes.filter(a=>a.aaEnteredAt).length + cs.filter(c=>c.aaEnteredAt).length;
+}
+function aaEndCheckRows(){
+  const rows = [];   // {id, what, state: 'ok'|'wait'|'bad', text}
+  state.animals.forEach(a=>{
+    const id = a.animalId || '(no ID)';
+    if(a.doneElsewhere && !a.registered){ rows.push({id, what:'Notes', state:'ok', text:'Done by another vet'}); return; }
+    if(!a.registered){ rows.push({id, what:'Notes', state:'bad', text:'Not registered yet'}); return; }
+    const st = AAShare.status(a, aaSigText(a));
+    if(st === 'noid') rows.push({id, what:'Notes', state:'bad', text:"No animal ID, can't send"});
+    else if(st === 'notsent' || st === 'stale') rows.push({id, what:'Notes', state:'bad', text: st === 'stale' ? 'NOT SENT: changed since it was sent' : 'NOT SENT'});
+    else rows.push({id, what:'Notes', state: a.aaEnteredAt ? 'ok' : 'wait', text: a.aaEnteredAt ? 'Entered in ShelterMate' : 'Sent, waiting for the Admission AA to enter'});
+  });
+  MedChart.aaCharts(AA_TOOL).forEach(c=>{
+    const st = MedChart.aaChartStatus(c), id = c.animalId || '(no ID)';
+    if(st === 'noid') rows.push({id, what:'Medication chart', state:'bad', text:"No animal ID, can't send"});
+    else if(st === 'notsent' || st === 'stale') rows.push({id, what:'Medication chart', state:'bad', text: st === 'stale' ? 'NOT SENT: changed since it was sent' : 'NOT SENT'});
+    else rows.push({id, what:'Medication chart', state: c.aaEnteredAt ? 'ok' : 'wait', text: c.aaEnteredAt ? 'Entered in ShelterMate' : 'Sent, waiting for the Admission AA to enter'});
+  });
+  return rows;
+}
+function aaEndCheckHtml(){
+  if(!AAShare.isOn(AA_TOOL)) return '<p>Sharing is off, so nothing is being sent to the Admission AA from this phone. Turn it on in the Share card if you want this shift\'s notes to go across.</p>' +
+    (() => { const n = state.animals.filter(a=>!a.registered && !a.doneElsewhere); return n.length ? `<p style="margin-top:8px"><b>${n.length}</b> animal(s) are not registered yet: ${n.map(a=>esc(a.animalId||'(no ID)')).join(', ')}.</p>` : ''; })();
+  const rows = aaEndCheckRows();
+  const bad = rows.filter(r=>r.state === 'bad'), wait = rows.filter(r=>r.state === 'wait'), ok = rows.filter(r=>r.state === 'ok');
+  const icon = {ok:'✅', wait:'⏳', bad:'❌'};
+  let h = `<p style="margin-bottom:8px"><b>${ok.length}</b> entered in ShelterMate · <b>${wait.length}</b> waiting for the AA · <b style="color:${bad.length?'#c0392b':'inherit'}">${bad.length}</b> ${bad.length === 1 ? 'needs' : 'need'} attention</p>`;
+  if(!rows.length) h += '<p>No animals in the list.</p>';
+  h += rows.sort((a,b)=>({bad:0,wait:1,ok:2}[a.state]-{bad:0,wait:1,ok:2}[b.state])).map(r=>`<div style="padding:6px 0;border-top:1px solid var(--line)">${icon[r.state]} <b>${esc(r.id)}</b> — ${esc(r.what)}: ${esc(r.text)}</div>`).join('');
+  if(bad.length) h += '<p style="margin-top:10px;color:#c0392b"><b>Fix these before you clear the list:</b> register the animal, add its ID, or press Resend in the Share card.</p>';
+  else if(!wait.length && rows.length) h += '<p style="margin-top:10px"><b>All clear.</b> Everything sent has been entered in ShelterMate.</p>';
+  else if(rows.length) h += '<p style="margin-top:10px">Everything has been sent. The ones waiting still need the Admission AA to enter them.</p>';
+  return h;
+}
+function aaOpenEndCheck(){
+  document.querySelectorAll('#aaEndModal').forEach(el=>el.remove());
+  const wrap = document.createElement('div');
+  wrap.id = 'aaEndModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow:auto';
+  wrap.innerHTML = '<div style="background:var(--card);border-radius:12px;max-width:560px;width:100%;padding:18px;box-shadow:var(--shadow)"><h2 style="margin:0 0 10px;font-size:17px">End-of-shift check</h2><div id="aaEndBody"></div>' +
+    '<div class="row-actions" style="margin-top:14px"><button class="btn small" id="aaEndRefresh">Check again now</button> <button class="btn small secondary" id="aaEndClose">Close</button></div></div>';
+  document.body.appendChild(wrap);
+  const body = wrap.querySelector('#aaEndBody');
+  body.innerHTML = aaEndCheckHtml();
+  wrap.querySelector('#aaEndClose').addEventListener('click', ()=>wrap.remove());
+  wrap.querySelector('#aaEndRefresh').addEventListener('click', async ()=>{ await aaCheckEntered(true); body.innerHTML = aaEndCheckHtml(); });
+  try{ localStorage.setItem(LS_ENDCHECK, new Date().toISOString()); }catch(e){}
+  aaCheckEntered(false).then(()=>{ if(document.body.contains(wrap)) body.innerHTML = aaEndCheckHtml(); });
+}
+function aaBadgeHtml(a){
+  const label = AAShare.badge(a, a && a.registered ? aaSigText(a) : '');
+  if(!label || !AAShare.isOn(AA_TOOL) && !a.aaSentAt) return '';
+  const good = label === 'Entered in ShelterMate', bad = label === 'NOT SENT' || label === 'No ID';
+  return `<span class="badge aa-badge" style="${good ? 'background:var(--teal-soft);color:var(--teal-dark)' : bad ? 'background:var(--rust-soft);color:var(--rust)' : 'background:var(--amber-soft);color:#8a5a00'}">${esc(label === 'Entered in ShelterMate' ? 'Entered in ShelterMate ✓' : label)}</span> `;
+}
+document.getElementById('aaCheckBtn').addEventListener('click', ()=>aaCheckEntered(true));
+document.getElementById('aaEndCheckBtn').addEventListener('click', aaOpenEndCheck);
+// look again when the page is opened and whenever it comes back to the front (the AA ticks things off all day)
+setTimeout(()=>{ if(state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); }, 1500);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible' && state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); });
+setInterval(()=>{ if(document.visibilityState === 'visible' && state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); }, 5*60*1000);
+
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 // In-memory only — a parsed-but-not-yet-saved medication chart, keyed
@@ -530,7 +616,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-18.2';
+const APP_VERSION = '2026-10-19.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -646,6 +732,7 @@ function listBackups(){
    the exam modal, the symptom is just "pressing Exam does nothing," with no
    visible error. Root-caused via reproduction 2026-09-04 (animal 1173889). */
 function normalizeAnimal(a){
+  if(a.aaEnteredAt == null) a.aaEnteredAt = '';   // when the Admission AA was seen to have entered it
   if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
   if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
   if(a.aaSentId == null) a.aaSentId = null;   // the animal ID the card was sent under
@@ -1037,6 +1124,37 @@ const vetInitEl = document.getElementById('vetInit');
 const nurseInitEl = document.getElementById('nurseInit');
 vetInitEl.value = localStorage.getItem(LS_INIT) || '';
 vetInitEl.addEventListener('change', ()=> localStorage.setItem(LS_INIT, vetInitEl.value.trim()));
+
+/* ---------- Start of shift: initials are cleared each new day and asked for again (2026-10-19) ---------- */
+const LS_INIT_DAY = LS_INIT + '_day';
+(function startOfShift(){
+  const today = new Date().toLocaleDateString('en-CA');
+  let seen = ''; try{ seen = localStorage.getItem(LS_INIT_DAY) || ''; }catch(e){}
+  if(seen === today) return;
+  vetInitEl.value = ''; nurseInitEl.value = '';
+  try{ localStorage.setItem(LS_INIT, ''); }catch(e){}
+  const wrap = document.createElement('div');
+  wrap.id = 'startShiftModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML = '<div style="background:var(--card);border-radius:12px;max-width:380px;width:100%;padding:20px;box-shadow:var(--shadow)"><h2 style="margin:0 0 6px;font-size:17px">Start of shift</h2>' +
+    '<p style="font-size:13px;color:var(--ink-soft);margin-bottom:12px">New day: your initials were cleared. Enter them now — they go on every note and chart you send today.</p>' +
+    '<label style="font-size:12px;font-weight:700">Vet initials (required)</label><input id="startShiftVet" maxlength="6" placeholder="e.g. JX" style="width:100%;margin:4px 0 10px">' +
+    '<label style="font-size:12px;font-weight:700">Nurse initials (if a nurse is helping)</label><input id="startShiftNurse" maxlength="6" placeholder="optional" style="width:100%;margin:4px 0 12px">' +
+    '<p id="startShiftErr" style="color:#c0392b;font-size:12.5px;display:none;margin-bottom:8px">Vet initials are needed to start the shift.</p>' +
+    '<button class="btn" id="startShiftSave">Start shift</button></div>';
+  document.body.appendChild(wrap);
+  const save = ()=>{
+    const v = wrap.querySelector('#startShiftVet').value.trim().toUpperCase();
+    if(!v){ wrap.querySelector('#startShiftErr').style.display = 'block'; wrap.querySelector('#startShiftVet').focus(); return; }
+    vetInitEl.value = v; nurseInitEl.value = wrap.querySelector('#startShiftNurse').value.trim().toUpperCase();
+    try{ localStorage.setItem(LS_INIT, v); localStorage.setItem(LS_INIT_DAY, today); }catch(e){}
+    vetInitEl.dispatchEvent(new Event('change')); nurseInitEl.dispatchEvent(new Event('input'));
+    wrap.remove();
+  };
+  wrap.querySelector('#startShiftSave').addEventListener('click', save);
+  wrap.querySelector('#startShiftVet').addEventListener('keydown', e=>{ if(e.key === 'Enter') save(); });
+  setTimeout(()=>wrap.querySelector('#startShiftVet').focus(), 50);
+})();
 
 /* ---------- Vet Reminder Report import ---------- */
 document.getElementById('parseXlsxBtn').addEventListener('click', ()=>{
@@ -1576,7 +1694,7 @@ function groupedListHtml(animals){
       </div>
       <div>
         ${a.ppeRequired==='YES' ? '<span class="badge" style="background:var(--rust-soft);color:var(--rust);margin-right:4px">PPE</span>' : ''}
-        ${a.secondVisit ? '<span class="badge" style="background:var(--amber-soft,#fdf0d5);color:#8a5a00;margin-right:4px" title="Second visit for this animal today — its own note">2nd visit</span>' : ''}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+        ${a.secondVisit ? '<span class="badge" style="background:var(--amber-soft,#fdf0d5);color:#8a5a00;margin-right:4px" title="Second visit for this animal today — its own note">2nd visit</span>' : ''}${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -3023,7 +3141,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   incoming.forEach(a=>{
     if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
     a.dashSynced = false;
-    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = '';   // the sender's send stamps do not apply to this phone
+    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = ''; a.aaEnteredAt = '';   // the sender's send stamps do not apply to this phone
   });
   const key = a => (a.animalId||'').toString().trim().toLowerCase();
   const byKey = new Map();

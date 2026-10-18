@@ -44,7 +44,7 @@ async function start(tool, { online = true, shared = true, template = true } = {
     };
   }, { tpl, template });
   await ctx.addInitScript((seed) => {
-    localStorage.setItem('ldhGateOk_v2', '1'); localStorage.setItem('ldh_sync_code_v1', 'test');
+    localStorage.setItem('ldhGateOk_v2', '1'); localStorage.setItem('ldh_processing_vetinit_v1', 'jx'); localStorage.setItem('ldh_processing_vetinit_v1_day', new Date().toLocaleDateString('en-CA')); localStorage.setItem('ldh_sync_code_v1', 'test');
     if (seed.shared) localStorage.setItem('ldh_aa_share_' + seed.key, '1');
   }, { shared, key: tool.key });
   const page = await ctx.newPage();
