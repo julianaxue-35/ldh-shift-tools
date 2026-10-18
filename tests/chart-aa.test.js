@@ -95,6 +95,17 @@ async function start(tool, { online = true, shared = true, template = true } = {
       t.ok(s.sent.length === 0 && /Excel/.test(await s.page.evaluate(() => MedChart.loadCharts()[0].aaErr)), L + 'no Excel = nothing sent, marked NOT SENT');
     } finally { await s.browser.close(); }
 
+    /* 3c. Excel opens cleanly: the sheet view must not point at a pane that does not exist (Excel "repaired View") */
+    s = await start(tool);
+    try {
+      const view = await s.page.evaluate(async () => {
+        const JS = window.JSZip; const blob = await MedChart.buildWorkbook([JSON.parse(JSON.stringify(Object.assign({}, MedChart.loadCharts()[0] || {})))].filter(c => c.meds).length ? [] : [{ id: 'z', animalId: 'T-1', createdAt: new Date().toISOString(), meds: [], sourceTool: 'manual' }]);
+        const z = await JS.loadAsync(blob); const xml = await z.file('xl/worksheets/sheet1.xml').async('string');
+        return { sel: (xml.match(/<selection[^>]*>/) || [''])[0], hasPane: /<pane /.test(xml) };
+      });
+      t.ok(view.hasPane || !/pane=/.test(view.sel), L + 'sheet view has no selection pointing at a missing pane: ' + view.sel);
+    } finally { await s.browser.close(); }
+
     /* 4. switch off: nothing sent */
     s = await start(tool, { shared: false });
     try {
