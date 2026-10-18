@@ -106,6 +106,27 @@ async function start(tool, { online = true, shared = true, template = true } = {
       t.ok(view.hasPane || !/pane=/.test(view.sel), L + 'sheet view has no selection pointing at a missing pane: ' + view.sel);
     } finally { await s.browser.close(); }
 
+    /* 3d. weekends are charted AM only (no PM staff on Saturday and Sunday) */
+    s = await start(tool);
+    try {
+      const cells = await s.page.evaluate(async () => {
+        const mk = (over) => Object.assign({ id: 'w', sourceAnimalId: 'w', sourceTool: 'manual', animalId: 'W-1', createdAt: '2026-10-16T09:00:00', startOption: 'today',
+          meds: [Object.assign({ drugKey: 'x', drugName: 'X', route: 'PO', freq: 'BID', days: 4, startOption: 'today', labelEdited: true, labelText: 'X' }, over || {})] });
+        const out = {};
+        for (const [k, over] of [['bid', {}], ['sidpm', { freq: 'SID', startSlot: 'PM' }], ['sid', { freq: 'SID' }]]) {
+          const z = await window.JSZip.loadAsync(await MedChart.buildWorkbook([mk(over)]));
+          const xml = await z.file('xl/worksheets/sheet1.xml').async('string');
+          const v = (addr) => { const m = xml.match(new RegExp('<c r="' + addr + '"[^>]*>(?:<is><t[^>]*>([^<]*)</t></is>)?')); return m ? (m[1] || '') : '?'; };
+          out[k] = [16, 18, 20, 22, 24, 26].map(r => v('D' + r) + '|' + v('D' + (r + 1)));
+        }
+        return out;
+      });
+      // Fri 16, Sat 17, Sun 18, Mon 19, Tue 20, Wed 21
+      t.ok(JSON.stringify(cells.bid) === JSON.stringify(['◯|◯', '◯|—', '◯|—', '◯|◯', 'R/C|R/C', '|']), L + 'BID: weekend days are AM only: ' + JSON.stringify(cells.bid));
+      t.ok(cells.sidpm[1] === '◯|—' && cells.sidpm[0] === '|◯', L + 'SID-in-the-PM dose moves to the AM on a weekend: ' + JSON.stringify(cells.sidpm));
+      t.ok(cells.sid[1] === '◯|' && cells.sid[2] === '◯|', L + 'SID (AM) weekend days are untouched: ' + JSON.stringify(cells.sid));
+    } finally { await s.browser.close(); }
+
     /* 4. switch off: nothing sent */
     s = await start(tool, { shared: false });
     try {
