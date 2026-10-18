@@ -40,4 +40,4 @@ On the Incomplete tab, **Share this shift with Admission AA** is off by default.
 
 A send only counts once the dashboard confirms it saved. Anything else shows as **NOT SENT** (or "changed since sent" if the note was edited afterwards) with a Resend button, a red bar stays up, and Export / Share / Clear ask first if anything is unsent. Nothing is queued in the background. Clear list turns the switch off.
 
-Roll out in order: migration 0018 → deploy the `sync-completion` Edge Function → dashboard → these tools. Tests: `node --test tests/*.test.mjs` and `NODE_PATH=<playwright path> node tests/processing-aa.test.js`.
+Roll out in order: migration 0018 → deploy the updated Edge Function code (the live function is named `clever-endpoint`; its source is `supabase/functions/sync-completion` in the dashboard repo) → dashboard → these tools. Tests: `node --test tests/*.test.mjs` and `NODE_PATH=<playwright path> node tests/processing-aa.test.js`.

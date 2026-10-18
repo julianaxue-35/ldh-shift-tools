@@ -476,50 +476,63 @@ function syncListToDashboard(animals, shift) {
 /* ---------- share with Admission AA (2026-10-18) ---------- */
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
+// The signature ignores the Date/Vet/Nurse line and the closing initials, so a nurse change or midnight is not an "edit".
+const aaSigText = a => AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
 const aaSending = new Set();
 function aaFileToB64(file){
   return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
 }
 async function aaSendAnimal(a){
   if(aaSending.has(a.id)) return;
+  const idNow = String(a.animalId || '').trim();
+  if(a.aaSentId && idNow && a.aaSentId.toUpperCase() !== idNow.toUpperCase()){
+    if(!confirm(`Notes for ${a.aaSentId} were already sent to the Admission AA. Sending under ${idNow} adds a NEW card, and the old ${a.aaSentId} card stays until the Admission AA removes it.\n\nSend as ${idNow}? (Tell the Admission AA to remove the ${a.aaSentId} card.)`)) return;
+  }
   aaSending.add(a.id);
   renderAaShare();
   try{
     const noteText = aaNoteOf(a);
+    const sigNow = AAShare.sig(aaSigText(a));
     let docxB64 = '';
     try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
     const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || ''});
     if(!body) return;
-    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = AAShare.sig(noteText); saveShift(); }
+    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; saveShift(); }
+    else { a.aaErr = AAShare.lastError(); }
   } finally { aaSending.delete(a.id); renderAaShare(); }
 }
 function aaRegisterHint(){ return AAShare.isOn(AA_TOOL) ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA — finish the notes first.</div>' : ''; }
 function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
-function aaSendPending(){ AAShare.needsSend(state.animals, aaNoteOf).forEach(aaSendAnimal); }
+function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); }
+// Undoing a registration or deleting an animal cannot unsend its card, so say so.
+function aaWarnRetract(a){
+  if(a && a.aaSentAt) alert(`Notes for ${a.animalId || 'this animal'} were already sent to the Admission AA. That card stays on their page: tell them to ignore or remove it.`);
+}
 function renderAaShare(){
+  if(AAShare.isOn(AA_TOOL) && !state.animals.length) AAShare.setOn(AA_TOOL, false);   // an empty list means the shift is over
   const on = AAShare.isOn(AA_TOOL);
   const toggle = document.getElementById('aaShareToggle');
   if(toggle) toggle.checked = on;
   const bar = document.getElementById('aaRedBar'), list = document.getElementById('aaShareList');
   const sum = document.getElementById('aaShareSummary'), row = document.getElementById('aaResendRow');
   if(!on){ bar.classList.add('hidden'); list.innerHTML = ''; sum.textContent = ''; row.classList.add('hidden'); return; }
-  const s = AAShare.summary(state.animals, aaNoteOf);
+  const s = AAShare.summary(state.animals, aaSigText);
   sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '');
-  list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaNoteOf(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
-    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : 'NOT SENT';
+  list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaSigText(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
+    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (a.aaErr ? ' \u2014 ' + a.aaErr : ''));
     const busy = aaSending.has(a.id);
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
       <span><b>${esc(a.animalId || '(no ID)')}</b> \u2014 ${esc(label)}</span>
       ${st === 'noid' ? '' : `<button class="btn small aa-resend" data-id="${esc(a.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending\u2026' : 'Resend'}</button>`}
     </div>`;
   }).join('');
-  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaNoteOf).length);
+  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaSigText).length);
   if(s.unsent){ bar.textContent = `${s.unsent} item${s.unsent>1?'s':''} not sent to the Admission AA \u2014 open Shift List to resend.`; bar.classList.remove('hidden'); }
   else bar.classList.add('hidden');
 }
 function aaGuard(action){
   if(!AAShare.isOn(AA_TOOL)) return true;
-  const s = AAShare.summary(state.animals, aaNoteOf);
+  const s = AAShare.summary(state.animals, aaSigText);
   if(!s.unsent) return true;
   return confirm(`${s.unsent} animal(s) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
 }
@@ -882,6 +895,8 @@ function normalizeAnimal(a){
   a.nextStepNotes = '';
   if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
   if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
+  if(a.aaSentId == null) a.aaSentId = null;   // the animal ID the card was sent under
+  if(a.aaErr == null) a.aaErr = '';           // why the last send was refused, if it was
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
@@ -1339,6 +1354,7 @@ function bindExamForm28(a){
   if(markBtn) markBtn.addEventListener('click', async ()=>{
     if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;
+    if(!a.registered) aaWarnRetract(a);
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
     saveShift(); openExam(a.id);
     aaAfterRegister(a);
@@ -1787,6 +1803,7 @@ function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
+      aaWarnRetract(state.animals.find(a=>a.id===b.dataset.del));
       removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'processing');
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
       saveShift(); renderShiftList();
@@ -2571,6 +2588,7 @@ function bindExamForm(a){
     const clones = [];
     for(let i=0;i<n;i++){
       const clone = JSON.parse(JSON.stringify(a));
+      clone.aaSentAt = null; clone.aaSig = null; clone.aaSentId = null; clone.aaErr = '';   // a copy has not been sent
       clone.id = uid();
       clone.animalId = ''; // she fills this in per copy — never duplicate IDs
       clone.microchip = ''; // each animal's chip is unique, never copy this
@@ -2993,6 +3011,7 @@ function bindExamForm(a){
   if(markBtn) markBtn.addEventListener('click', async ()=>{
     if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;
+    if(!a.registered) aaWarnRetract(a);
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
     saveShift(); openExam(a.id);
     aaAfterRegister(a);
@@ -3582,6 +3601,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   incoming.forEach(a=>{
     if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
     a.dashSynced = false;
+    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = '';   // the sender's send stamps do not apply to this phone
   });
   const key = a => (a.animalId||'').toString().trim().toLowerCase();
   const byKey = new Map();

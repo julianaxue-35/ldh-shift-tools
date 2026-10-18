@@ -54,3 +54,21 @@ test('switch is off by default, remembered per tool, and a broken storage reads 
   assert.equal(A.isOn('processing', storage), false);
   assert.equal(A.isOn('processing', { getItem() { throw new Error('blocked'); } }), false);
 });
+
+test('normalize drops the Date/Vet/Nurse line and the signature initials, so changing initials is not an edit', () => {
+  const note = (vet, nurse, date) => `Date: ${date}    Vet: ${vet}    Nurse: ${nurse}\nExam normal.\nWeight 12 kg.\n${vet}`;
+  const a = A.normalize(note('JX', 'AB', '18 Oct 2026'), ['JX', 'AB']);
+  const b = A.normalize(note('KL', 'CD', '19 Oct 2026'), ['KL', 'CD']);
+  assert.equal(a, b);
+  assert.notEqual(a, A.normalize(note('JX', 'AB', '18 Oct 2026').replace('12 kg', '13 kg'), ['JX', 'AB']));
+  assert.equal(A.normalize('plain', []), 'plain');
+  assert.equal(A.normalize(undefined, null), '');
+});
+test('send keeps the server reason for a refusal in lastError', async () => {
+  await A.send({ aa: {} }, async () => ({ ok: false, json: async () => ({ error: 'The note is too long (limit 20,000 characters).' }) }));
+  assert.match(A.lastError(), /too long/);
+  await A.send({ aa: {} }, async () => ({ ok: true, json: async () => ({ ok: true }) }));
+  assert.equal(A.lastError(), '');
+  await A.send({ aa: {} }, async () => { throw new Error('offline'); });
+  assert.match(A.lastError(), /connect|offline/i);
+});

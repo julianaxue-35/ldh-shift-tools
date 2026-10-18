@@ -14,6 +14,16 @@
     for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
     return s.length + ':' + h.toString(36);
   }
+  // The note text without the parts that change for reasons that are not an edit: the Date/Vet/Nurse line and the
+  // closing initials. Changing the nurse at lunch, or crossing midnight, must not make every sent note look edited.
+  function normalize(text, strip) {
+    var drop = (strip || []).map(function (v) { return String(v == null ? '' : v).trim(); }).filter(Boolean);
+    return String(text == null ? '' : text).split('\n').filter(function (line) {
+      var t = line.trim();
+      if (/^Date: .*Vet: .*Nurse: /.test(t)) return false;
+      return drop.indexOf(t) === -1;
+    }).join('\n');
+  }
   function hasId(a) { return !!(a && String(a.animalId == null ? '' : a.animalId).trim()); }
   function status(a, noteText) {
     if (!a || !a.registered) return 'na';
@@ -38,11 +48,21 @@
     if (o.docxB64) payload.docx_b64 = o.docxB64;
     return { aa: { kind: o.kind, animal_id: String(o.animal.animalId).trim(), location: o.animal.location || '', sent_by: o.sentBy || '', payload: payload } };
   }
+  var lastErr = '';
+  function lastError() { return lastErr; }
   function send(body, fetcher) {
     var f = fetcher || function (opts) { return g.LDHSync.fetch(opts); };
+    lastErr = '';
     return Promise.resolve().then(function () { return f({ method: 'POST', body: JSON.stringify(body) }); })
-      .then(function (res) { if (!res || !res.ok) return false; return res.json().then(function (j) { return !!(j && j.ok === true); }); })
-      .catch(function () { return false; });
+      .then(function (res) {
+        if (!res) { lastErr = "Couldn't connect to the dashboard."; return false; }
+        return res.json().then(function (j) {
+          if (res.ok && j && j.ok === true) return true;
+          lastErr = (j && j.error) ? String(j.error) : (res.ok ? 'The dashboard did not confirm it saved.' : 'The dashboard refused it (' + (res.status || 'error') + ').');
+          return false;
+        }, function () { lastErr = res.ok ? 'The dashboard did not confirm it saved.' : "Couldn't connect to the dashboard."; return false; });
+      })
+      .catch(function () { lastErr = "Couldn't connect to the dashboard (offline?)."; return false; });
   }
   function store(storage) { if (storage) return storage; try { return g.localStorage; } catch (e) { return null; } }
   function isOn(tool, storage) {
@@ -51,5 +71,5 @@
   function setOn(tool, on, storage) {
     try { var s = store(storage); if (!s) return; if (on) s.setItem(KEY_PREFIX + tool, '1'); else s.removeItem(KEY_PREFIX + tool); } catch (e) { /* storage blocked: switch stays off */ }
   }
-  return { sig: sig, status: status, summary: summary, needsSend: needsSend, buildBody: buildBody, send: send, isOn: isOn, setOn: setOn };
+  return { normalize: normalize, lastError: lastError, sig: sig, status: status, summary: summary, needsSend: needsSend, buildBody: buildBody, send: send, isOn: isOn, setOn: setOn };
 });
