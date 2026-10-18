@@ -468,60 +468,7 @@ document.getElementById('deleteSelectedBtn').addEventListener('click', ()=>{
    template except for the specific data cells — see MedChart.patchSheetXml
    and the parts of workbook.xml/rels/[Content_Types].xml assembled below,
    which just register N sheets instead of the template's original 1. */
-const OOXML_PARTS_TO_REPLACE = new Set([
-  'xl/worksheets/sheet1.xml', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', '[Content_Types].xml'
-]);
-
-function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-async function buildExactWorkbook(charts){
-  const templateBuf = await fetch(MedChart.TEMPLATE_URL).then(r=>{
-    if(!r.ok) throw new Error(`Could not load template (${r.status})`);
-    return r.arrayBuffer();
-  });
-  const templateZip = await JSZip.loadAsync(templateBuf);
-  const templateSheetXml = await templateZip.file(MedChart.TEMPLATE_SHEET_PART).async('string');
-
-  const usedNames = new Set();
-  const sheetFiles = {};
-  const sheetMeta = charts.map((c, i)=>{
-    const num = i + 1;
-    sheetFiles[`xl/worksheets/sheet${num}.xml`] = MedChart.patchSheetXml(templateSheetXml, c);
-    return { num, name: MedChart.safeSheetName(c.animalId, usedNames) };
-  });
-
-  const sheetsXml = sheetMeta.map(s=>
-    `<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" name="${xmlEsc(s.name)}" sheetId="${s.num}" state="visible" r:id="rId${s.num}"/>`
-  ).join('');
-  const definedNamesXml = sheetMeta.map(s=>
-    `<definedName name="_xlnm.Print_Area" localSheetId="${s.num-1}">'${s.name.replace(/'/g,"''")}'!$A$1:$U$43</definedName>`
-  ).join('');
-  const workbookXml = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr/><workbookProtection/><bookViews><workbookView visibility="visible" minimized="0" showHorizontalScroll="1" showVerticalScroll="1" showSheetTabs="1" tabRatio="600" firstSheet="0" activeTab="0" autoFilterDateGrouping="1"/></bookViews><sheets>${sheetsXml}</sheets><definedNames>${definedNamesXml}</definedNames><calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>`;
-
-  const n = sheetMeta.length;
-  const relsSheets = sheetMeta.map(s=>
-    `<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet${s.num}.xml" Id="rId${s.num}"/>`
-  ).join('');
-  const relsXml = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relsSheets}<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml" Id="rId${n+1}"/><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml" Id="rId${n+2}"/></Relationships>`;
-
-  const ctOverrides = sheetMeta.map(s=>
-    `<Override PartName="/xl/worksheets/sheet${s.num}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
-  ).join('');
-  const contentTypesXml = `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ctOverrides}<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`;
-
-  const outZip = new JSZip();
-  for(const name of Object.keys(templateZip.files)){
-    const entry = templateZip.files[name];
-    if(entry.dir || OOXML_PARTS_TO_REPLACE.has(name)) continue;
-    outZip.file(name, await entry.async('uint8array'));
-  }
-  Object.keys(sheetFiles).forEach(fname=> outZip.file(fname, sheetFiles[fname]));
-  outZip.file('xl/workbook.xml', workbookXml);
-  outZip.file('xl/_rels/workbook.xml.rels', relsXml);
-  outZip.file('[Content_Types].xml', contentTypesXml);
-
-  return outZip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-}
+const buildExactWorkbook = MedChart.buildWorkbook;   // lives in medchart.js so the tools can attach the same Excel to an Admission AA card
 
 document.getElementById('exportBtn').addEventListener('click', async ()=>{
   const ids = new Set(selectedIds());

@@ -1,6 +1,7 @@
 // Medication charts auto-send to the Admission AA when the share switch is on (Processing + Sick & Injured).
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
 const t = require('./check')('chart-aa');
 
 const TOOLS = [
@@ -14,7 +15,7 @@ const chart = (over) => Object.assign({
   meds: [{ drugKey: 'doxybrome', drugName: 'Doxybrom', route: 'PO', frequency: 'BID', days: 7, startOption: 'tomorrow', labelEdited: true, labelText: 'Doxybrom 0.2ml PO BID for 7 days' }]
 }, over || {});
 
-async function start(tool, { online = true, shared = true } = {}) {
+async function start(tool, { online = true, shared = true, template = true } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext();
   const sent = [];
@@ -29,6 +30,19 @@ async function start(tool, { online = true, shared = true } = {}) {
     if (body.aa) sent.push(body.aa);
     route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body.aa ? { ok: true } : {}) });
   });
+  // Chromium cannot fetch() file:// URLs, so serve the template to the page's fetch directly.
+  const tpl = fs.readFileSync(path.resolve(__dirname, '../template/medication-chart-template.xlsx')).toString('base64');
+  await ctx.addInitScript((o) => {
+    const real = window.fetch.bind(window);
+    window.fetch = (u, ...rest) => {
+      if (String(u).includes('medication-chart-template.xlsx')) {
+        if (!o.template) return Promise.resolve(new Response('no', { status: 404 }));
+        const bin = atob(o.tpl); const arr = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return Promise.resolve(new Response(arr, { status: 200 }));
+      }
+      return real(u, ...rest);
+    };
+  }, { tpl, template });
   await ctx.addInitScript((seed) => {
     localStorage.setItem('ldhGateOk_v2', '1'); localStorage.setItem('ldh_sync_code_v1', 'test');
     if (seed.shared) localStorage.setItem('ldh_aa_share_' + seed.key, '1');
@@ -55,6 +69,7 @@ async function start(tool, { online = true, shared = true } = {}) {
       const m = s.sent.filter(x => x.kind === 'med_chart');
       t.ok(m.length === 1, L + 'one chart card sent: ' + JSON.stringify(s.sent.map(x => x.kind)));
       t.ok(m[0] && m[0].animal_id === 'T-200' && m[0].location === 'Pound 1' && m[0].sent_by === 'jx', L + 'card carries ID, location, vet');
+      t.ok(m[0] && /^UEsD/.test(m[0].payload.xlsx_b64 || ''), L + 'the real Excel chart is attached (zip header)');
       t.ok(m[0] && m[0].payload.lines.length === 1 && m[0].payload.lines[0].includes('Doxybrom 0.2ml'), L + 'drug line sent: ' + JSON.stringify(m[0] && m[0].payload));
 
       /* 2. editing the saved chart sends the update */
@@ -69,6 +84,15 @@ async function start(tool, { online = true, shared = true } = {}) {
       await s.page.waitForTimeout(400);
       t.ok(s.sent.length === before, L + 'surgery/manual charts are not sent');
       t.ok(s.errors.length === 0, L + 'no page errors: ' + s.errors.join('|'));
+    } finally { await s.browser.close(); }
+
+    /* 3b. the Excel can't be built: NOT SENT, never a silent card without the file */
+    s = await start(tool, { template: false });
+    try {
+      await s.page.evaluate(() => { state.animals.forEach(a => { a.aaSentAt = new Date().toISOString(); a.aaSig = AAShare.sig(aaSigText(a)); }); });
+      await s.page.evaluate((c) => { MedChart.addChart(c); }, chart({ sourceTool: tool.sourceTool }));
+      await s.page.waitForFunction(() => MedChart.loadCharts()[0].aaErr);
+      t.ok(s.sent.length === 0 && /Excel/.test(await s.page.evaluate(() => MedChart.loadCharts()[0].aaErr)), L + 'no Excel = nothing sent, marked NOT SENT');
     } finally { await s.browser.close(); }
 
     /* 4. switch off: nothing sent */

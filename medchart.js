@@ -550,6 +550,63 @@
       }).catch(function () {});
     } catch (e) { /* never let the sync attempt break the local save */ }
   }
+  // ---------- Excel export: exact clone of the real template (moved here from medication-charts.html 2026-10-18 so the
+  // tools can attach the same file to an Admission AA card). One sheet per chart.
+  var OOXML_PARTS_TO_REPLACE = new Set([
+    'xl/worksheets/sheet1.xml', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', '[Content_Types].xml'
+  ]);
+
+  function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  async function buildWorkbook(charts){
+    const templateBuf = await fetch(TEMPLATE_URL).then(r=>{
+      if(!r.ok) throw new Error(`Could not load template (${r.status})`);
+      return r.arrayBuffer();
+    });
+    const templateZip = await JSZip.loadAsync(templateBuf);
+    const templateSheetXml = await templateZip.file(TEMPLATE_SHEET_PART).async('string');
+
+    const usedNames = new Set();
+    const sheetFiles = {};
+    const sheetMeta = charts.map((c, i)=>{
+      const num = i + 1;
+      sheetFiles[`xl/worksheets/sheet${num}.xml`] = patchSheetXml(templateSheetXml, c);
+      return { num, name: safeSheetName(c.animalId, usedNames) };
+    });
+
+    const sheetsXml = sheetMeta.map(s=>
+      `<sheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" name="${xmlEsc(s.name)}" sheetId="${s.num}" state="visible" r:id="rId${s.num}"/>`
+    ).join('');
+    const definedNamesXml = sheetMeta.map(s=>
+      `<definedName name="_xlnm.Print_Area" localSheetId="${s.num-1}">'${s.name.replace(/'/g,"''")}'!$A$1:$U$43</definedName>`
+    ).join('');
+    const workbookXml = `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><workbookPr/><workbookProtection/><bookViews><workbookView visibility="visible" minimized="0" showHorizontalScroll="1" showVerticalScroll="1" showSheetTabs="1" tabRatio="600" firstSheet="0" activeTab="0" autoFilterDateGrouping="1"/></bookViews><sheets>${sheetsXml}</sheets><definedNames>${definedNamesXml}</definedNames><calcPr calcId="124519" fullCalcOnLoad="1"/></workbook>`;
+
+    const n = sheetMeta.length;
+    const relsSheets = sheetMeta.map(s=>
+      `<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet${s.num}.xml" Id="rId${s.num}"/>`
+    ).join('');
+    const relsXml = `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relsSheets}<Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml" Id="rId${n+1}"/><Relationship Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml" Id="rId${n+2}"/></Relationships>`;
+
+    const ctOverrides = sheetMeta.map(s=>
+      `<Override PartName="/xl/worksheets/sheet${s.num}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    ).join('');
+    const contentTypesXml = `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>${ctOverrides}<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>`;
+
+    const outZip = new JSZip();
+    for(const name of Object.keys(templateZip.files)){
+      const entry = templateZip.files[name];
+      if(entry.dir || OOXML_PARTS_TO_REPLACE.has(name)) continue;
+      outZip.file(name, await entry.async('uint8array'));
+    }
+    Object.keys(sheetFiles).forEach(fname=> outZip.file(fname, sheetFiles[fname]));
+    outZip.file('xl/workbook.xml', workbookXml);
+    outZip.file('xl/_rels/workbook.xml.rels', relsXml);
+    outZip.file('[Content_Types].xml', contentTypesXml);
+
+    return outZip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  }
+
   // ---------- Admission AA hand-off (2026-10-18) ----------
   // With the "Share this shift with Admission AA" switch on in Processing or Sick & Injured, saving (or editing) a
   // chart sends it to the Admission AA page as its own card (one live card per animal per day, so a re-save UPDATES it).
@@ -563,7 +620,11 @@
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     return (chart.meds || []).map(function (m) { return labelFor(m, base); }).filter(Boolean);
   }
-  function aaChartSig(chart) { return global.AAShare.sig(aaChartLines(chart).join('\n')); }
+  // Covers everything that changes the Excel file, not just the drug lines (start day, weight, plan text).
+  function aaChartSig(chart) {
+    return global.AAShare.sig(JSON.stringify([aaChartLines(chart), chart.startOption, chart.weight, chart.problemList || '',
+      (chart.meds || []).map(function (m) { return m.startOption; })]));
+  }
   function aaChartStatus(chart) {
     if (!String(chart.animalId == null ? '' : chart.animalId).trim()) return 'noid';
     if (!chart.aaSentAt) return 'notsent';
@@ -592,21 +653,33 @@
     saveCharts(list);
   }
   function aaNotify() { if (typeof aaListener === 'function') { try { aaListener(); } catch (e) { /* display only */ } } }
+  function aaBlobToB64(blob) {
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () { res(String(r.result).split(',')[1] || ''); };
+      r.onerror = function () { rej(r.error); };
+      r.readAsDataURL(blob);
+    });
+  }
+  // The card carries the drug lines AND the real Excel chart. If the Excel can't be built the send is reported
+  // NOT SENT (with Resend) rather than quietly sending a card with no file.
   function aaSendChart(chart) {
     if (!global.AAShare || !chart || aaSendingCharts[chart.id]) return Promise.resolve(false);
     var lines = aaChartLines(chart);
     var body = global.AAShare.buildBody({ kind: 'med_chart', animal: chart, noteText: '', sentBy: chart.vetInCharge || '' });
     if (!body || !lines.length) return Promise.resolve(false);
-    body.aa.payload = { lines: lines };
     aaSendingCharts[chart.id] = true;
     aaNotify();
     var sig = aaChartSig(chart);
-    return global.AAShare.send(body).then(function (ok) {
-      if (ok) aaPatchChart(chart.id, { aaSentAt: new Date().toISOString(), aaSig: sig, aaErr: '' });
-      else aaPatchChart(chart.id, { aaErr: global.AAShare.lastError() || 'Not sent.' });
-      return ok;
-    }).then(function (ok) { delete aaSendingCharts[chart.id]; aaNotify(); return ok; },
-            function () { delete aaSendingCharts[chart.id]; aaNotify(); return false; });
+    var fail = function (msg) { aaPatchChart(chart.id, { aaErr: msg }); return false; };
+    var done = function (ok) { delete aaSendingCharts[chart.id]; aaNotify(); return ok; };
+    return buildWorkbook([chart]).then(aaBlobToB64).then(function (b64) {
+      body.aa.payload = { lines: lines, xlsx_b64: b64 };
+      return global.AAShare.send(body).then(function (ok) {
+        if (ok) { aaPatchChart(chart.id, { aaSentAt: new Date().toISOString(), aaSig: sig, aaErr: '' }); return true; }
+        return fail(global.AAShare.lastError() || 'Not sent.');
+      });
+    }, function () { return fail("Couldn't build the Excel chart to send."); }).then(done, function () { return done(false); });
   }
   function aaAutoSend(chart) {
     try {
@@ -928,6 +1001,7 @@
     addChart: addChart,
     updateChart: updateChart,
     deleteChart: deleteChart,
+    buildWorkbook: buildWorkbook,
     aaChartStatus: aaChartStatus,
     aaChartSummary: aaChartSummary,
     aaCharts: aaCharts,
