@@ -216,6 +216,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
+<div id="aaRedBar" class="hidden" style="position:sticky;top:0;z-index:50;background:#b3261e;color:#fff;padding:10px 14px;font-size:14px;font-weight:600"></div>
 
 <div class="wrap tab-panel" id="tabShift">
 
@@ -229,6 +230,17 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <button class="btn secondary" id="add28DayBtn">+ 28-day health check (court hold)</button>
     </div>
     <div id="parsedWrap"></div>
+  </div>
+
+  <div class="card" id="aaShareCard">
+    <label style="display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer">
+      <input type="checkbox" id="aaShareToggle" style="width:20px;height:20px">
+      Share this shift with Admission AA
+    </label>
+    <p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;line-height:1.5">While this is on, each animal you register is sent to the Admission AA as a task to enter in ShelterMate. Finish the notes <b>before</b> you register. Off = nothing is sent.</p>
+    <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
+    <div id="aaShareList"></div>
+    <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
   </div>
 
   <div class="card" id="shiftListCard">
@@ -403,13 +415,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="aa-share.js"></script>
 <script src="medchart.js"></script>
 <script>
 // Bump this string on every edit to this file — it's how the update-check
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-13.3';
+const APP_VERSION = '2026-10-18.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -460,6 +473,66 @@ function syncListToDashboard(animals, shift) {
     body: JSON.stringify({ items }),
   }).catch(() => {});
 }
+/* ---------- share with Admission AA (2026-10-18) ---------- */
+const AA_TOOL = 'processing';
+const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
+const aaSending = new Set();
+function aaFileToB64(file){
+  return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
+}
+async function aaSendAnimal(a){
+  if(aaSending.has(a.id)) return;
+  aaSending.add(a.id);
+  renderAaShare();
+  try{
+    const noteText = aaNoteOf(a);
+    let docxB64 = '';
+    try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
+    const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || ''});
+    if(!body) return;
+    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = AAShare.sig(noteText); saveShift(); }
+  } finally { aaSending.delete(a.id); renderAaShare(); }
+}
+function aaRegisterHint(){ return AAShare.isOn(AA_TOOL) ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA — finish the notes first.</div>' : ''; }
+function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
+function aaSendPending(){ AAShare.needsSend(state.animals, aaNoteOf).forEach(aaSendAnimal); }
+function renderAaShare(){
+  const on = AAShare.isOn(AA_TOOL);
+  const toggle = document.getElementById('aaShareToggle');
+  if(toggle) toggle.checked = on;
+  const bar = document.getElementById('aaRedBar'), list = document.getElementById('aaShareList');
+  const sum = document.getElementById('aaShareSummary'), row = document.getElementById('aaResendRow');
+  if(!on){ bar.classList.add('hidden'); list.innerHTML = ''; sum.textContent = ''; row.classList.add('hidden'); return; }
+  const s = AAShare.summary(state.animals, aaNoteOf);
+  sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '');
+  list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaNoteOf(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
+    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : 'NOT SENT';
+    const busy = aaSending.has(a.id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
+      <span><b>${esc(a.animalId || '(no ID)')}</b> \u2014 ${esc(label)}</span>
+      ${st === 'noid' ? '' : `<button class="btn small aa-resend" data-id="${esc(a.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending\u2026' : 'Resend'}</button>`}
+    </div>`;
+  }).join('');
+  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaNoteOf).length);
+  if(s.unsent){ bar.textContent = `${s.unsent} item${s.unsent>1?'s':''} not sent to the Admission AA \u2014 open Shift List to resend.`; bar.classList.remove('hidden'); }
+  else bar.classList.add('hidden');
+}
+function aaGuard(action){
+  if(!AAShare.isOn(AA_TOOL)) return true;
+  const s = AAShare.summary(state.animals, aaNoteOf);
+  if(!s.unsent) return true;
+  return confirm(`${s.unsent} animal(s) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
+}
+document.getElementById('aaShareToggle').addEventListener('change', (e)=>{
+  AAShare.setOn(AA_TOOL, e.target.checked);
+  if(e.target.checked) aaSendPending();
+  renderAaShare();
+});
+document.getElementById('aaShareList').addEventListener('click', (e)=>{
+  const b = e.target.closest('.aa-resend'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.id); if(a) aaSendAnimal(a);
+});
+document.getElementById('aaResendAll').addEventListener('click', aaSendPending);
 /* ---------- storage ---------- */
 const LS_INIT = 'ldh_processing_vetinit_v1';
 const LS_SHIFT = 'ldh_processing_shift_v1';
@@ -807,6 +880,8 @@ function normalizeAnimal(a){
     a.medPlan = [a.medPlan, a.nextStepNotes.trim()].filter(Boolean).join('\n');
   }
   a.nextStepNotes = '';
+  if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
+  if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
@@ -1161,7 +1236,7 @@ function examFormHtml28(a){
       <option value="">-</option>
       ${PATHWAY_OPTIONS_28.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
   return h;
 }
 function bindExamForm28(a){
@@ -1266,6 +1341,7 @@ function bindExamForm28(a){
     a.registered = !a.registered;
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
     saveShift(); openExam(a.id);
+    aaAfterRegister(a);
   });
 }
 function assembleNote28(a){
@@ -1745,11 +1821,13 @@ document.getElementById('registerAllBtn').addEventListener('click', async ()=>{
   if(confirm(`Register all ${pending.length} animal(s) currently in the Incomplete list to Word & Excel? Only do this once you've finished with everyone shown \u2014 each one moves to Completed, including any marked \"Not able to examine\".` + (moved ? `\n\n${moved} other animal(s) were already registered by another vet and are NOT included.` : '') + (noLoc ? `\n\n${noLoc} have no location, so they can't be checked against or shown on the dashboard.` : ''))){
     pending.forEach(a=>{ a.registered = true; a.dashSynced = true; syncCompletionToDashboard(a, 'processing'); });
     saveShift(); renderShiftList();
+    pending.forEach(aaAfterRegister);
   }
 });
 const clearCompletedTabBtn = document.getElementById('clearCompletedTabBtn');
 if(clearCompletedTabBtn) clearCompletedTabBtn.addEventListener('click', ()=> document.getElementById('clearRegisteredBtn').click());
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Clear')) return;
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
   if(confirm(`Remove all ${registeredCount} registered (Completed) animal(s) from the list? Only do this once you've actually exported/emailed them \u2014 animals still pending in the Incomplete list are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
@@ -1759,10 +1837,12 @@ document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   }
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Clear')) return;
   if(!state.animals.length){ alert('The list is already empty.'); return; }
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here \u2014 export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
     state.animals = [];
+    AAShare.setOn(AA_TOOL, false);
     saveShift(); renderShiftList();
     const note = document.getElementById('shareExportNote');
     if(note) note.textContent = '';
@@ -1903,6 +1983,7 @@ function renderShiftList(){
   renderElsewhere(elsewhere);
   bindListButtons();
   renderBackupList();
+  renderAaShare();
 }
 function renderBackupList(){
   const wrap = document.getElementById('backupList');
@@ -2140,7 +2221,7 @@ function examFormHtml(a){
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
-    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
+    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
@@ -2427,7 +2508,7 @@ function examFormHtml(a){
       <input class="plain" id="fld_nurse2" style="width:100%" value="${esc(nurseInitEl.value)}" placeholder="Nurse initials" disabled>
     </div></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
 
   return h;
 }
@@ -2914,6 +2995,7 @@ function bindExamForm(a){
     a.registered = !a.registered;
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'processing'); a.dashSynced = true; }
     saveShift(); openExam(a.id);
+    aaAfterRegister(a);
   });
 }
 
@@ -3249,13 +3331,14 @@ function wordParagraph(text, opts){
   return `<w:p><w:pPr>${spacing}</w:pPr><w:r>${rPrXml}<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 }
 const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-async function buildWordFile(){
+async function buildWordFile(opts){
   // Completed = every registered animal, including "Not able to examine"
   // ones (she reached and registered those, just couldn't physically
   // examine them). Incomplete = not registered at all \u2014 what she didn't
   // get to this shift. Her explicit redefinition, 2026-09-16.
-  const toExport = sortedAnimals().filter(a=>a.registered);
-  const pending = sortedAnimals().filter(a=>!a.registered && !a.doneElsewhere);
+  const only = opts && opts.only;   // one-animal file for the Admission AA
+  const toExport = only ? only : sortedAnimals().filter(a=>a.registered);
+  const pending = only ? [] : sortedAnimals().filter(a=>!a.registered && !a.doneElsewhere);
   if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Processing Notes \u2014 ${todayStr()}`, {bold:true, size:32, after:200});
   toExport.forEach((a,i)=>{
@@ -3378,6 +3461,7 @@ async function runShareFlow(files, title, text){
   alert('Sharing isn\'t supported on this device/browser, so the file(s) have downloaded instead.\n\niPhone/iPad (Safari): tap the download arrow in the address bar, or open the Files app → Downloads.\nAndroid: pull down the notification shade and tap the download, or open Files → Downloads.\n\nFrom there, use "Share" or "Open with" on each file to send it via your email app.');
 }
 document.getElementById('exportWordBtn').addEventListener('click', async ()=>{
+  if(!aaGuard('Export')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const file = await buildWordFile();
   if(!file){ alert('There are no animals in this shift yet — add some first.'); return; }
@@ -3442,6 +3526,7 @@ function buildExcelFile(){
   return new File([blob], `Processing_Shift_${todayStr().replace(/\s/g,'_')}.xlsx`, {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
 document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
+  if(!aaGuard('Export')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const file = buildExcelFile();
   if(!file){ alert('No animals in the shift list.'); return; }
@@ -3449,6 +3534,7 @@ document.getElementById('exportCsvBtn').addEventListener('click', ()=>{
   showClearReminder();
 });
 document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
+  if(!aaGuard('Share')) return;
   if(!checkStaleShiftBeforeExport()) return;
   const files = [await buildWordFile(), buildExcelFile()].filter(Boolean);
   if(!files.length){ alert('Nothing to share yet \u2014 add animals to the shift list first.'); return; }
