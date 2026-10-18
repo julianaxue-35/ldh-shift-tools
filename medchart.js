@@ -424,6 +424,8 @@
     // The template's cursor points at a frozen pane (pane="bottomLeft") the sheet doesn't have, which made Excel
     // say "We found a problem with some content" and repair the View. Drop the stray reference.
     var xml = templateXml.replace(/(<selection\b[^>]*?)\s+pane="[^"]*"/g, '$1');
+    // widen the date column so "Sat 17-Oct" fits (a too-narrow date shows as #####)
+    xml = xml.replace('<col width="10.5" customWidth="1" min="1" max="1"/>', '<col width="15" customWidth="1" min="1" max="1"/>');
     if (chart.animalId) xml = setCellXml(xml, HEADER_CELLS.patientId, 'Patient ID: ' + chart.animalId);
     if (chart.location) xml = setCellXml(xml, HEADER_CELLS.location, 'Location: ' + chart.location);
     if (chart.weight) xml = setCellXml(xml, 'B8', parseFloat(chart.weight) || chart.weight);
@@ -456,11 +458,11 @@
       for (var d = 0; d < 14; d++) {
         var amRow = GRID_ROWS[d], pmRow = amRow + 1;
         var am = grid.am[d] || '', pm = grid.pm[d] || '';
-        // Saturday and Sunday: staff only work until the AM, so a day is charted ONCE (the AM). A PM dose on
-        // those days is not charted (marked with a dash so it isn't mistaken for a missed tick); a PM-only
-        // dose is moved to the AM.
+        // Saturday and Sunday: staff only work until the AM, so a twice-daily drug is charted ONCE (the AM); its PM
+        // slot gets a dash so it isn't mistaken for a missed tick. A drug given only in the PM stays in the PM
+        // (some can only be given q24h, so it must not move to the AM).
         var dow = new Date(Date.UTC(1899, 11, 30) + (startSerial + dayOffset + d) * 86400000).getUTCDay();
-        if ((dow === 0 || dow === 6) && pm) { if (!am) am = pm; pm = '\u2014'; }
+        if ((dow === 0 || dow === 6) && am && pm) pm = '\u2014';
         xml = setCellXml(xml, box.grid + amRow, am);
         xml = setCellXml(xml, box.grid + pmRow, pm);
       }
@@ -605,7 +607,12 @@
     for(const name of Object.keys(templateZip.files)){
       const entry = templateZip.files[name];
       if(entry.dir || OOXML_PARTS_TO_REPLACE.has(name)) continue;
-      outZip.file(name, await entry.async('uint8array'));
+      if(name === 'xl/styles.xml'){
+        // show the weekday with each date ("Sat 17-Oct") so the weekend AM-only days are easy to see
+        outZip.file(name, (await entry.async('string')).replace('formatCode="dd-mmm"', 'formatCode="ddd dd-mmm"'));
+      } else {
+        outZip.file(name, await entry.async('uint8array'));
+      }
     }
     Object.keys(sheetFiles).forEach(fname=> outZip.file(fname, sheetFiles[fname]));
     outZip.file('xl/workbook.xml', workbookXml);

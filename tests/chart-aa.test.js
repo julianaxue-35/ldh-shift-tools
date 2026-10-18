@@ -118,12 +118,14 @@ async function start(tool, { online = true, shared = true, template = true } = {
           const xml = await z.file('xl/worksheets/sheet1.xml').async('string');
           const v = (addr) => { const m = xml.match(new RegExp('<c r="' + addr + '"[^>]*>(?:<is><t[^>]*>([^<]*)</t></is>)?')); return m ? (m[1] || '') : '?'; };
           out[k] = [16, 18, 20, 22, 24, 26].map(r => v('D' + r) + '|' + v('D' + (r + 1)));
+          if (k === 'bid') { out.styles = await z.file('xl/styles.xml').async('string'); out.colA = (xml.match(/<col [^>]*min="1" max="1"\/>/) || [''])[0]; }
         }
         return out;
       });
       // Fri 16, Sat 17, Sun 18, Mon 19, Tue 20, Wed 21
       t.ok(JSON.stringify(cells.bid) === JSON.stringify(['◯|◯', '◯|—', '◯|—', '◯|◯', 'R/C|R/C', '|']), L + 'BID: weekend days are AM only: ' + JSON.stringify(cells.bid));
-      t.ok(cells.sidpm[1] === '◯|—' && cells.sidpm[0] === '|◯', L + 'SID-in-the-PM dose moves to the AM on a weekend: ' + JSON.stringify(cells.sidpm));
+      t.ok(cells.sidpm.slice(0, 4).every(c => c === '|◯'), L + 'a PM-only dose STAYS in the PM on a weekend (q24h drugs): ' + JSON.stringify(cells.sidpm));
+      t.ok(cells.styles.includes('formatCode="ddd dd-mmm"') && cells.colA.includes('width="15"'), L + 'dates show the weekday and the date column is wide enough: ' + cells.styles.slice(0, 120));
       t.ok(cells.sid[1] === '◯|' && cells.sid[2] === '◯|', L + 'SID (AM) weekend days are untouched: ' + JSON.stringify(cells.sid));
     } finally { await s.browser.close(); }
 
