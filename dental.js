@@ -71,6 +71,8 @@
     { key: 'resorption', abbr: 'TR', label: 'Tooth resorption', prefix: 'Type' }
   ];
   const EXTRACTIONS = { surgical: { abbr: 'XS', label: 'Extraction, surgical' }, nonsurgical: { abbr: 'XN', label: 'Extraction, non-surgical' } };
+// a planned extraction (not done yet) shows as pXS / pXN in orange; once extracted it becomes XS / XN in red
+const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
   const PROCEDURES = { sp: 'Scale and polish', spx: 'Scale and polish with extractions', x: 'Extractions only' };
   const POCKET_MAX = 12;
 
@@ -82,11 +84,13 @@
     k.push(['PP B/L', 'Periodontal pocket depth in mm: B = buccal side, L = lingual side']);
     k.push([EXTRACTIONS.surgical.abbr, EXTRACTIONS.surgical.label]);
     k.push([EXTRACTIONS.nonsurgical.abbr, EXTRACTIONS.nonsurgical.label]);
+    k.push([PLANNED_ABBR.surgical, 'Planned extraction, surgical (not done yet)']);
+    k.push([PLANNED_ABBR.nonsurgical, 'Planned extraction, non-surgical (not done yet)']);
     return k;
   }
 
   function emptyTooth() {
-    const t = { pocketB: '', pocketL: '', ext: '' };
+    const t = { pocketB: '', pocketL: '', ext: '', extPlanned: false };
     CHECKS.forEach(c => { t[c.key] = false; });
     GRADES.forEach(g => { t[g.key] = ''; });
     return t;
@@ -99,7 +103,7 @@
     CHECKS.forEach(c => { if (c.key !== 'missing' && t[c.key]) out.push(c.abbr); });
     GRADES.forEach(g => { if (t[g.key]) out.push(g.abbr + t[g.key]); });
     if (t.pocketB || t.pocketL) out.push('PP ' + [t.pocketB ? 'B' + t.pocketB : '', t.pocketL ? 'L' + t.pocketL : ''].filter(Boolean).join('/'));
-    if (t.ext && EXTRACTIONS[t.ext]) out.push(EXTRACTIONS[t.ext].abbr);
+    if (t.ext && EXTRACTIONS[t.ext]) out.push(t.extPlanned ? PLANNED_ABBR[t.ext] : EXTRACTIONS[t.ext].abbr);
     return out;
   }
   function hasFindings(t) { return toothTokens(t).length > 0; }
@@ -107,29 +111,29 @@
   function toothClass(t) {
     t = normTooth(t);
     if (t.missing) return 'missing';
-    if (t.ext) return 'ext';
+    if (t.ext) return t.extPlanned ? 'planned' : 'ext';
     if (t.ccf || t.ucf) return 'fracture';
     if (t.resorption) return 'resorption';
     return hasFindings(t) ? 'finding' : 'none';
   }
   const COLOURS = {   // [fill rgb, line rgb]
     none: [[255, 255, 255], [90, 90, 90]], missing: [[235, 235, 235], [150, 150, 150]], ext: [[244, 190, 180], [181, 70, 43]],
-    fracture: [[248, 220, 170], [201, 138, 26]], resorption: [[221, 205, 240], [122, 79, 181]], finding: [[255, 243, 190], [150, 120, 20]]
+    planned: [[255, 214, 160], [230, 126, 34]], fracture: [[205, 226, 247], [29, 95, 168]], resorption: [[221, 205, 240], [122, 79, 181]], finding: [[255, 243, 190], [150, 120, 20]]
   };
 
   /* ---------- extractions and the surgery note ---------- */
-  function extractionGroups(chart) {
+  function extractionGroups(chart, planned) {      // done extractions by default; planned = true for the not-yet-done ones
     const g = { surgical: [], nonsurgical: [] };
     Object.keys((chart && chart.teeth) || {}).forEach(n => {
       const t = normTooth(chart.teeth[n]);
-      if (!t.missing && g[t.ext]) g[t.ext].push(Number(n));
+      if (!t.missing && g[t.ext] && !!t.extPlanned === !!planned) g[t.ext].push(Number(n));
     });
     g.surgical.sort((a, b) => a - b); g.nonsurgical.sort((a, b) => a - b);
     return g;
   }
   // "407 surgical extraction; 401, 402 non-surgical extraction"
-  function extractionSentence(chart) {
-    const g = extractionGroups(chart), parts = [];
+  function extractionSentence(chart, planned) {
+    const g = extractionGroups(chart, planned), parts = [];
     if (g.surgical.length) parts.push(g.surgical.join(', ') + ' surgical extraction');
     if (g.nonsurgical.length) parts.push(g.nonsurgical.join(', ') + ' non-surgical extraction');
     return parts.join('; ');
@@ -160,6 +164,19 @@
     const base = note.replace(/\s+$/, '');
     return (base ? base + '\n\n' : '') + block;
   }
+
+  /* ---------- the order teeth are charted in ---------- */
+  // Route A (start at 101): 101 to 110, then 411 down to 401, then 301 to 311, then 210 down to 201.
+  // Route B (start at 201): the same loop the other way round.
+  function route(species, name) {
+    const sp = PRESENT[species] || PRESENT.canine;
+    const run = (q, arch, down) => { const pos = sp[arch].slice().sort((a, b) => down ? b - a : a - b); return pos.map(p => q * 100 + p); };
+    return name === 'B'
+      ? [].concat(run(2, 'upper', false), run(3, 'lower', true), run(4, 'lower', false), run(1, 'upper', true))
+      : [].concat(run(1, 'upper', false), run(4, 'lower', true), run(3, 'lower', false), run(2, 'upper', true));
+  }
+  function nextTooth(species, num, name) { const r = route(species, name), i = r.indexOf(Number(num)); return i >= 0 && i < r.length - 1 ? r[i + 1] : null; }
+  function prevTooth(species, num, name) { const r = route(species, name), i = r.indexOf(Number(num)); return i > 0 ? r[i - 1] : null; }
 
   /* ---------- drawing: one shape set used by both the screen and the PDF ---------- */
   const BOX = { w: 40, h: 84, cx: 20, gumUpper: 40, gumLower: 44 };
@@ -248,7 +265,10 @@
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
     const ex = extractionSentence(chart);
-    doc.text('Extractions: ' + (ex || 'none'), M, y); y += 8;
+    doc.text('Extractions: ' + (ex || 'none'), M, y); y += 6;
+    const pl = extractionSentence(chart, true);
+    if (pl) { doc.setFont('helvetica', 'normal'); doc.text('Planned, not done yet: ' + pl, M, y); y += 6; }
+    y += 2;
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('Abbreviation key', M, y); y += 5;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
@@ -264,7 +284,7 @@
   const api = {
     POSITION, CHECKS, GRADES, EXTRACTIONS, PROCEDURES, POCKET_MAX, COLOURS, BOX,
     quadrants, toothList, toothInfo, abbreviationKey, emptyTooth, normTooth, toothTokens, hasFindings, toothClass,
-    extractionGroups, extractionSentence, summarySentence, noteBlock, applyToNote, geometry, buildPdf,
+    route, nextTooth, prevTooth, PLANNED_ABBR, extractionGroups, extractionSentence, summarySentence, noteBlock, applyToNote, geometry, buildPdf,
     speciesOf: s => (s === 'cat' ? 'feline' : s === 'dog' ? 'canine' : null)
   };
   root.LDHDental = api;

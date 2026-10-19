@@ -71,3 +71,29 @@ test('the PDF is one animal, draws the chart and lists the abbreviation key', ()
   const cat = D.buildPdf({ animalId: 'C-1', species: 'feline', teeth: {} }, jsPDF, { compress: false }).output();
   assert.ok(cat.includes('Feline Dental Chart'));
 });
+
+test('planned extractions are shown as pXS/pXN, flagged in orange, and kept out of the surgery note until extracted', () => {
+  assert.deepEqual(D.toothTokens({ ext: 'surgical', extPlanned: true }), ['pXS']);
+  assert.deepEqual(D.toothTokens({ ext: 'nonsurgical', extPlanned: true }), ['pXN']);
+  assert.equal(D.toothClass({ ext: 'surgical', extPlanned: true }), 'planned');
+  assert.equal(D.toothClass({ ext: 'surgical' }), 'ext');
+  const chart = { teeth: { 407: { ext: 'surgical', extPlanned: true }, 401: { ext: 'nonsurgical' } } };
+  assert.equal(D.extractionSentence(chart), '401 non-surgical extraction');
+  assert.equal(D.extractionSentence(chart, true), '407 surgical extraction');
+  assert.ok(D.abbreviationKey().some(r => r[0] === 'pXS'));
+});
+test('charting order: 101-110, then 411-401, 301-311, 210-201; or the loop reversed from 201', () => {
+  const a = D.route('canine', 'A');
+  assert.equal(a.length, 42);
+  assert.deepEqual(a.slice(0, 11), [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 411]);
+  assert.deepEqual(a.slice(-3), [203, 202, 201]);
+  assert.equal(D.nextTooth('canine', 110, 'A'), 411);
+  assert.equal(D.nextTooth('canine', 401, 'A'), 301);
+  assert.equal(D.nextTooth('canine', 311, 'A'), 210);
+  assert.equal(D.nextTooth('canine', 201, 'A'), null);
+  assert.equal(D.nextTooth('feline', 104, 'A'), 106);          // cats have no 105
+  assert.equal(D.nextTooth('feline', 109, 'A'), 409);
+  assert.deepEqual(D.route('canine', 'B').slice(0, 3), [201, 202, 203]);
+  assert.equal(D.nextTooth('canine', 210, 'B'), 311);
+  assert.equal(D.prevTooth('canine', 102, 'A'), 101);
+});

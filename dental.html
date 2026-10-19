@@ -178,7 +178,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <div class="card mouth">
       <h2>Mouth</h2>
-      <p class="note">Tap a tooth to chart it. The number of roots is drawn on each tooth.</p>
+      <p class="note">Tap a tooth to chart it, or start at the beginning. "Done" then jumps to the next tooth: 101 to 110, 411 to 401, 301 to 311, 210 to 201 (the start-at-201 button runs it the other way round).</p>
+      <div class="row"><button class="btn small" id="startA" type="button">Start at 101</button><button class="btn secondary small" id="startB" type="button">Start at 201</button></div>
       <div class="lr"><span>Right</span><span>Left</span></div>
       <div class="arch-label">MAXILLA</div>
       <div class="arch" id="archUpper"></div>
@@ -190,9 +191,13 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="card panel hidden" id="toothPanel">
       <h3 id="tpTitle"></h3>
       <p class="note" id="tpSub"></p>
+      <div class="note" style="margin:6px 0 0;font-weight:700">Probing depth</div>
+      <div class="fields" id="tpProbe"></div>
+      <div class="note" style="margin:6px 0 0;font-weight:700">Findings</div>
       <div class="checks" id="tpChecks"></div>
       <div class="fields" id="tpFields"></div>
       <div class="row">
+        <button class="btn secondary small" id="tpPrev" type="button">&larr; Previous</button>
         <button class="btn secondary small" id="tpClear" type="button">Clear this tooth</button>
         <button class="btn small" id="tpClose" type="button">Done with this tooth</button>
       </div>
@@ -247,6 +252,7 @@ const dentalBooked = a => a.surgType === 'dental' || a.surgType2 === 'dental' ||
 /* ---- animal picker ---- */
 let cur = null;      // the chart being edited
 let selTooth = null;
+let ROUTE = 'A';      // the order teeth are charted in (see LDHDental.route)
 function listAnimals() {
   return shiftAnimals().filter(a => D.speciesOf(a.species) && String(a.animalId || '').trim())
     .sort((x, y) => (dentalBooked(y) ? 1 : 0) - (dentalBooked(x) ? 1 : 0));
@@ -309,6 +315,8 @@ function renderSummary() {
   $('sentence').textContent = s ? 'On the chart: ' + s : 'Pick a dental grade and describe the gingivitis; it becomes the first line of the chart.';
   const ex = D.extractionSentence(cur);
   $('extractNote').textContent = 'Goes into the surgery note: ' + (ex ? 'Extractions: ' + ex + '.' : 'Extractions: none.');
+  const pl = D.extractionSentence(cur, true);
+  if (pl) $('extractNote').textContent += ' Still planned, not marked as extracted yet (so not in the note): ' + pl + '.';
   const hasEx = !!ex, w = $('procWarn');
   if (hasEx && cur.procedure === 'sp') { w.textContent = 'Extractions are charted, but "What was done" says scale and polish only.'; w.classList.remove('hidden'); }
   else if (!hasEx && cur.procedure === 'spx') { w.textContent = 'No extractions are charted, but "What was done" says with extractions.'; w.classList.remove('hidden'); }
@@ -345,11 +353,16 @@ function renderPanel() {
   const mm = ['<option value="">-</option>'].concat(Array.from({ length: D.POCKET_MAX }, (_, i) => `<option value="${i + 1}">${i + 1} mm</option>`));
   const sel = (key, opts, val) => `<select class="plain" data-field="${key}">${opts.replace(`value="${val}"`, `value="${val}" selected`)}</select>`;
   const g3 = lab => ['<option value="">None</option>'].concat([1, 2, 3].map(n => `<option value="${n}">${lab} ${n}</option>`)).join('');
+  $('tpProbe').innerHTML =
+    `<div><label>Buccal side</label>${sel('pocketB', mm.join(''), t.pocketB)}</div>` +
+    `<div><label>Lingual side</label>${sel('pocketL', mm.join(''), t.pocketL)}</div>`;
+  const exVal = t.ext ? (t.extPlanned ? 'planned-' : 'done-') + t.ext : '';
   $('tpFields').innerHTML =
-    `<div><label>Probing depth, buccal side</label>${sel('pocketB', mm.join(''), t.pocketB)}</div>` +
-    `<div><label>Probing depth, lingual side</label>${sel('pocketL', mm.join(''), t.pocketL)}</div>` +
     D.GRADES.map(g => `<div><label>${g.label}</label>${sel(g.key, g3(g.prefix), t[g.key])}</div>`).join('') +
-    `<div><label>Extraction</label>${sel('ext', `<option value="">None</option><option value="surgical">${D.EXTRACTIONS.surgical.label}</option><option value="nonsurgical">${D.EXTRACTIONS.nonsurgical.label}</option>`, t.ext)}</div>`;
+    `<div><label>Extraction</label>${sel('extsel', `<option value="">None</option><option value="planned-surgical">Planned: surgical (orange)</option><option value="planned-nonsurgical">Planned: non-surgical (orange)</option><option value="done-surgical">Extracted: surgical (red)</option><option value="done-nonsurgical">Extracted: non-surgical (red)</option>`, exVal)}</div>`;
+  $('tpPrev').disabled = !D.prevTooth(cur.species, selTooth, ROUTE);
+  const nx = D.nextTooth(cur.species, selTooth, ROUTE);
+  $('tpClose').textContent = nx ? 'Done, next tooth ' + nx + ' \u2192' : 'Done, last tooth';
 }
 function editTooth(fn) {
   const t = D.normTooth(cur.teeth[selTooth]); fn(t);
@@ -360,10 +373,21 @@ $('toothPanel').addEventListener('change', e => {
   if (!cur || !selTooth) return;
   const c = e.target.closest('[data-check]'), f = e.target.closest('[data-field]');
   if (c) editTooth(t => { t[c.dataset.check] = c.checked; });
-  if (f) editTooth(t => { t[f.dataset.field] = f.value; });
+  if (f && f.dataset.field === 'extsel') editTooth(t => { const v = f.value.split('-'); t.ext = v[1] || ''; t.extPlanned = v[0] === 'planned'; });
+  else if (f) editTooth(t => { t[f.dataset.field] = f.value; });
+  if (f && f.dataset.field === 'extsel') renderPanel();
 });
 $('tpClear').addEventListener('click', () => { if (!cur || !selTooth) return; delete cur.teeth[selTooth]; touch(); renderMouth(); renderPanel(); });
-$('tpClose').addEventListener('click', () => { selTooth = null; $('toothPanel').classList.add('hidden'); if (cur) renderMouth(); });
+$('tpClose').addEventListener('click', () => {
+  if (!cur || !selTooth) return;
+  const nx = D.nextTooth(cur.species, selTooth, ROUTE);
+  if (nx) { selTooth = nx; renderMouth(); renderPanel(); }
+  else { selTooth = null; $('toothPanel').classList.add('hidden'); renderMouth(); $('pdfBtn').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+});
+$('tpPrev').addEventListener('click', () => { const p = cur && selTooth && D.prevTooth(cur.species, selTooth, ROUTE); if (p) { selTooth = p; renderMouth(); renderPanel(); } });
+function startAt(route) { if (!cur) return; ROUTE = route; selTooth = D.route(cur.species, route)[0]; renderMouth(); renderPanel(); $('toothPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+$('startA').addEventListener('click', () => startAt('A'));
+$('startB').addEventListener('click', () => startAt('B'));
 
 /* ---- PDF: one animal per file ---- */
 function pdfName(c) { return String(c.animalId).replace(/[^A-Za-z0-9._-]+/g, '_') + '_dental_chart.pdf'; }

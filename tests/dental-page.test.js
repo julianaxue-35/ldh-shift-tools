@@ -40,7 +40,7 @@ const t = require('./check')('dental-page');
   t.ok(/2 roots/.test(await page.textContent('#tpSub')) && /Mandibular right fourth premolar/.test(await page.textContent('#tpTitle')), 'the panel names the tooth and its roots');
   const labels = await page.$$eval('#tpChecks label', ls => ls.map(l => l.textContent.trim()));
   ['Missing tooth', 'Retained root', 'Attrition', 'Abrasion', 'Complicated crown fracture', 'Uncomplicated crown fracture', 'Oral mass', 'Oronasal fistula', 'Persistent deciduous'].forEach(l => t.ok(labels.includes(l), 'the vet picks the words: ' + l));
-  await page.selectOption('[data-field="ext"]', 'surgical');
+  await page.selectOption('[data-field="extsel"]', 'done-surgical');
   await page.selectOption('[data-field="furcation"]', '2');
   await page.selectOption('[data-field="pocketB"]', '4');
   await page.selectOption('[data-field="pocketL"]', '3');
@@ -48,11 +48,39 @@ const t = require('./check')('dental-page');
   t.ok(tk === 'FE2 PP B4/L3 XS', 'the chart shows the abbreviations, not the words: ' + tk);
   t.ok(await page.locator('.tooth[data-tooth="408"] svg polygon').count() === 3, 'tooth 408 is drawn with its crown and 2 roots');
   t.ok(await page.locator('.tooth[data-tooth="108"] svg polygon').count() === 4, 'the upper carnassial is drawn with 3 roots');
-  await page.click('.tooth[data-tooth="401"]'); await page.selectOption('[data-field="ext"]', 'nonsurgical');
-  await page.click('.tooth[data-tooth="402"]'); await page.selectOption('[data-field="ext"]', 'nonsurgical');
+  await page.click('.tooth[data-tooth="401"]'); await page.selectOption('[data-field="extsel"]', 'done-nonsurgical');
+  await page.click('.tooth[data-tooth="402"]'); await page.selectOption('[data-field="extsel"]', 'done-nonsurgical');
   await page.click('.tooth[data-tooth="104"]'); await page.check('[data-check="ccf"]'); await page.selectOption('[data-field="mobility"]', '2');
   t.ok((await page.innerText('.tooth[data-tooth="104"] .tk')).replace(/\s+/g, ' ') === 'CCF M2', 'complicated crown fracture + mobile grade 2 -> CCF M2');
   t.ok(/Extractions: 408 surgical extraction; 401, 402 non-surgical extraction\./.test(await page.textContent('#extractNote')), 'the page shows what goes into the surgery note: ' + await page.textContent('#extractNote'));
+
+  // probing depth is the first section of the tooth panel, ahead of the findings
+  const order = await page.$$eval('#toothPanel > *', els => els.map(e => e.id || e.className).join(' '));
+  t.ok(order.indexOf('tpProbe') !== -1 && order.indexOf('tpProbe') < order.indexOf('tpChecks'), 'probing depth comes first in the tooth panel: ' + order);
+
+  // planned extraction: orange; once extracted: red
+  await page.click('.tooth[data-tooth="203"]');
+  await page.selectOption('[data-field="extsel"]', 'planned-surgical');
+  t.ok((await page.innerText('.tooth[data-tooth="203"] .tk')).trim() === 'pXS', 'a planned extraction shows as pXS');
+  const fillOf = n => page.$eval('.tooth[data-tooth="' + n + '"] svg polygon:last-child', p => p.getAttribute('fill'));
+  const planned = await fillOf(203), done = await fillOf(408);
+  t.ok(planned !== done && planned === 'rgb(255,214,160)' && done === 'rgb(244,190,180)', 'planned is orange, extracted is red: ' + planned + ' vs ' + done);
+  t.ok(/Still planned.*203 surgical extraction/.test(await page.textContent('#extractNote')) && !/Extractions: [^.]*203/.test(await page.textContent('#extractNote').then(x => x.split('Still planned')[0])), 'planned ones are flagged and kept out of the surgery note');
+  await page.selectOption('[data-field="extsel"]', 'done-surgical');
+  t.ok(await fillOf(203) === done && /203/.test((await page.textContent('#extractNote')).split('Still planned')[0]), 'marking it extracted turns it red and puts it in the note');
+
+  // auto-jump through the teeth in the order the vets chart them
+  await page.click('#startA');
+  t.ok(/Tooth 101/.test(await page.textContent('#tpTitle')), 'Start at 101 opens tooth 101');
+  const seen = [];
+  for (let i = 0; i < 41; i++) { seen.push(/Tooth (\d+)/.exec(await page.textContent('#tpTitle'))[1]); await page.click('#tpClose'); }
+  t.ok(seen.slice(0, 11).join() === '101,102,103,104,105,106,107,108,109,110,411' && seen.slice(10, 21).join() === '411,410,409,408,407,406,405,404,403,402,401' && seen.slice(21, 32).join() === '301,302,303,304,305,306,307,308,309,310,311' && seen.slice(32).join() === '210,209,208,207,206,205,204,203,202', 'the order is 101-110, 411-401, 301-311, 210-201: ' + seen.join(' '));
+  t.ok(/Tooth 201/.test(await page.textContent('#tpTitle')) && /last tooth/i.test(await page.textContent('#tpClose')), 'it ends on 201');
+  await page.click('#tpClose');
+  t.ok(await page.locator('#toothPanel.hidden').count() === 1, 'after the last tooth the panel closes');
+  await page.click('#startB');
+  t.ok(/Tooth 201/.test(await page.textContent('#tpTitle')), 'Start at 201 runs the loop the other way');
+  await page.click('.tooth[data-tooth="203"]'); await page.selectOption('[data-field="extsel"]', '');   // tidy up for the checks below
 
   // one animal per PDF
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#pdfBtn')]);
@@ -80,8 +108,8 @@ const t = require('./check')('dental-page');
   const full = await sp.evaluate(() => assembleNote(state.animals.find(x => x.id === 'a2')));
   t.ok(/408 surgical extraction; 401, 402 non-surgical extraction/.test(full), 'and so does the exported note');
   // change the chart; the note follows
-  await page.click('.tooth[data-tooth="408"]'); await page.selectOption('#procedure', 'spx'); await page.selectOption('[data-field="ext"]', '');
-  await page.selectOption('#animalPick', 'a2'); await page.click('.tooth[data-tooth="408"]'); await page.selectOption('[data-field="ext"]', '');
+  await page.click('.tooth[data-tooth="408"]'); await page.selectOption('#procedure', 'spx'); await page.selectOption('[data-field="extsel"]', '');
+  await page.selectOption('#animalPick', 'a2'); await page.click('.tooth[data-tooth="408"]'); await page.selectOption('[data-field="extsel"]', '');
   await sp.evaluate(() => openExam('a2'));
   const sn2 = await sp.inputValue('#fld_surgNotes');
   t.ok(/Extractions: 401, 402 non-surgical extraction\./.test(sn2) && !/408 surgical/.test(sn2) && (sn2.match(/Refer to dental chart\./g) || []).length === 1, 'editing the chart updates the same lines, no duplicates');
