@@ -263,6 +263,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
         <button class="btn rust small" id="clearListBtn">Clear list</button>
       </div>
     </div>
+    <p id="dashStatus" style="font-size:12.5px;margin:0 0 10px"></p>
     <input class="plain" id="shiftSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin-bottom:10px">
     <div id="animalList"></div>
   </div>
@@ -623,7 +624,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.8';
+const APP_VERSION = '2026-10-20.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1858,6 +1859,26 @@ function renderElsewhere(elsewhere){
 }
 window.addEventListener('load', ()=>{ setTimeout(()=>pullDoneElsewhere(false), 1500); });
 setInterval(()=>{ if(!document.hidden) pullDoneElsewhere(false); }, 3*60*1000);
+/* How many of the animals on this list the dashboard has been told about, and a button to send the whole list again
+   (safe to repeat) if the dashboard shows fewer than this list. */
+function renderDashStatus(){
+  const el = document.getElementById('dashStatus'); if(!el) return;
+  const s = DashSync.summary(state.animals);
+  if(!s.total){ el.innerHTML = ''; return; }
+  const bits = [`${s.sent} sent`];
+  if(s.off) bits.push(`${s.off} kept off the dashboard`);
+  if(s.unsent) bits.push(`<b style="color:var(--rust)">${s.unsent} not sent yet</b>`);
+  if(s.noId) bits.push(`${s.noId} with no ID (cannot be sent)`);
+  el.innerHTML = `Dashboard: ${s.total} on this list · ${bits.join(' · ')} <button type="button" class="btn small secondary" id="dashResendBtn" style="margin-left:6px">Send the whole list to the dashboard again</button> <span id="dashResendMsg" style="margin-left:6px"></span>`;
+}
+document.addEventListener('click', async (e)=>{
+  const b = e.target.closest('#dashResendBtn'); if(!b) return;
+  b.disabled = true;
+  const msg = document.getElementById('dashResendMsg'); if(msg) msg.textContent = 'Sending...';
+  const r = await DashSync.resendAll(state.animals, 'sick_injured', a=> a.flagged ? planExcerpt(a.plan, 140) : undefined);
+  if(r.ok){ saveShift(); renderDashStatus(); const m2 = document.getElementById('dashResendMsg'); if(m2) m2.textContent = `Sent ${r.count} to the dashboard ✓`; }
+  else { b.disabled = false; if(msg) msg.textContent = 'Could not reach the dashboard. Check you are online, then try again.'; }
+});
 function renderShiftList(){
   const list = document.getElementById('animalList');
   const completedList = document.getElementById('completedTabList');
@@ -1879,6 +1900,7 @@ function renderShiftList(){
   const elsewhere = sorted.filter(a=>a.doneElsewhere && !a.registered);
   const completed = sorted.filter(a=>a.registered);
   document.getElementById('shiftCount').textContent = pending.length;
+  renderDashStatus();
   document.getElementById('completedTabCount').textContent = completed.length;
   document.getElementById('completedTabEmpty').classList.toggle('hidden', completed.length>0);
 

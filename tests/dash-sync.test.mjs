@@ -84,3 +84,27 @@ test('catchUp sends only what the dashboard has never heard about (and completes
   assert.equal(animals[0].dashTitle, 'N1', 'remembered, so it is not sent again');
   reset(); assert.equal(await D.catchUp(animals, 'processing'), 0); assert.equal(sent.length, 0);
 });
+
+test('summary: sent / kept off / not sent / no ID, and animals handed over by another vet are left out', () => {
+  const s = D.summary([{ animalId: 'A', dashTitle: 'A' }, { animalId: 'B', dashOff: true }, { animalId: 'C' }, { animalId: '' }, { animalId: 'E', doneElsewhere: true }]);
+  assert.deepEqual(s, { total: 4, noId: 1, off: 1, sent: 1, unsent: 1 });
+});
+test('resendAll sends the whole list in one go, brings back kept-off animals, and re-sends registered ones as done', async () => {
+  reset();
+  const list = [{ animalId: 'A', location: 'Pound 1', dashTitle: 'A', dashLoc: 'Pound 1' }, { animalId: 'B', location: '', dashOff: true }, { animalId: 'C', location: 'Pound 2', registered: true }, { animalId: '' }, { animalId: 'E', doneElsewhere: true }];
+  const r = await D.resendAll(list, 'sick_injured', () => 'plan');
+  assert.deepEqual(r, { ok: true, count: 3 });
+  assert.deepEqual(sent[0].items.map(i => i.title + '|' + i.location), ['A|Pound 1', 'B|Location TBC', 'C|Pound 2']);
+  assert.ok(sent.some(b => b.title === 'C' && b.note === 'plan'));
+  assert.equal(list[1].dashOff, false); assert.equal(list[1].dashTitle, 'B');
+});
+test('resendAll reports a failed send and changes nothing', async () => {
+  D._setFetcher(async () => { throw new Error('offline'); });
+  const list = [{ animalId: 'A', location: 'P', dashOff: true }];
+  const r = await D.resendAll(list, 'sick_injured');
+  assert.deepEqual(r, { ok: false, count: 0 });
+  assert.equal(list[0].dashOff, true);
+  D._setFetcher(async (o) => { sent.push(JSON.parse(o.body)); return { ok: true }; });
+  D._setFetcher(async () => ({ ok: false, status: 500 }));
+  assert.equal((await D.resendAll([{ animalId: 'A', location: 'P' }], 'sick_injured')).ok, false);
+});

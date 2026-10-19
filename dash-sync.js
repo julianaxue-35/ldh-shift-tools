@@ -61,5 +61,32 @@
     todo.filter(function (a) { return a.registered; }).forEach(function (a) { work.push(complete(a, shift, noteFn ? noteFn(a) : undefined)); });
     return Promise.all(work).then(function () { return todo.length; });
   }
-  return { catchUp: catchUp, NO_LOC: NO_LOC, loc: loc, addToList: addToList, complete: complete, remove: remove, rekey: rekey, removeUnfinished: removeUnfinished, _setFetcher: function (f) { fetcher = f; } };
+  // Did the dashboard take it? (the normal sends never say, they just stay quiet when offline)
+  function postOk(body) {
+    var f = fetcher || function (o) { return g.LDHSync.fetch(o); };
+    try { return Promise.resolve(f({ method: 'POST', body: JSON.stringify(body) })).then(function (r) { return !r || r.ok !== false; }, function () { return false; }); } catch (e) { return Promise.resolve(false); }
+  }
+  // How the list stands with the dashboard, from what this phone remembers. Animals handed over by another vet are not counted.
+  function summary(animals) {
+    var s = { total: 0, noId: 0, off: 0, sent: 0, unsent: 0 };
+    (animals || []).forEach(function (a) {
+      if (a.doneElsewhere) return;
+      s.total++;
+      if (!title(a)) s.noId++; else if (a.dashOff) s.off++; else if (a.dashTitle) s.sent++; else s.unsent++;
+    });
+    return s;
+  }
+  // Send the WHOLE list again (safe to repeat: the dashboard only ever adds what is missing, never un-completes). Also brings back animals
+  // that were kept off the dashboard on purpose and ones whose first send never got through. Resolves { ok, count }.
+  function resendAll(animals, shift, noteFn) {
+    var todo = (animals || []).filter(function (a) { return title(a) && !a.doneElsewhere; });
+    if (!todo.length) return Promise.resolve({ ok: true, count: 0 });
+    var items = todo.map(function (a) { return { title: title(a), location: loc(a), shift: shift }; });
+    return postOk({ items: items }).then(function (ok) {
+      if (!ok) return { ok: false, count: 0 };
+      todo.forEach(function (a) { a.dashOff = false; remember(a); });
+      return Promise.all(todo.filter(function (a) { return a.registered; }).map(function (a) { return complete(a, shift, noteFn ? noteFn(a) : undefined); })).then(function () { return { ok: true, count: todo.length }; });
+    });
+  }
+  return { summary: summary, resendAll: resendAll, catchUp: catchUp, NO_LOC: NO_LOC, loc: loc, addToList: addToList, complete: complete, remove: remove, rekey: rekey, removeUnfinished: removeUnfinished, _setFetcher: function (f) { fetcher = f; } };
 });
