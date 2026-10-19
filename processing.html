@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.7';
+const APP_VERSION = '2026-10-19.8';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -455,6 +455,14 @@ function removeFromDashboard(a, shift) { DashSync.remove(a, shift); }
    never un-complete something already registered. Lets the dashboard show
    "X of Y" instead of just "X done, total unknown". */
 function syncListToDashboard(animals, shift) { DashSync.addToList(animals, shift); }
+// Anything on TODAY'S list the dashboard has never been told about is sent a moment after the page opens, and again when the
+// phone comes back online, so animals added by hand always count in the dashboard rings.
+function dashCatchUp(){
+  if(localStorage.getItem(LS_SHIFT_DATE) !== todayStr()) return;
+  DashSync.catchUp(state.animals, 'processing').then(n=>{ if(n) saveShift(); });
+}
+window.addEventListener('load', ()=>{ setTimeout(dashCatchUp, 2500); });
+window.addEventListener('online', dashCatchUp);
 /* ---------- share with Admission AA (2026-10-18) ---------- */
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);

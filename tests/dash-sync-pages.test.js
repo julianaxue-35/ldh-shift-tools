@@ -108,5 +108,33 @@ const base = (id, extra) => Object.assign({ id, animalId: '', location: '', spec
       t.ok(!o.posts.some(b => b.items || b.delete), tool.shift + ': "not on the dashboard" animals are left alone');
     } finally { await o.browser.close(); }
   }
+  /* 8. catch-up: animals added by hand earlier (or registered with no location) reach the dashboard so they count in the rings */
+  for (const tool of TOOLS) {
+    const L = tool.shift + ': ';
+    const c = await start(tool, [
+      base('h1', { animalId: '9400001' }),                                            // added by hand, never sent
+      base('h2', { animalId: '9400002', registered: true }),                          // registered with no location
+      base('h3', { animalId: '9400003', location: 'Pound 1', dashTitle: '9400003', dashLoc: 'Pound 1' }),   // already sent
+      base('h4', { animalId: '9400004', dashOff: true })                              // kept off on purpose
+    ]);
+    try {
+      // a list from an earlier day is never pushed
+      await c.page.evaluate((k) => localStorage.setItem(k + '_date', '01 Jan 2020'), tool.shiftKey);
+      await c.page.evaluate(() => dashCatchUp());
+      await c.page.waitForTimeout(300);
+      t.ok(c.posts.filter(b => b.items || b.title || b.delete).length === 0, L + 'a list left over from an earlier day is not pushed');
+      await c.page.evaluate(() => localStorage.setItem(LS_SHIFT_DATE, todayStr()));
+      await c.page.evaluate(() => dashCatchUp());
+      await c.page.waitForTimeout(400);
+      const items = (c.posts.find(b => b.items) || { items: [] }).items.map(i => i.title).sort();
+      t.ok(items.join() === '9400001,9400002', L + "today's list: only the animals the dashboard never heard about are sent: " + items.join());
+      t.ok(c.posts.some(b => b.title === '9400002' && b.location === 'Location TBC') && !c.posts.some(b => b.title === '9400001'), L + 'the registered one is also completed (so it counts as done); the open one is not');
+      c.posts.length = 0;
+      await c.page.evaluate(() => dashCatchUp());
+      await c.page.waitForTimeout(300);
+      const sentAgain = c.posts.filter(b => b.items || b.title || b.delete);   // (the 'which are done elsewhere' read-back is not a send)
+      t.ok(sentAgain.length === 0, L + 'and it is not sent a second time: ' + JSON.stringify(sentAgain));
+    } finally { await c.browser.close(); }
+  }
   t.done();
 })();
