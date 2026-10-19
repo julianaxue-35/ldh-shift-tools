@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.8';
+const APP_VERSION = '2026-10-19.9';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -467,7 +467,7 @@ window.addEventListener('online', dashCatchUp);
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
 // The signature ignores the Date/Vet/Nurse line and the closing initials, so a nurse change or midnight is not an "edit".
-const aaSigText = a => AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
+const aaSigText = a => (aaPriorityOf(a) ? '[PRIORITY]\n' : '') + AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
 const aaSending = new Set();
 function aaFileToB64(file){
   return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
@@ -485,13 +485,29 @@ async function aaSendAnimal(a){
     const sigNow = AAShare.sig(aaSigText(a));
     let docxB64 = '';
     try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
-    const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || ''});
+    const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || '', priority:aaPriorityOf(a)});
     if(!body) return;
     if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; a.aaEnteredAt = ''; saveShift(); }
     else { a.aaErr = AAShare.lastError(); }
   } finally { aaSending.delete(a.id); renderAaShare(); }
 }
-function aaRegisterHint(){ return AAShare.isOn(AA_TOOL) ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA — finish the notes first.</div>' : ''; }
+// Priority (e.g. awaiting foster): the Admission AA does these first. Ticked for her automatically when the animal's next step is
+// "Awaiting foster"; she can tick or untick it herself, and her choice then stands.
+const awaitingFoster = a => allNextSteps(a).some(s=>/awaiting foster/i.test(s));
+const aaPriorityOf = a => (a.aaPriorityChoice === true || a.aaPriorityChoice === false) ? a.aaPriorityChoice : awaitingFoster(a);
+function aaRegisterHint(a){
+  if(!AAShare.isOn(AA_TOOL)) return '';
+  const pri = a ? aaPriorityOf(a) : false;
+  return '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px">Registering sends these notes to the Admission AA \u2014 finish the notes first.</div>' +
+    (a ? `<label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;font-weight:600;color:${pri?'var(--rust)':'inherit'}"><input type="checkbox" class="aa-priority-chk" data-id="${esc(a.id)}" ${pri?'checked':''} style="width:18px;height:18px"> \u26a1 Send to the Admission AA as PRIORITY (she does it first)${pri && a.aaPriorityChoice == null ? ' <span style="font-weight:400">\u2014 ticked because this animal is awaiting foster</span>' : ''}</label>` : '');
+}
+document.addEventListener('change', (e)=>{
+  const c = e.target.closest('.aa-priority-chk'); if(!c) return;
+  const a = state.animals.find(x=>x.id === c.dataset.id); if(!a) return;
+  a.aaPriorityChoice = c.checked;
+  saveShift(); renderAaShare();
+  if(state.openId === a.id) openExam(a.id);
+});
 function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
 function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); MedChart.aaChartsToSend(AA_TOOL).forEach(MedChart.aaSendChart); }
 // Undoing a registration or deleting an animal cannot unsend its card, so say so.
@@ -990,6 +1006,7 @@ function normalizeAnimal(a){
     a.medPlan = [a.medPlan, a.nextStepNotes.trim()].filter(Boolean).join('\n');
   }
   a.nextStepNotes = '';
+  if(a.aaPriorityChoice == null) a.aaPriorityChoice = null;   // null = follow the pathway (awaiting foster => priority)
   if(a.aaEnteredAt == null) a.aaEnteredAt = '';   // when the Admission AA was seen to have entered it
   if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
   if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
@@ -1349,7 +1366,7 @@ function examFormHtml28(a){
       <option value="">-</option>
       ${PATHWAY_OPTIONS_28.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
   return h;
 }
 function bindExamForm28(a){
@@ -2379,7 +2396,7 @@ function examFormHtml(a){
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
-    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
+    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
@@ -2666,7 +2683,7 @@ function examFormHtml(a){
       <input class="plain" id="fld_nurse2" style="width:100%" value="${esc(nurseInitEl.value)}" placeholder="Nurse initials" disabled>
     </div></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
 
   return h;
 }

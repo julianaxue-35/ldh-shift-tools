@@ -46,6 +46,7 @@
     if (!hasId(o.animal)) return null;
     var payload = { text: String(o.noteText == null ? '' : o.noteText) };
     if (o.docxB64) payload.docx_b64 = o.docxB64;
+    if (o.priority === true) payload.priority = true;       // the vet asked for this one to be done first
     return { aa: { kind: o.kind, animal_id: String(o.animal.animalId).trim(), location: o.animal.location || '', sent_by: o.sentBy || '', payload: payload } };
   }
   var lastErr = '';
