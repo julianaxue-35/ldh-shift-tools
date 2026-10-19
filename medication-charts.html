@@ -81,6 +81,7 @@ footer.notice{font-size:11px;color:var(--ink-soft);text-align:center;padding:20p
 
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="aa-share.js"></script>
 <script src="medchart.js"></script>
 <script>
 function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -112,6 +113,7 @@ function renderList(){
           <div class="patient">${esc(c.animalId)||'(no ID)'} <span class="src-badge">${esc(sourceLabel(c.sourceTool))}</span></div>
           <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${MedChart.chartBaseOffset(c)===0?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
           ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
+          ${MedChart.aaChartBadge(c) ? `<div class="meta aa-status" style="font-weight:600">${esc(MedChart.aaChartBadge(c))}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
       </div>
@@ -453,6 +455,21 @@ document.getElementById('selectAll').addEventListener('change', (e)=>{
   document.querySelectorAll('.pickChart').forEach(cb=> cb.checked = e.target.checked);
 });
 document.getElementById('refreshBtn').addEventListener('click', renderList);
+
+/* ---------- Done by the Admission AA (2026-10-19) ----------
+   Charts sent from Processing / Sick & Injured are marked Done here once the Admission AA has ticked them off. We ask the
+   dashboard which of the sent charts are still waiting; any that are not have been done. If it cannot be reached, nothing
+   changes. */
+async function checkAaDone(){
+  const pairs = MedChart.aaSentPairs();
+  if(!pairs.length) return;
+  const pending = await AAShare.check(pairs);
+  if(!pending) return;
+  if(MedChart.aaApplyCheckAll(pending, new Date().toISOString())) renderList();
+}
+setTimeout(checkAaDone, 1500);
+setInterval(()=>{ if(!document.hidden) checkAaDone(); }, 3*60*1000);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') checkAaDone(); });
 
 function selectedIds(){
   return Array.from(document.querySelectorAll('.pickChart:checked')).map(cb=>cb.dataset.id);
