@@ -3272,7 +3272,7 @@ function examFormHtml(a){
   if((hasProcedure(a,'dental') || dentalChartFor(a)) && !isRabbit(a) && String(a.animalId||'').trim()){
     // the dental chart tool, inside the exam: the chart fills the surgical notes above by itself
     h += `<details class="pe-field" id="dentalToolBox" open><summary style="cursor:pointer;font-weight:700;color:var(--teal-dark)">Dental chart (tool)</summary>
-      <iframe id="dentalFrame" data-src="dental.html?embed=1&animal=${encodeURIComponent(a.id)}" style="width:100%;height:900px;border:0;margin-top:8px" title="Dental chart"></iframe>
+      <iframe id="dentalFrame" data-src="dental.html?embed=1&animal=${encodeURIComponent(a.id)}" allow="web-share" style="width:100%;height:900px;border:0;margin-top:8px" title="Dental chart"></iframe>
       <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Extractions marked as extracted go into the surgical notes above. <a href="dental.html?animal=${encodeURIComponent(a.id)}">Open as a full page</a> (to download the PDF on its own).</p></details>`;
   }
 
