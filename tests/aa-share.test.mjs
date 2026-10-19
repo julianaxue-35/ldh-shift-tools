@@ -109,3 +109,10 @@ test('badge says where each animal has got to', () => {
   assert.equal(A.badge({ registered: true, animalId: 'a', aaSentAt: 'x', aaSig: sig, aaEnteredAt: 'y' }, 'n'), 'Entered in ShelterMate');
   assert.equal(A.badge({ registered: true, animalId: 'a', aaSentAt: 'x', aaSig: sig, aaEnteredAt: 'y' }, 'changed'), 'NOT SENT');
 });
+
+test('buildBody carries priority only when explicitly true', () => {
+  const a = { animalId: 'T-1', location: 'P1' };
+  assert.equal(A.buildBody({ kind: 'processing_note', animal: a, noteText: 'x', priority: true }).aa.payload.priority, true);
+  assert.equal(A.buildBody({ kind: 'processing_note', animal: a, noteText: 'x', priority: 'yes' }).aa.payload.priority, undefined);
+  assert.equal(A.buildBody({ kind: 'processing_note', animal: a, noteText: 'x' }).aa.payload.priority, undefined);
+});
