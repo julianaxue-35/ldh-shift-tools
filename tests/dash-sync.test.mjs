@@ -65,3 +65,22 @@ test('Clear list takes only the unfinished animals off the dashboard', async () 
   assert.deepEqual(sent.map(b => b.delete.title).sort(), ['D1', 'D3']);
   assert.equal(sent.find(b => b.delete.title === 'D3').delete.location, 'Location TBC');
 });
+
+test('catchUp sends only what the dashboard has never heard about (and completes the registered ones)', async () => {
+  reset();
+  const animals = [
+    { animalId: 'N1', location: '', registered: false },                                   // added by hand, never sent
+    { animalId: 'N2', location: '', registered: true },                                    // registered before it had a location
+    { animalId: 'K1', location: 'P1', registered: true, dashTitle: 'K1', dashLoc: 'P1' },  // already known
+    { animalId: 'O1', location: 'P1', registered: true, dashOff: true },                   // kept off on purpose
+    { animalId: 'E1', location: 'P1', registered: false, doneElsewhere: true },
+    { animalId: '', location: 'P1', registered: false }
+  ];
+  const n = await D.catchUp(animals, 'processing');
+  assert.equal(n, 2);
+  assert.deepEqual(sent.find(b => b.items).items.map(i => i.title).sort(), ['N1', 'N2']);
+  assert.ok(sent.find(b => b.items).items.every(i => i.location === 'Location TBC'));
+  assert.deepEqual(sent.filter(b => b.title).map(b => b.title), ['N2'], 'only the registered one is completed');
+  assert.equal(animals[0].dashTitle, 'N1', 'remembered, so it is not sent again');
+  reset(); assert.equal(await D.catchUp(animals, 'processing'), 0); assert.equal(sent.length, 0);
+});

@@ -51,5 +51,15 @@
   function removeUnfinished(animals, shift) {
     return Promise.all((animals || []).filter(function (a) { return !a.registered && !a.doneElsewhere && (a.dashTitle || title(a)); }).map(function (a) { return remove(a, shift); }));
   }
-  return { NO_LOC: NO_LOC, loc: loc, addToList: addToList, complete: complete, remove: remove, rekey: rekey, removeUnfinished: removeUnfinished, _setFetcher: function (f) { fetcher = f; } };
+  // Catch-up: animals on today's list that the dashboard has never been told about (added by hand, or registered before they had
+  // a location) are sent now, so every animal counts in the dashboard rings. Animals already sent (they remember their key) and
+  // ones kept off the dashboard on purpose are left alone.
+  function catchUp(animals, shift, noteFn) {
+    var todo = (animals || []).filter(function (a) { return title(a) && !a.dashOff && !a.doneElsewhere && !a.dashTitle; });
+    if (!todo.length) return Promise.resolve(0);
+    var work = [addToList(todo, shift)];
+    todo.filter(function (a) { return a.registered; }).forEach(function (a) { work.push(complete(a, shift, noteFn ? noteFn(a) : undefined)); });
+    return Promise.all(work).then(function () { return todo.length; });
+  }
+  return { catchUp: catchUp, NO_LOC: NO_LOC, loc: loc, addToList: addToList, complete: complete, remove: remove, rekey: rekey, removeUnfinished: removeUnfinished, _setFetcher: function (f) { fetcher = f; } };
 });
