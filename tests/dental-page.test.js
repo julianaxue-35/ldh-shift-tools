@@ -113,6 +113,20 @@ const t = require('./check')('dental-page');
   await sp.evaluate(() => openExam('a2'));
   const sn2 = await sp.inputValue('#fld_surgNotes');
   t.ok(/Extractions: 401, 402 non-surgical extraction\./.test(sn2) && !/408 surgical/.test(sn2) && (sn2.match(/Refer to dental chart\./g) || []).length === 1, 'editing the chart updates the same lines, no duplicates');
+  // the chart tool sits inside the exam, in the dental template area, and fills the note live
+  await sp.evaluate(() => openExam('a2'));
+  t.ok(await sp.locator('#dentalToolBox[open] #dentalFrame').count() === 1, 'the dental chart tool is inside the exam for a dental animal');
+  let fr = null;
+  for (let i = 0; i < 40 && !fr; i++) { fr = sp.frames().find(f => /dental\.html/.test(f.url())); if (!fr) await sp.waitForTimeout(100); }
+  await fr.waitForSelector('.tooth');
+  t.ok(!(await fr.isVisible('#animalCard')) && !(await fr.isVisible('header.top')) && /T-DENT/.test(await fr.textContent('#chartTitle')), 'embedded: no second header or animal picker, and it opens this animal\'s chart');
+  await fr.click('.tooth[data-tooth="107"]');
+  await fr.selectOption('[data-field="extsel"]', 'done-surgical');
+  await sp.waitForFunction(() => /107/.test(document.getElementById('fld_surgNotes').value), null, { timeout: 5000 });
+  t.ok(/Extractions: 107 surgical extraction; 401, 402 non-surgical extraction/.test(await sp.inputValue('#fld_surgNotes')), 'a change made in the embedded chart shows in the surgical notes straight away');
+  await sp.waitForFunction(() => document.getElementById('dentalFrame').offsetHeight > 1000, null, { timeout: 5000 });
+  t.ok(true, 'the frame is sized to the chart, not a fixed height');
+  await fr.selectOption('[data-field="extsel"]', '');
   // an animal without a chart is untouched
   await sp.evaluate(() => openExam('a1'));
   t.ok(!/Refer to dental chart/.test(await sp.inputValue('#fld_surgNotes')), 'an animal with no dental chart is untouched');

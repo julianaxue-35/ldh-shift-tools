@@ -49,6 +49,8 @@ header.top h1{font-size:17px;font-weight:600;max-width:900px;margin:0 auto}
 .opt{border:1px solid var(--line);background:var(--paper-2);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600}
 .opt.on{background:var(--teal);color:#fff;border-color:var(--teal)}
 .hidden{display:none !important}
+body.embed .back-nav, body.embed header.top, body.embed #animalCard, body.embed #savedCard{display:none}
+body.embed .wrap{padding:0 0 16px}
 .err{color:var(--rust);font-size:12.5px;margin:6px 0}
 /* the mouth */
 .mouth{overflow-x:auto}
@@ -90,6 +92,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 </style>
 </head>
 <body class="ldh-locked">
+<script>if (new URLSearchParams(location.search).get('embed')) document.body.classList.add('embed');</script>
 
 <div id="ldh-gate">
   <div class="ldh-gate-box">
@@ -213,7 +216,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="savedCard">
     <h2>Charts on this device</h2>
     <p class="note">One PDF per animal, ready to upload to ShelterMate. Charts are kept on this device for 3 days.</p>
     <div id="savedList"></div>
@@ -419,6 +422,13 @@ $('savedList').addEventListener('click', e => {
 $('legend').innerHTML = D.abbreviationKey().map(r => `<div><b>${esc(r[0])}</b> ${esc(r[1])}</div>`).join('');
 
 /* ---- start ---- */
+// embedded in the Surgery tool's exam: tell it how tall the chart is so it can size the frame
+if (document.body.classList.contains('embed') && window.parent !== window) {
+  let lastH = 0;
+  const postHeight = () => { const h = document.documentElement.scrollHeight; if (h === lastH) return; lastH = h; try { window.parent.postMessage({ ldhDentalHeight: h }, '*'); } catch (e) { /* not framed */ } };
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  setInterval(postHeight, 400);          // browsers pause the observer for frames that are off screen
+}
 pruneCharts(); saveCharts();
 renderPicker(); renderSaved();
 const want = new URLSearchParams(location.search).get('animal');
