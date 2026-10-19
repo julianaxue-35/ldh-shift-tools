@@ -53,7 +53,21 @@ const plus = (days) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDat
   t.ok(out.days === 4 && out.start === 'today', 'saved chart: 4 days, starting today');
   t.ok(out.sheet === 'Review due ' + plus(4), 'the Excel sheet says Review due ' + plus(4) + ': ' + out.sheet);
   t.ok(/review due /.test(out.label) && out.label.endsWith(plus(4)), 'the label (dashboard / Admission AA) agrees: ' + out.label);
-  t.ok(out.note.includes('(recheck ' + plus(4) + ')'), 'and the note was brought into line with the chart: ' + out.note);
+  t.ok(out.note === 'Plan: ' + out.label, 'the SAME label is now in the medical note, replacing the plan line: ' + out.note);
+  t.ok(out.note === 'Plan: Gabapentin 0.25ml orally twice daily, review due ' + plus(4), 'and it reads as expected: ' + out.note);
+
+  // 4. a label she edits in the chart editor carries into the note; a mg/kg figure is kept
+  await page.evaluate(() => { const a = state.animals[0]; a.weight = '10'; a.medPlan = MedChart.annotateRecheck(MedChart.annotateMgPerKg('amoxyclav 250mg: give 1 tablet orally twice daily for 5 days', '10', 'dog')); saveShift(); openExam(a.id); });
+  const before = await page.evaluate(() => state.animals[0].medPlan);
+  await page.click('[data-regchart]');
+  await page.waitForSelector('[data-mfield="labelText"]');
+  await page.fill('[data-mfield="labelText"]', 'Amoxyclav 250mg 1 tablet BID, give with food, review due 25/10');
+  await page.dispatchEvent('[data-mfield="labelText"]', 'input');
+  await page.click('#saveChartBtn');
+  await page.waitForTimeout(500);
+  const after = await page.evaluate(() => ({ plan: state.animals[0].medPlan, note: assembleNote(state.animals[0]).match(/Plan:.*/)[0] }));
+  t.ok(/mg\/kg/.test(before), 'setup: the line had a mg/kg figure: ' + before);
+  t.ok(/^Amoxyclav 250mg 1 tablet BID, give with food \([\d.]+mg\/kg\), review due 25\/10$/.test(after.plan), 'her edited label is in the note, with the mg/kg kept: ' + after.plan);
   t.ok(errors.length === 0, 'no page errors: ' + errors.join('|'));
   await browser.close();
   t.done();

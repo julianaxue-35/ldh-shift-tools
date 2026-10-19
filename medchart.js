@@ -247,6 +247,26 @@
       return core + ' (recheck ' + d.getDate() + '/' + (d.getMonth() + 1) + ')';
     }).join('\n');
   }
+  // The chart's medication label goes back into the note: the plan line the chart was made from is replaced by the final label
+  // (including any edits made in the chart editor), so the note and the printed chart say exactly the same thing. Any
+  // "(x mg/kg)" the tool worked out for that line is kept. A line she has changed since is left alone.
+  var MGKG_RE = /\(\s*[\d.]+\s*mg\/kg\s*\)/i;
+  function putLabelsInNote(text, chart) {
+    var base = new Date(chart.createdAt || Date.now());
+    var meds = (chart.meds || []).filter(function (m) { return m.rawText; });
+    return String(text || '').split('\n').map(function (line) {
+      var core = line.replace(RECHECK_MARK_RE, '').trim();
+      for (var i = 0; i < meds.length; i++) {
+        if (meds[i].rawText.trim() !== core) continue;
+        var label = labelFor(meds[i], base, chart.startOption);
+        if (!label) return line;
+        var mg = MGKG_RE.exec(core);
+        if (mg && !MGKG_RE.test(label)) label = /, review due /.test(label) ? label.replace(/(, review due .+)$/, ' ' + mg[0] + '$1') : label + ' ' + mg[0];
+        return label;
+      }
+      return line;
+    }).join('\n');
+  }
   function buildLabelSentence(med, baseDate, chartStart) {
     var head = [med.drugLabel, med.doseText, routeWords(med.route), freqWords(med.freq)]
       .filter(Boolean).join(' ').trim();
@@ -1068,6 +1088,7 @@
     labelFor: labelFor,
     reviewDateText: reviewDateText,
     annotateRecheck: annotateRecheck,
+    putLabelsInNote: putLabelsInNote,
     aaChartLine: aaChartLine,
     recheckDisplay: recheckDisplay,
     computeGrid: computeGrid,
