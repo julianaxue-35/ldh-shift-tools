@@ -231,6 +231,22 @@
     if (d.getTime() < base.getTime() - 30 * 86400000) d.setFullYear(d.getFullYear() + 1);
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + txt;
   }
+  // Puts the recheck date on the medication lines of the NOTE itself ("... for 7 days (recheck 27/10)"), worked out from the
+  // line she typed. Our own earlier "(recheck d/m)" is dropped and recomputed each time, so changing "7 days" to "10 days"
+  // moves the date; a line where she wrote her own review / recheck / until date is left alone.
+  var RECHECK_MARK_RE = /\s*\(recheck \d{1,2}\/\d{1,2}\)\s*$/;
+  function annotateRecheck(text, baseDate, startOption) {
+    return String(text || '').split('\n').map(function (line) {
+      var core = line.replace(RECHECK_MARK_RE, '');
+      if (!core.trim() || /\b(review|re-?check|until|till)\b/i.test(core)) return core;
+      var days = detectDays(core);
+      if (!days) return core;
+      var d = new Date(baseDate || Date.now());
+      d.setHours(12, 0, 0, 0);
+      d.setDate(d.getDate() + (startOption === 'today' ? 0 : 1) + days);
+      return core + ' (recheck ' + d.getDate() + '/' + (d.getMonth() + 1) + ')';
+    }).join('\n');
+  }
   function buildLabelSentence(med, baseDate, chartStart) {
     var head = [med.drugLabel, med.doseText, routeWords(med.route), freqWords(med.freq)]
       .filter(Boolean).join(' ').trim();
@@ -694,6 +710,20 @@
     list.forEach(function (c, i) { if ((c.aaEnteredAt || '') !== before[i]) aaPatchChart(c.id, { aaEnteredAt: c.aaEnteredAt || '' }); });
     return n;
   }
+  // One plain sentence on where a saved chart has got to with the Admission AA, shown under "Register medication chart".
+  function aaChartLine(chart) {
+    if (!chart) return '';
+    var tool = aaToolFor(chart);
+    if (!tool || !global.AAShare) return '';
+    if (!global.AAShare.isOn(tool)) return 'Chart saved. It has NOT been sent to the Admission AA: the share switch is off.';
+    var st = aaChartStatus(chart);
+    var hm = chart.aaSentAt ? new Date(chart.aaSentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    if (st === 'noid') return '\u274c Chart saved, but it has no animal ID so it cannot be sent to the Admission AA.';
+    if (st === 'notsent') return '\u274c NOT SENT to the Admission AA' + (chart.aaErr ? ' (' + chart.aaErr + ')' : '') + '. Press Resend in the Share card.';
+    if (st === 'stale') return '\u274c Changed since it was sent to the Admission AA. Press Resend in the Share card.';
+    return chart.aaEnteredAt ? '\u2705 Done: the Admission AA has marked this chart as done.'
+      : '\u23f3 Sent to the Admission AA' + (hm ? ' at ' + hm : '') + ' \u2713. Waiting for them to mark it done.';
+  }
   function aaNotify() { if (typeof aaListener === 'function') { try { aaListener(); } catch (e) { /* display only */ } } }
   function aaBlobToB64(blob) {
     return new Promise(function (res, rej) {
@@ -966,7 +996,11 @@
     if (s8Meds.length) {
       return 'Medication chart saved.\n\n⚠️ Schedule 8 drug recorded: ' + s8Meds.join(', ') + '.\nSign it out now at ' + DDBOOK_URL;
     }
-    return 'Medication chart saved. Open "Medication Charts" from the shift tools hub to review and export.';
+    var tool = AA_TOOL_OF[chart.sourceTool];
+    var share = !tool || !global.AAShare ? ''
+      : (global.AAShare.isOn(tool) ? '\n\nIt is being sent to the Admission AA. Its status shows under the "Register medication chart" button.'
+                                    : '\n\nIt has NOT been sent to the Admission AA (the share switch is off).');
+    return 'Medication chart saved. Open "Medication Charts" from the shift tools hub to review and export.' + share;
   }
 
   /* 2026-09-25: charts are printed, so they don't need to linger. The first
@@ -1031,6 +1065,8 @@
     buildLabelSentence: buildLabelSentence,
     labelFor: labelFor,
     reviewDateText: reviewDateText,
+    annotateRecheck: annotateRecheck,
+    aaChartLine: aaChartLine,
     recheckDisplay: recheckDisplay,
     computeGrid: computeGrid,
     medStartOffset: medStartOffset,
