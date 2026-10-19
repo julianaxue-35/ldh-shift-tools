@@ -39,7 +39,7 @@ test('an unregistered animal is re-added to the list, not completed; first ID en
   assert.deepEqual(sent, [{ items: [{ title: 'M1', location: 'Location TBC', shift: 'processing' }] }], 'a manual add with just an ID appears on the dashboard');
 });
 
-test('clearing the ID removes the case; keepOld stops a shared case being deleted; dashOff animals are left alone', async () => {
+test('clearing the ID removes the case; keepOld stops a shared case being deleted; a later edit is picked up', async () => {
   reset();
   const a = { animalId: '', location: 'Pound 1', dashTitle: 'C1', dashLoc: 'Pound 1' };
   await D.rekey(a, 'processing');
@@ -50,8 +50,8 @@ test('clearing the ID removes the case; keepOld stops a shared case being delete
   await D.rekey(b, 'sick_injured', { keepOld: (t, l) => t === 'C2' && l === 'Pound 1' });
   assert.ok(!sent.some(x => x.delete), 'another visit still owns the old case');
   reset();
-  await D.rekey({ animalId: 'Z', location: 'P', dashOff: true }, 'processing');
-  assert.equal(sent.length, 0);
+  await D.rekey({ animalId: 'Z', location: 'P', dashTitle: 'Z', dashLoc: 'P', dashConfirmed: true }, 'processing');
+  assert.equal(sent.length, 0, 'nothing changed, nothing sent');
 });
 
 test('Clear list takes only the unfinished animals off the dashboard', async () => {
@@ -71,8 +71,7 @@ test('catchUp sends only what the dashboard has never heard about (and completes
   const animals = [
     { animalId: 'N1', location: '', registered: false },                                   // added by hand, never sent
     { animalId: 'N2', location: '', registered: true },                                    // registered before it had a location
-    { animalId: 'K1', location: 'P1', registered: true, dashTitle: 'K1', dashLoc: 'P1' },  // already known
-    { animalId: 'O1', location: 'P1', registered: true, dashOff: true },                   // kept off on purpose
+    { animalId: 'K1', location: 'P1', registered: true, dashTitle: 'K1', dashLoc: 'P1', dashConfirmed: true },  // already confirmed
     { animalId: 'E1', location: 'P1', registered: false, doneElsewhere: true },
     { animalId: '', location: 'P1', registered: false }
   ];
@@ -82,29 +81,36 @@ test('catchUp sends only what the dashboard has never heard about (and completes
   assert.ok(sent.find(b => b.items).items.every(i => i.location === 'Location TBC'));
   assert.deepEqual(sent.filter(b => b.title).map(b => b.title), ['N2'], 'only the registered one is completed');
   assert.equal(animals[0].dashTitle, 'N1', 'remembered, so it is not sent again');
+  assert.equal(animals[0].dashConfirmed, true);
   reset(); assert.equal(await D.catchUp(animals, 'processing'), 0); assert.equal(sent.length, 0);
 });
 
-test('summary: sent / kept off / not sent / no ID, and animals handed over by another vet are left out', () => {
-  const s = D.summary([{ animalId: 'A', dashTitle: 'A' }, { animalId: 'B', dashOff: true }, { animalId: 'C' }, { animalId: '' }, { animalId: 'E', doneElsewhere: true }]);
-  assert.deepEqual(s, { total: 4, noId: 1, off: 1, sent: 1, unsent: 1 });
-});
-test('resendAll sends the whole list in one go, brings back kept-off animals, and re-sends registered ones as done', async () => {
-  reset();
-  const list = [{ animalId: 'A', location: 'Pound 1', dashTitle: 'A', dashLoc: 'Pound 1' }, { animalId: 'B', location: '', dashOff: true }, { animalId: 'C', location: 'Pound 2', registered: true }, { animalId: '' }, { animalId: 'E', doneElsewhere: true }];
-  const r = await D.resendAll(list, 'sick_injured', () => 'plan');
-  assert.deepEqual(r, { ok: true, count: 3 });
-  assert.deepEqual(sent[0].items.map(i => i.title + '|' + i.location), ['A|Pound 1', 'B|Location TBC', 'C|Pound 2']);
-  assert.ok(sent.some(b => b.title === 'C' && b.note === 'plan'));
-  assert.equal(list[1].dashOff, false); assert.equal(list[1].dashTitle, 'B');
-});
-test('resendAll reports a failed send and changes nothing', async () => {
+test('an animal only counts as sent once the dashboard confirmed; a lost send is retried by the next catch-up', async () => {
+  const list = [{ animalId: 'R1', location: 'P1' }, { animalId: 'R2', location: 'P1' }];
   D._setFetcher(async () => { throw new Error('offline'); });
-  const list = [{ animalId: 'A', location: 'P', dashOff: true }];
-  const r = await D.resendAll(list, 'sick_injured');
-  assert.deepEqual(r, { ok: false, count: 0 });
-  assert.equal(list[0].dashOff, true);
-  D._setFetcher(async (o) => { sent.push(JSON.parse(o.body)); return { ok: true }; });
+  assert.equal(await D.catchUp(list, 'sick_injured'), 2);
+  assert.ok(!list[0].dashConfirmed && !list[0].dashTitle, 'a failed send is not remembered');
   D._setFetcher(async () => ({ ok: false, status: 500 }));
-  assert.equal((await D.resendAll([{ animalId: 'A', location: 'P' }], 'sick_injured')).ok, false);
+  await D.catchUp(list, 'sick_injured');
+  assert.ok(!list[1].dashConfirmed, 'an error answer is not remembered either');
+  D._setFetcher(async (o) => { sent.push(JSON.parse(o.body)); return { ok: true }; });
+  reset();
+  assert.equal(await D.catchUp(list, 'sick_injured'), 2);
+  assert.deepEqual(sent[0].items.map(i => i.title), ['R1', 'R2']);
+  assert.ok(list.every(a => a.dashConfirmed));
+  reset(); assert.equal(await D.catchUp(list, 'sick_injured'), 0);
+});
+test('animals marked as sent by an older version (never confirmed) are sent once more; the old kept-off flag no longer hides anything', async () => {
+  reset();
+  const list = [{ animalId: 'L1', location: 'P1', dashTitle: 'L1', dashLoc: 'P1' }, { animalId: 'L2', location: 'P1', dashOff: true }];
+  assert.equal(await D.catchUp(list, 'sick_injured'), 2);
+  assert.deepEqual(sent[0].items.map(i => i.title).sort(), ['L1', 'L2']);
+});
+test('an edited ID/location that failed to send is retried, removing the old case', async () => {
+  reset();
+  const a = { animalId: 'M9', location: 'P2', dashTitle: 'M9', dashLoc: 'P1', dashConfirmed: true };
+  await D.catchUp([a], 'processing');
+  assert.deepEqual(sent.find(b => b.delete), { delete: { title: 'M9', location: 'P1', shift: 'processing' } });
+  assert.ok(sent.some(b => b.items && b.items[0].location === 'P2'));
+  assert.equal(a.dashLoc, 'P2');
 });

@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.9';
+const APP_VERSION = '2026-10-20.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -463,6 +463,8 @@ function dashCatchUp(){
 }
 window.addEventListener('load', ()=>{ setTimeout(dashCatchUp, 2500); });
 window.addEventListener('online', dashCatchUp);
+setInterval(dashCatchUp, 60000);                                   // a send lost to patchy wifi heals by itself
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) dashCatchUp(); });
 /* ---------- share with Admission AA (2026-10-18) ---------- */
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
@@ -1722,7 +1724,6 @@ function parseInCareInventory(aoa){
 /* Room picker for the import preview: group rows by room so a vet helping
    out can tick just the room(s) they're taking. "Cat Room 1 / 16" -> "Cat Room 1";
    "CR2-43" -> "CR2"; anything unrecognised stays as its own group. */
-let parsedAddToDashboard = true;
 function roomOfLocation(loc){
   const t = String(loc||'').trim();
   if(!t) return '(no location)';
@@ -1738,8 +1739,7 @@ function roomChipsHtml(rows){
     <div class="opts">${keys.map(k=>{
       const all = rooms[k].every(r=>r._checked!==false);
       return `<button type="button" class="opt-btn ${all?'selected':''}" data-room="${esc(k)}">${esc(k)} (${rooms[k].length})</button>`;
-    }).join('')}</div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-top:10px;cursor:pointer"><input type="checkbox" id="parsedDashChk" ${parsedAddToDashboard?'checked':''} style="width:18px;height:18px"> Also add these to the dashboard</label></div>`;
+    }).join('')}</div></div>`;
 }
 function bindRoomChips(wrap, rows, rerender){
   wrap.querySelectorAll('[data-room]').forEach(btn=>{
@@ -1750,8 +1750,6 @@ function bindRoomChips(wrap, rows, rerender){
       rerender(rows);
     });
   });
-  const chk = wrap.querySelector('#parsedDashChk');
-  if(chk) chk.addEventListener('change', ()=>{ parsedAddToDashboard = chk.checked; });
 }
 function renderParsedTable(rows){
   const wrap = document.getElementById('parsedWrap');
@@ -1809,8 +1807,8 @@ function renderParsedTable(rows){
       state.animals.push(a);
       return a;
     });
-    if(parsedAddToDashboard) syncListToDashboard(added, 'processing'); else added.forEach(a=>{ a.dashOff = true; });   // chose not to add these to the dashboard: leave them off it
     saveShift();
+    dashCatchUp();             // every animal goes to the dashboard (and is retried until it confirms)
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
     wrap.innerHTML = '';

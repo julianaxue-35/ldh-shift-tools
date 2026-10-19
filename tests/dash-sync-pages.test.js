@@ -98,14 +98,12 @@ const base = (id, extra) => Object.assign({ id, animalId: '', location: '', spec
       t.ok(dels.join() === '9100001,9100003', tool.shift + ': Clear list removes the unfinished animals from the dashboard and keeps the completed one: ' + dels.join());
     } finally { await c.browser.close(); }
 
-    /* 7. an animal deliberately kept off the dashboard stays off when its ID is edited */
+    /* 7. no opt-out any more: an animal carrying the old "kept off" flag is still sent */
     const o = await start(tool, [base('o1', { animalId: '9200001', location: 'Pound 1', dashOff: true })]);
     try {
-      await o.page.evaluate(() => openExam('o1'));
-      await o.page.fill('#' + tool.idField, '9200009');
-      await o.page.dispatchEvent('#' + tool.idField, 'change');
-      await o.page.waitForTimeout(300);
-      t.ok(!o.posts.some(b => b.items || b.delete), tool.shift + ': "not on the dashboard" animals are left alone');
+      await o.page.evaluate(() => { localStorage.setItem(LS_SHIFT_DATE, todayStr()); dashCatchUp(); });
+      await o.page.waitForTimeout(400);
+      t.ok(o.posts.some(b => b.items && b.items.some(i => i.title === '9200001')), tool.shift + ': nothing is kept off the dashboard');
     } finally { await o.browser.close(); }
   }
   /* 8. catch-up: animals added by hand earlier (or registered with no location) reach the dashboard so they count in the rings */
@@ -114,8 +112,8 @@ const base = (id, extra) => Object.assign({ id, animalId: '', location: '', spec
     const c = await start(tool, [
       base('h1', { animalId: '9400001' }),                                            // added by hand, never sent
       base('h2', { animalId: '9400002', registered: true }),                          // registered with no location
-      base('h3', { animalId: '9400003', location: 'Pound 1', dashTitle: '9400003', dashLoc: 'Pound 1' }),   // already sent
-      base('h4', { animalId: '9400004', dashOff: true })                              // kept off on purpose
+      base('h3', { animalId: '9400003', location: 'Pound 1', dashTitle: '9400003', dashLoc: 'Pound 1', dashConfirmed: true }),   // already confirmed
+      base('h4', { animalId: '9400004', dashOff: true })                              // the old kept-off flag no longer hides it
     ]);
     try {
       // a list from an earlier day is never pushed
@@ -127,7 +125,7 @@ const base = (id, extra) => Object.assign({ id, animalId: '', location: '', spec
       await c.page.evaluate(() => dashCatchUp());
       await c.page.waitForTimeout(400);
       const items = (c.posts.find(b => b.items) || { items: [] }).items.map(i => i.title).sort();
-      t.ok(items.join() === '9400001,9400002', L + "today's list: only the animals the dashboard never heard about are sent: " + items.join());
+      t.ok(items.join() === '9400001,9400002,9400004', L + "today's list: every animal the dashboard has not confirmed is sent, none are left out: " + items.join());
       t.ok(c.posts.some(b => b.title === '9400002' && b.location === 'Location TBC') && !c.posts.some(b => b.title === '9400001'), L + 'the registered one is also completed (so it counts as done); the open one is not');
       c.posts.length = 0;
       await c.page.evaluate(() => dashCatchUp());
