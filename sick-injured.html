@@ -623,7 +623,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.8';
+const APP_VERSION = '2026-10-20.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -690,6 +690,8 @@ function dashCatchUp(){
 }
 window.addEventListener('load', ()=>{ setTimeout(dashCatchUp, 2500); });
 window.addEventListener('online', dashCatchUp);
+setInterval(dashCatchUp, 60000);                                   // a send lost to patchy wifi heals by itself
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) dashCatchUp(); });
 const LS_SHIFT = 'ldh_sickinjured_shift_v1';
 const LS_SHIFT_DATE = LS_SHIFT + '_date'; // the day this shift list was started — flags a list left over from a previous day
 const LS_BACKUP = LS_SHIFT + '_backups';
@@ -1365,7 +1367,6 @@ function parseVetReminderReport(aoa){
 /* Room picker for the import preview: group rows by room so a vet helping
    out can tick just the room(s) they're taking. "Cat Room 1 / 16" -> "Cat Room 1";
    "CR2-43" -> "CR2"; anything unrecognised stays as its own group. */
-let parsedAddToDashboard = true;
 function roomOfLocation(loc){
   const t = String(loc||'').trim();
   if(!t) return '(no location)';
@@ -1381,8 +1382,7 @@ function roomChipsHtml(rows){
     <div class="opts">${keys.map(k=>{
       const all = rooms[k].every(r=>r._checked!==false);
       return `<button type="button" class="opt-btn ${all?'selected':''}" data-room="${esc(k)}">${esc(k)} (${rooms[k].length})</button>`;
-    }).join('')}</div>
-    <label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin-top:10px;cursor:pointer"><input type="checkbox" id="parsedDashChk" ${parsedAddToDashboard?'checked':''} style="width:18px;height:18px"> Also add these to the dashboard</label></div>`;
+    }).join('')}</div></div>`;
 }
 function bindRoomChips(wrap, rows, rerender){
   wrap.querySelectorAll('[data-room]').forEach(btn=>{
@@ -1393,8 +1393,6 @@ function bindRoomChips(wrap, rows, rerender){
       rerender(rows);
     });
   });
-  const chk = wrap.querySelector('#parsedDashChk');
-  if(chk) chk.addEventListener('change', ()=>{ parsedAddToDashboard = chk.checked; });
 }
 function renderParsedTable(rows){
   const wrap = document.getElementById('parsedWrap');
@@ -1456,8 +1454,8 @@ function renderParsedTable(rows){
         addOrMergeFromRecheck(r);
       }
     });
-    if(parsedAddToDashboard){ syncListToDashboard(rows, 'sick_injured'); markDashSynced(rows, false); } else markDashSynced(rows, true);
     saveShift();
+    dashCatchUp();             // every animal goes to the dashboard (and is retried until it confirms)
     renderShiftList();
     document.getElementById('xlsxInput').value = '';
     wrap.innerHTML = '';
@@ -1578,8 +1576,8 @@ function renderParsedFlagTable(rows){
   function confirmFlagAdd(){
     if(!checkStaleShiftBeforeAdd()) return;
     rows.forEach(r=> addOrMergeFromFlag(r));
-    syncListToDashboard(rows, 'sick_injured'); markDashSynced(rows, false);
     saveShift();
+    dashCatchUp();
     renderShiftList();
     document.getElementById('flagXlsxInput').value = '';
     wrap.innerHTML = '';
@@ -1702,14 +1700,6 @@ function groupedListHtml(animals){
 }
 // Animals created from parsed rows: remember the case the dashboard now holds (so a later edit of the ID or location
 // moves it instead of leaving an orphan), or note that the animal was deliberately kept off the dashboard.
-function markDashSynced(rows, off){
-  rows.forEach(r=>{
-    const t = String(r.animalId||'').trim(); if(!t) return;
-    state.animals.filter(a=>String(a.animalId||'').trim()===t && DashSync.loc(a)===DashSync.loc(r)).forEach(a=>{
-      if(off){ a.dashOff = true; } else { a.dashTitle = t; a.dashLoc = DashSync.loc(a); a.dashOff = false; }
-    });
-  });
-}
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
