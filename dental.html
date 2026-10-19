@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  LDH Shift Tools — Dental chart
+  Copyright (c) 2026 Juliana Xue. All rights reserved.
+
+  This work is the intellectual property of Juliana Xue.
+  It is licensed to her current employer for use ONLY for as
+  long as she remains engaged there; that right of use ends
+  automatically when her engagement ends.
+
+  Except for that limited employer use-licence, no part of
+  this work may be copied, modified, distributed, or used
+  without the express written permission of Juliana Xue.
+  ============================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dental Chart</title>
+<style>
+:root{
+  --ink:#1a1a1a; --ink-soft:#555; --paper:#f4f6f8; --paper-2:#ebedf0;
+  --card:#ffffff; --line:#e1e4e8;
+  --teal:#1d5fa8; --teal-dark:#123f73; --teal-soft:#e2ecf7;
+  --rust:#b5462b; --rust-soft:#f6e3dc; --amber:#c98a1a;
+  --shadow:0 1px 2px rgba(26,36,33,.06), 0 8px 24px rgba(26,36,33,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
+.back-nav{background:var(--teal-dark);padding:8px 16px}
+.back-nav a{color:#fff;font-size:12.5px;text-decoration:none;font-weight:600}
+header.top{background:var(--teal);padding:12px 16px;color:#fff}
+header.top h1{font-size:17px;font-weight:600;max-width:900px;margin:0 auto}
+.wrap{max-width:900px;margin:0 auto;padding:16px 16px 80px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{font-size:15px;margin-bottom:10px;color:var(--teal-dark)}
+.note{font-size:12.5px;color:var(--ink-soft);margin-bottom:8px}
+.btn{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
+.btn.secondary{background:var(--paper-2);color:var(--ink);border:1px solid var(--line)}
+.btn.rust{background:var(--rust)}
+.btn.small{padding:5px 10px;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.row label{font-size:12.5px;font-weight:600;color:var(--ink-soft)}
+.plain{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff}
+.opt{border:1px solid var(--line);background:var(--paper-2);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600}
+.opt.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+.hidden{display:none !important}
+body.embed .back-nav, body.embed header.top, body.embed #animalCard, body.embed #savedCard{display:none}
+body.embed .wrap{padding:0 0 16px}
+.err{color:var(--rust);font-size:12.5px;margin:6px 0}
+/* the mouth */
+.mouth{overflow-x:auto}
+.arch-label{font-size:11px;font-weight:700;color:var(--ink-soft);text-align:center;letter-spacing:.08em;margin:6px 0 2px}
+.arch{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.quad{display:flex;flex:0 0 auto}
+.quad.left{justify-content:flex-end}
+.tooth{width:36px;border:1px solid transparent;border-radius:6px;background:none;padding:1px 0 2px;display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--ink)}
+.tooth:hover{background:var(--teal-soft)}
+.tooth.sel{border-color:var(--teal);background:var(--teal-soft)}
+.tooth .tn{font-size:10px;color:var(--ink-soft)}
+.tooth svg{display:block}
+.tooth .tk{font-size:9.5px;font-weight:700;line-height:1.15;min-height:12px;text-align:center}
+.lr{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--ink-soft);margin:0 6px}
+/* tooth panel */
+.panel h3{font-size:15px;margin-bottom:2px}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin:8px 0}
+.checks label{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px}
+.checks input{width:18px;height:18px}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin:8px 0}
+.fields label{font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px}
+.fields select{width:100%}
+.legend{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 16px;font-size:12.5px}
+.legend b{display:inline-block;min-width:56px}
+.saved{border-top:1px solid var(--line);padding:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.saved .grow{flex:1;min-width:160px}
+.chip{display:inline-block;border-radius:6px;padding:0 6px;font-size:11px;font-weight:700;background:var(--paper-2)}
+
+
+/* ---------- LDH access gate ---------- */
+#ldh-gate{position:fixed;inset:0;z-index:9999;background:var(--paper);display:flex;align-items:center;justify-content:center;padding:1rem}
+#ldh-gate.hidden{display:none}
+.ldh-gate-box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1.5rem;max-width:320px;width:100%;text-align:center;box-shadow:var(--shadow)}
+.ldh-gate-box p{font-size:14px;color:var(--ink-soft);margin:0 0 12px}
+.ldh-gate-box input{width:100%;padding:10px;font-size:16px;border-radius:8px;border:1px solid var(--line);margin-bottom:10px;box-sizing:border-box;font-family:inherit}
+.ldh-gate-box button{width:100%;padding:10px;font-size:14px;font-weight:600;border-radius:8px;border:none;cursor:pointer;background:var(--teal);color:#fff;font-family:inherit}
+.ldh-gate-err{color:var(--rust);font-size:12px;margin-top:8px;display:none}
+body.ldh-locked > *:not(#ldh-gate){display:none}
+</style>
+</head>
+<body class="ldh-locked">
+<script>if (new URLSearchParams(location.search).get('embed')) document.body.classList.add('embed');</script>
+
+<div id="ldh-gate">
+  <div class="ldh-gate-box">
+    <p><strong>LDH internal tool</strong><br>Enter the access code to continue.</p>
+    <input type="password" id="ldh-gate-input" placeholder="Access code" autocomplete="off">
+    <button id="ldh-gate-btn" type="button">Enter</button>
+    <p class="ldh-gate-err" id="ldh-gate-err">Incorrect code. Try again.</p>
+  </div>
+</div>
+<script>
+(function () {
+  /* 2026-10-17 security fix: the access code is no longer in the source.
+     It is checked against the dashboard server (the sync Edge Function's
+     SYNC_SECRET), and the same LDH code is remembered on this phone as the
+     dashboard sync code. If the code is changed on the server, the next
+     sync is refused, the stored code is cleared and this gate asks again. */
+  var ENDPOINT = 'https://yeazfafvylawwgoxlhbl.supabase.co/functions/v1/clever-endpoint';
+  var APIKEY = 'sb_publishable_fow5B_VGO3gKPf4BaULsOQ_ZiSH8q8Y';
+  var OK_KEY = 'ldhGateOk_v2', SYNC_KEY = 'ldh_sync_code_v1';
+  var body = document.body;
+  var gate = document.getElementById('ldh-gate');
+  function ls(k, v) {
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+  }
+  function unlock() {
+    body.classList.remove('ldh-locked');
+    gate.classList.add('hidden');
+  }
+  try { localStorage.removeItem('ldhGateOk'); } catch (e) {}
+  if (ls(OK_KEY) === '1' && ls(SYNC_KEY)) { unlock(); return; }
+  var input = document.getElementById('ldh-gate-input');
+  var err = document.getElementById('ldh-gate-err');
+  function fail(msg) { err.textContent = msg; err.style.display = 'block'; input.value = ''; input.focus(); }
+  function check() {
+    var code = input.value.trim();
+    if (!code) return;
+    /* An empty status check: the server answers 401 for a wrong code and
+       400 ("needs at least one item") for a correct one. Reads nothing. */
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { apikey: APIKEY, 'x-sync-secret': code, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: { shift: 'processing', items: [] } })
+    }).then(function (res) {
+      if (res.status === 401) { fail('Incorrect code. Try again.'); return; }
+      if (res.status !== 400 && !res.ok) { fail('Could not check the code right now. Try again shortly.'); return; }
+      ls(OK_KEY, '1'); ls(SYNC_KEY, code); unlock();
+    }).catch(function () {
+      fail('Could not check the code (no internet connection). Try again when online.');
+    });
+  }
+  document.getElementById('ldh-gate-btn').addEventListener('click', check);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') check(); });
+  input.focus();
+})();
+</script>
+
+<div class="back-nav"><a href="index.html">&larr; Shift Tools</a></div>
+<header class="top"><h1>Dental Chart</h1></header>
+
+<div class="wrap">
+
+  <div class="card" id="animalCard">
+    <h2>Animal</h2>
+    <div class="row">
+      <select class="plain" id="animalPick" style="flex:1;min-width:220px"></select>
+    </div>
+    <div class="row hidden" id="manualRow">
+      <input class="plain" id="manualId" placeholder="Shelter ID" style="flex:1;min-width:150px">
+      <select class="plain" id="manualSpecies"><option value="canine">Canine</option><option value="feline">Feline</option></select>
+      <button class="btn small" id="manualStart" type="button">Start chart</button>
+    </div>
+    <p class="note" id="animalNote">The animals come from today's Surgery shift list on this device. Rabbits and other species are not charted here.</p>
+    <p class="err hidden" id="animalErr"></p>
+  </div>
+
+  <div id="chartArea" class="hidden">
+    <div class="card">
+      <h2 id="chartTitle">Chart</h2>
+      <div class="row"><label>Dental grade</label><span id="gradeBtns"></span></div>
+      <div class="row"><input class="plain" id="desc" placeholder="then describe, e.g. moderate gingivitis over the LU arcade" style="flex:1;min-width:240px"></div>
+      <p class="note" id="sentence"></p>
+      <div class="row"><label>What was done</label>
+        <select class="plain" id="procedure"><option value="">Choose...</option></select></div>
+      <p class="err hidden" id="procWarn"></p>
+    </div>
+
+    <div class="card mouth">
+      <h2>Mouth</h2>
+      <p class="note">Tap a tooth to chart it, or start at the beginning. "Done" then jumps to the next tooth: 101 to 110, 411 to 401, 301 to 311, 210 to 201 (the start-at-201 button runs it the other way round).</p>
+      <div class="row"><button class="btn small" id="startA" type="button">Start at 101</button><button class="btn secondary small" id="startB" type="button">Start at 201</button></div>
+      <div class="lr"><span>Right</span><span>Left</span></div>
+      <div class="arch-label">MAXILLA</div>
+      <div class="arch" id="archUpper"></div>
+      <div class="arch-label">MANDIBLE</div>
+      <div class="arch" id="archLower"></div>
+      <div class="lr"><span>Right</span><span>Left</span></div>
+    </div>
+
+    <div class="card panel hidden" id="toothPanel">
+      <h3 id="tpTitle"></h3>
+      <p class="note" id="tpSub"></p>
+      <div class="note" style="margin:6px 0 0;font-weight:700">Probing depth</div>
+      <div class="fields" id="tpProbe"></div>
+      <div class="note" style="margin:6px 0 0;font-weight:700">Findings</div>
+      <div class="checks" id="tpChecks"></div>
+      <div class="fields" id="tpFields"></div>
+      <div class="row">
+        <button class="btn secondary small" id="tpPrev" type="button">&larr; Previous</button>
+        <button class="btn secondary small" id="tpClear" type="button">Clear this tooth</button>
+        <button class="btn small" id="tpClose" type="button">Done with this tooth</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>This chart</h2>
+      <p class="note" id="extractNote"></p>
+      <div class="row">
+        <button class="btn" id="pdfBtn" type="button">Download PDF</button>
+        <span class="note" id="pdfNote" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="savedCard">
+    <h2>Charts on this device</h2>
+    <p class="note">One PDF per animal, ready to upload to ShelterMate. Charts are kept on this device for 3 days.</p>
+    <div id="savedList"></div>
+  </div>
+
+  <div class="card">
+    <h2>Abbreviation key</h2>
+    <div class="legend" id="legend"></div>
+  </div>
+</div>
+
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="dental.js"></script>
+<script>
+const APP_VERSION = '2026-10-19.1';
+const D = LDHDental;
+const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const dayKey = () => new Date().toLocaleDateString('en-CA');
+const KEEP_DAYS = 3;
+
+/* ---- storage ---- */
+function loadCharts() { try { const o = JSON.parse(localStorage.getItem(LS_CHARTS) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e) { return {}; } }
+let CHARTS = loadCharts();
+function pruneCharts() {
+  const cut = Date.now() - KEEP_DAYS * 86400000;
+  Object.keys(CHARTS).forEach(k => { if (!CHARTS[k] || !CHARTS[k].updated || new Date(CHARTS[k].updated).getTime() < cut) delete CHARTS[k]; });
+}
+function saveCharts() { try { localStorage.setItem(LS_CHARTS, JSON.stringify(CHARTS)); } catch (e) { /* storage full or blocked */ } }
+function shiftAnimals() {
+  try { const l = JSON.parse(localStorage.getItem(LS_SHIFT) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; }
+}
+const dentalBooked = a => a.surgType === 'dental' || a.surgType2 === 'dental' || /dental|extraction/i.test(a.bookedProc || '');
+
+/* ---- animal picker ---- */
+let cur = null;      // the chart being edited
+let selTooth = null;
+let ROUTE = 'A';      // the order teeth are charted in (see LDHDental.route)
+function listAnimals() {
+  return shiftAnimals().filter(a => D.speciesOf(a.species) && String(a.animalId || '').trim())
+    .sort((x, y) => (dentalBooked(y) ? 1 : 0) - (dentalBooked(x) ? 1 : 0));
+}
+function renderPicker(selectId) {
+  const as = listAnimals();
+  $('animalPick').innerHTML = '<option value="">Choose an animal...</option>' +
+    as.map(a => `<option value="${esc(a.id)}">${esc(a.animalId)} · ${esc(a.species)}${dentalBooked(a) ? ' · dental booked' : ''}${CHARTS[a.id] ? ' · charted' : ''}</option>`).join('') +
+    '<option value="__other">Another animal (type the ID)...</option>';
+  if (selectId) $('animalPick').value = selectId;
+}
+function startChart(key, animalId, species, surgId) {
+  let c = CHARTS[key];
+  if (!c) c = CHARTS[key] = { key, surgId: surgId || '', animalId, species, grade: '', desc: '', procedure: '', teeth: {}, vet: (localStorage.getItem(LS_INIT) || '').toUpperCase(), day: dayKey(), updated: new Date().toISOString() };
+  c.animalId = animalId;
+  cur = c; selTooth = null;
+  $('toothPanel').classList.add('hidden');
+  $('chartArea').classList.remove('hidden');
+  renderAll();
+}
+$('animalPick').addEventListener('change', () => {
+  const v = $('animalPick').value;
+  $('animalErr').classList.add('hidden');
+  $('manualRow').classList.toggle('hidden', v !== '__other');
+  if (!v) { cur = null; $('chartArea').classList.add('hidden'); return; }
+  if (v === '__other') return;
+  const a = shiftAnimals().find(x => x.id === v); if (!a) return;
+  startChart(v, String(a.animalId).trim(), D.speciesOf(a.species), v);
+});
+$('manualStart').addEventListener('click', () => {
+  const id = $('manualId').value.trim(), err = $('animalErr');
+  if (!id) { err.textContent = 'Enter the shelter ID first.'; err.classList.remove('hidden'); return; }
+  err.classList.add('hidden');
+  startChart('manual:' + id, id, $('manualSpecies').value, '');
+  renderPicker(); $('animalPick').value = '__other'; $('manualRow').classList.remove('hidden');
+});
+
+/* ---- the chart ---- */
+function touch() { cur.updated = new Date().toISOString(); cur.vet = cur.vet || (localStorage.getItem(LS_INIT) || '').toUpperCase(); saveCharts(); renderSummary(); renderSaved(); }
+function toothSvg(info, t) {
+  const g = D.geometry(info), col = D.COLOURS[D.toothClass(t)];
+  const rgb = c => 'rgb(' + c.join(',') + ')';
+  const poly = pts => pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const missing = D.normTooth(t).missing;
+  return `<svg viewBox="0 0 ${D.BOX.w} ${D.BOX.h}" width="32" height="${(32 * D.BOX.h / D.BOX.w).toFixed(0)}" aria-hidden="true">` +
+    g.roots.map(r => `<polygon points="${poly(r)}" fill="${missing ? '#f5f5f5' : '#e1dacd'}" stroke="${rgb(col[1])}" stroke-width="1"/>`).join('') +
+    `<polygon points="${poly(g.crown)}" fill="${rgb(col[0])}" stroke="${rgb(col[1])}" stroke-width="1.2"${missing ? ' stroke-dasharray="2 2"' : ''}/></svg>`;
+}
+function renderMouth() {
+  const Q = D.quadrants(cur.species);
+  const arch = qs => qs.map(q => `<div class="quad ${q.leftBlock ? 'left' : 'right'}" style="width:${11 * 36}px;max-width:100%">` + q.teeth.map(n => {
+    const info = D.toothInfo(cur.species, n), t = cur.teeth[n];
+    return `<button type="button" class="tooth ${selTooth === n ? 'sel' : ''}" data-tooth="${n}" aria-label="Tooth ${n}"><span class="tn">${n}</span>${toothSvg(info, t)}<span class="tk">${D.toothTokens(t).map(esc).join('<br>')}</span></button>`;
+  }).join('') + '</div>').join('');
+  $('archUpper').innerHTML = arch(Q.upper);
+  $('archLower').innerHTML = arch(Q.lower);
+}
+function renderSummary() {
+  const s = D.summarySentence(cur);
+  $('sentence').textContent = s ? 'On the chart: ' + s : 'Pick a dental grade and describe the gingivitis; it becomes the first line of the chart.';
+  const ex = D.extractionSentence(cur);
+  $('extractNote').textContent = 'Goes into the surgery note: ' + (ex ? 'Extractions: ' + ex + '.' : 'Extractions: none.');
+  const pl = D.extractionSentence(cur, true);
+  if (pl) $('extractNote').textContent += ' Still planned, not marked as extracted yet (so not in the note): ' + pl + '.';
+  const hasEx = !!ex, w = $('procWarn');
+  if (hasEx && cur.procedure === 'sp') { w.textContent = 'Extractions are charted, but "What was done" says scale and polish only.'; w.classList.remove('hidden'); }
+  else if (!hasEx && cur.procedure === 'spx') { w.textContent = 'No extractions are charted, but "What was done" says with extractions.'; w.classList.remove('hidden'); }
+  else w.classList.add('hidden');
+}
+function renderAll() {
+  $('chartTitle').textContent = cur.animalId + ' · ' + (cur.species === 'feline' ? 'Feline' : 'Canine') + ' dental chart';
+  $('gradeBtns').innerHTML = ['0', '1', '2', '3', '4'].map(g => `<button type="button" class="opt ${cur.grade === g ? 'on' : ''}" data-grade="${g}">G${g}/4</button>`).join(' ');
+  $('desc').value = cur.desc || '';
+  $('procedure').value = cur.procedure || '';
+  renderMouth(); renderSummary(); renderSaved();
+}
+$('gradeBtns').addEventListener('click', e => {
+  const b = e.target.closest('[data-grade]'); if (!b || !cur) return;
+  cur.grade = cur.grade === b.dataset.grade ? '' : b.dataset.grade; touch();
+  $('gradeBtns').querySelectorAll('[data-grade]').forEach(x => x.classList.toggle('on', x.dataset.grade === cur.grade));
+});
+$('desc').addEventListener('input', () => { if (cur) { cur.desc = $('desc').value; touch(); } });
+$('procedure').innerHTML = '<option value="">Choose...</option>' + Object.keys(D.PROCEDURES).map(k => `<option value="${k}">${D.PROCEDURES[k]}</option>`).join('');
+$('procedure').addEventListener('change', () => { if (cur) { cur.procedure = $('procedure').value; touch(); } });
+
+/* ---- tooth panel ---- */
+$('archUpper').parentNode.addEventListener('click', e => {
+  const b = e.target.closest('.tooth'); if (!b || !cur) return;
+  selTooth = Number(b.dataset.tooth); renderMouth(); renderPanel();
+  $('toothPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
+function renderPanel() {
+  const info = D.toothInfo(cur.species, selTooth), t = D.normTooth(cur.teeth[selTooth]);
+  $('toothPanel').classList.remove('hidden');
+  $('tpTitle').textContent = 'Tooth ' + selTooth + ' — ' + info.name;
+  $('tpSub').textContent = info.roots + (info.roots === 1 ? ' root' : ' roots');
+  $('tpChecks').innerHTML = D.CHECKS.map(c => `<label><input type="checkbox" data-check="${c.key}" ${t[c.key] ? 'checked' : ''}> ${c.label}</label>`).join('');
+  const mm = ['<option value="">-</option>'].concat(Array.from({ length: D.POCKET_MAX }, (_, i) => `<option value="${i + 1}">${i + 1} mm</option>`));
+  const sel = (key, opts, val) => `<select class="plain" data-field="${key}">${opts.replace(`value="${val}"`, `value="${val}" selected`)}</select>`;
+  const g3 = lab => ['<option value="">None</option>'].concat([1, 2, 3].map(n => `<option value="${n}">${lab} ${n}</option>`)).join('');
+  $('tpProbe').innerHTML =
+    `<div><label>Buccal side</label>${sel('pocketB', mm.join(''), t.pocketB)}</div>` +
+    `<div><label>Lingual side</label>${sel('pocketL', mm.join(''), t.pocketL)}</div>`;
+  const exVal = t.ext ? (t.extPlanned ? 'planned-' : 'done-') + t.ext : '';
+  $('tpFields').innerHTML =
+    D.GRADES.map(g => `<div><label>${g.label}</label>${sel(g.key, g3(g.prefix), t[g.key])}</div>`).join('') +
+    `<div><label>Extraction</label>${sel('extsel', `<option value="">None</option><option value="planned-surgical">Planned: surgical (orange)</option><option value="planned-nonsurgical">Planned: non-surgical (orange)</option><option value="done-surgical">Extracted: surgical (red)</option><option value="done-nonsurgical">Extracted: non-surgical (red)</option>`, exVal)}</div>`;
+  $('tpPrev').disabled = !D.prevTooth(cur.species, selTooth, ROUTE);
+  const nx = D.nextTooth(cur.species, selTooth, ROUTE);
+  $('tpClose').textContent = nx ? 'Done, next tooth ' + nx + ' \u2192' : 'Done, last tooth';
+}
+function editTooth(fn) {
+  const t = D.normTooth(cur.teeth[selTooth]); fn(t);
+  if (D.hasFindings(t)) cur.teeth[selTooth] = t; else delete cur.teeth[selTooth];
+  touch(); renderMouth();
+}
+$('toothPanel').addEventListener('change', e => {
+  if (!cur || !selTooth) return;
+  const c = e.target.closest('[data-check]'), f = e.target.closest('[data-field]');
+  if (c) editTooth(t => { t[c.dataset.check] = c.checked; });
+  if (f && f.dataset.field === 'extsel') editTooth(t => { const v = f.value.split('-'); t.ext = v[1] || ''; t.extPlanned = v[0] === 'planned'; });
+  else if (f) editTooth(t => { t[f.dataset.field] = f.value; });
+  if (f && f.dataset.field === 'extsel') renderPanel();
+});
+$('tpClear').addEventListener('click', () => { if (!cur || !selTooth) return; delete cur.teeth[selTooth]; touch(); renderMouth(); renderPanel(); });
+$('tpClose').addEventListener('click', () => {
+  if (!cur || !selTooth) return;
+  const nx = D.nextTooth(cur.species, selTooth, ROUTE);
+  if (nx) { selTooth = nx; renderMouth(); renderPanel(); }
+  else { selTooth = null; $('toothPanel').classList.add('hidden'); renderMouth(); $('pdfBtn').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+});
+$('tpPrev').addEventListener('click', () => { const p = cur && selTooth && D.prevTooth(cur.species, selTooth, ROUTE); if (p) { selTooth = p; renderMouth(); renderPanel(); } });
+function startAt(route) { if (!cur) return; ROUTE = route; selTooth = D.route(cur.species, route)[0]; renderMouth(); renderPanel(); $('toothPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+$('startA').addEventListener('click', () => startAt('A'));
+$('startB').addEventListener('click', () => startAt('B'));
+
+/* ---- PDF: one animal per file ---- */
+function pdfName(c) { return String(c.animalId).replace(/[^A-Za-z0-9._-]+/g, '_') + '_dental_chart.pdf'; }
+function downloadPdf(c) {
+  if (!window.jspdf) { alert('The PDF maker did not load. Check the connection once, then try again.'); return; }
+  const doc = D.buildPdf(c, window.jspdf.jsPDF, { dateText: new Date(c.updated || Date.now()).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) });
+  doc.save(pdfName(c));
+}
+$('pdfBtn').addEventListener('click', () => { if (cur) { touch(); downloadPdf(cur); $('pdfNote').textContent = 'Downloaded ' + pdfName(cur); } });
+
+/* ---- saved charts ---- */
+function renderSaved() {
+  const keys = Object.keys(CHARTS).sort((a, b) => String(CHARTS[b].updated).localeCompare(String(CHARTS[a].updated)));
+  $('savedList').innerHTML = keys.map(k => {
+    const c = CHARTS[k], ex = D.extractionSentence(c), n = Object.keys(c.teeth || {}).length;
+    return `<div class="saved" data-key="${esc(k)}"><span class="grow"><b>${esc(c.animalId)}</b> · ${c.species === 'feline' ? 'Feline' : 'Canine'}${c.grade !== '' ? ' · G' + esc(c.grade) + '/4' : ''}${D.PROCEDURES[c.procedure] ? ' · ' + esc(D.PROCEDURES[c.procedure]) : ''}<br><span class="note" style="margin:0">${n} teeth charted${ex ? ' · ' + esc(ex) : ''}</span></span>` +
+      `<button type="button" class="btn small" data-act="open">Open</button><button type="button" class="btn small" data-act="pdf">Download PDF</button><button type="button" class="btn small rust" data-act="del">Delete</button></div>`;
+  }).join('') || '<p class="note">No charts yet.</p>';
+}
+$('savedList').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const k = b.closest('.saved').dataset.key, c = CHARTS[k]; if (!c) return;
+  if (b.dataset.act === 'pdf') downloadPdf(c);
+  if (b.dataset.act === 'open') { renderPicker(c.surgId || ''); if (!c.surgId) { $('animalPick').value = '__other'; $('manualRow').classList.remove('hidden'); } cur = c; selTooth = null; $('toothPanel').classList.add('hidden'); $('chartArea').classList.remove('hidden'); renderAll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  if (b.dataset.act === 'del') { if (!confirm('Delete the dental chart for ' + c.animalId + '? The surgery note keeps what was already filled in.')) return; delete CHARTS[k]; saveCharts(); if (cur === c) { cur = null; $('chartArea').classList.add('hidden'); } renderPicker(); renderSaved(); }
+});
+
+/* ---- key ---- */
+$('legend').innerHTML = D.abbreviationKey().map(r => `<div><b>${esc(r[0])}</b> ${esc(r[1])}</div>`).join('');
+
+/* ---- start ---- */
+// embedded in the Surgery tool's exam: tell it how tall the chart is so it can size the frame
+if (document.body.classList.contains('embed') && window.parent !== window) {
+  let lastH = 0;
+  const postHeight = () => { const h = document.documentElement.scrollHeight; if (h === lastH) return; lastH = h; try { window.parent.postMessage({ ldhDentalHeight: h }, '*'); } catch (e) { /* not framed */ } };
+  if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
+  setInterval(postHeight, 400);          // browsers pause the observer for frames that are off screen
+}
+pruneCharts(); saveCharts();
+renderPicker(); renderSaved();
+const want = new URLSearchParams(location.search).get('animal');
+if (want && shiftAnimals().some(a => a.id === want)) { $('animalPick').value = want; $('animalPick').dispatchEvent(new Event('change')); }
+</script>
+</body>
+</html>

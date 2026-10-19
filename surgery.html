@@ -569,6 +569,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
 <script src="medchart.js"></script>
+<script src="dental.js"></script>
 <script>
 // In-memory only — a parsed-but-not-yet-saved medication chart, keyed
 // by animal id, shown as an editable preview. Cleared once saved.
@@ -578,7 +579,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.2';
+const APP_VERSION = '2026-10-19.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2756,6 +2757,40 @@ function bindChartDraft(a, body){
   if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; openExam(a.id); });
 }
 
+/* 2026-10-19: dental chart. The chart is made on the Dental chart page (saved on this device); its extractions
+   (e.g. "407 surgical extraction; 401, 402 non-surgical extraction") and "refer to dental chart" are filled into
+   this animal's surgical notes by themselves, and refreshed each time the chart changes. */
+const LS_DENTAL = 'ldh_dental_charts_v1';
+function dentalChartFor(a){
+  try{
+    const all = JSON.parse(localStorage.getItem(LS_DENTAL) || '{}');
+    if(all[a.id]) return all[a.id];
+    const id = String(a.animalId||'').trim();
+    return id ? Object.values(all).find(c=>c && !c.surgId && String(c.animalId||'').trim()===id) || null : null;
+  }catch(e){ return null; }
+}
+function syncDentalIntoNote(a){
+  if(!window.LDHDental) return false;
+  const c = dentalChartFor(a); if(!c) return false;
+  const n = LDHDental.applyToNote(a.surgNotes||'', c);
+  if(n === (a.surgNotes||'')) return false;
+  a.surgNotes = n; return true;
+}
+function refreshDentalNote(){
+  if(!state.openId) return;
+  const a = state.animals.find(x=>x.id===state.openId);
+  if(a && syncDentalIntoNote(a)){
+    saveShift();
+    const ta = document.getElementById('fld_surgNotes'); if(ta) ta.value = a.surgNotes;
+    refreshNote(a);
+  }
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refreshDentalNote(); });   // back from the full-page Dental chart
+window.addEventListener('storage', e=>{ if(e.key===LS_DENTAL) refreshDentalNote(); });             // the chart tool inside the exam saved a change
+window.addEventListener('message', e=>{                                                              // the framed chart tells us how tall it is
+  const f = document.getElementById('dentalFrame');
+  if(f && e.source===f.contentWindow && e.data && typeof e.data.ldhDentalHeight==='number') f.style.height = Math.max(400, e.data.ldhDentalHeight+20)+'px';
+});
 function openExam(id){
   const a = state.animals.find(x=>x.id===id);
   if(!a){
@@ -2763,6 +2798,7 @@ function openExam(id){
     renderShiftList();
     return;
   }
+  if(syncDentalIntoNote(a)) saveShift();
   state.openId = id;
   showTab('exam');
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`;
@@ -3231,7 +3267,14 @@ function examFormHtml(a){
 
   h += `<div class="pe-field"><div class="lbl">Surgical notes</div>
     <button type="button" class="btn small secondary" id="insertTemplateBtn" style="margin-bottom:8px">Insert template</button>
+
     <textarea class="free-input" id="fld_surgNotes" style="min-height:160px;font-family:monospace;font-size:12.5px">${esc(a.surgNotes||'')}</textarea></div>`;
+  if((hasProcedure(a,'dental') || dentalChartFor(a)) && !isRabbit(a) && String(a.animalId||'').trim()){
+    // the dental chart tool, inside the exam: the chart fills the surgical notes above by itself
+    h += `<details class="pe-field" id="dentalToolBox" open><summary style="cursor:pointer;font-weight:700;color:var(--teal-dark)">Dental chart (tool)</summary>
+      <iframe id="dentalFrame" data-src="dental.html?embed=1&animal=${encodeURIComponent(a.id)}" style="width:100%;height:900px;border:0;margin-top:8px" title="Dental chart"></iframe>
+      <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Extractions marked as extracted go into the surgical notes above. <a href="dental.html?animal=${encodeURIComponent(a.id)}">Open as a full page</a> (to download the PDF on its own).</p></details>`;
+  }
 
   h += `<div class="sechdr">Intraoperative Monitoring</div>`;
   h += `<div class="pe-field"><div class="lbl">Intraoperative medications</div>`;
@@ -3533,6 +3576,9 @@ function bindExamForm(a){
   });
   bindChange('fld_microchipNum','microchipNum');
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl'); bindChange('fld_atipMl','atipMl');
+  { const dbox = document.getElementById('dentalToolBox');
+    if(dbox){ const load = ()=>{ const f = document.getElementById('dentalFrame'); if(f && !f.getAttribute('src')) f.setAttribute('src', f.dataset.src); };
+      dbox.addEventListener('toggle', ()=>{ if(dbox.open) load(); }); if(dbox.open) load(); } }
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes'); bindChange('fld_surgComment','surgComment');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
   bindChange('fld_recoveryNotes','recoveryNotes');
@@ -3936,6 +3982,7 @@ function bindExamForm(a){
 
 /* ---------- note assembly ---------- */
 function assembleNote(a){
+  syncDentalIntoNote(a);
   const L = [];
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog' && !isRabbit(a)) L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
