@@ -30,7 +30,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5}
 button{font-family:inherit;cursor:pointer}
-input,select,textarea{font-family:inherit;font-size:14px;color:var(--ink)}
+input,select,textarea{font-family:inherit;font-size:16px;color:var(--ink)}   /* 16px stops iPhones zooming in on a field */
+button,select,summary,label{touch-action:manipulation}
 .back-nav{background:var(--teal-dark);padding:8px 16px}
 .back-nav a{color:#fff;font-size:12.5px;text-decoration:none;font-weight:600}
 header.top{background:var(--teal);padding:12px 16px;color:#fff}
@@ -39,37 +40,42 @@ header.top h1{font-size:17px;font-weight:600;max-width:900px;margin:0 auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
 .card h2{font-size:15px;margin-bottom:10px;color:var(--teal-dark)}
 .note{font-size:12.5px;color:var(--ink-soft);margin-bottom:8px}
-.btn{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
+.btn{background:var(--teal);color:#fff;border:none;border-radius:8px;padding:11px 16px;min-height:44px;font-size:14px;font-weight:600}
 .btn.secondary{background:var(--paper-2);color:var(--ink);border:1px solid var(--line)}
 .btn.rust{background:var(--rust)}
-.btn.small{padding:5px 10px;font-size:12px}
+.btn.small{padding:9px 12px;min-height:44px;font-size:13px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
 .row label{font-size:12.5px;font-weight:600;color:var(--ink-soft)}
-.plain{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff}
-.opt{border:1px solid var(--line);background:var(--paper-2);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600}
+.plain{border:1px solid var(--line);border-radius:8px;padding:10px 10px;min-height:44px;background:#fff}
+.opt{border:1px solid var(--line);background:var(--paper-2);border-radius:8px;padding:10px 14px;min-height:44px;font-size:14px;font-weight:600}
 .opt.on{background:var(--teal);color:#fff;border-color:var(--teal)}
 .hidden{display:none !important}
 body.embed .back-nav, body.embed header.top, body.embed #animalCard, body.embed #savedCard{display:none}
 body.embed .wrap{padding:0 0 16px}
 .err{color:var(--rust);font-size:12.5px;margin:6px 0}
 /* the mouth */
-.mouth{overflow-x:auto}
+.mouth{overflow-x:hidden}
 .arch-label{font-size:11px;font-weight:700;color:var(--ink-soft);text-align:center;letter-spacing:.08em;margin:6px 0 2px}
-.arch{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.quad{display:flex;flex:0 0 auto}
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.quad{display:flex;min-width:0}
+@media (max-width:820px){.arch{grid-template-columns:1fr}}
 .quad.left{justify-content:flex-end}
-.tooth{width:36px;border:1px solid transparent;border-radius:6px;background:none;padding:1px 0 2px;display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--ink)}
+.tooth{flex:0 1 44px;min-width:0;border:1px solid transparent;border-radius:6px;background:none;padding:1px 0 2px;display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--ink)}
 .tooth:hover{background:var(--teal-soft)}
 .tooth.sel{border-color:var(--teal);background:var(--teal-soft)}
 .tooth .tn{font-size:10px;color:var(--ink-soft)}
-.tooth svg{display:block}
+.tooth svg{display:block;width:100%;max-width:38px;height:auto}
 .tooth .tk{font-size:9.5px;font-weight:700;line-height:1.15;min-height:12px;text-align:center}
 .lr{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--ink-soft);margin:0 6px}
 /* tooth panel */
 .panel h3{font-size:15px;margin-bottom:2px}
+.panel .actions{position:sticky;bottom:0;background:var(--card);padding:8px 0 4px;border-top:1px solid var(--line);margin-top:8px}   /* Prev / Done stay in reach on a long panel */
+.saved .btn{flex:0 0 auto}
+@media (max-width:560px){.wrap{padding:10px 10px 80px}.card{padding:12px}.checks,.fields{grid-template-columns:1fr 1fr}}
+@media (max-width:380px){.checks,.fields{grid-template-columns:1fr}}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin:8px 0}
-.checks label{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px}
-.checks input{width:18px;height:18px}
+.checks label{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:44px;font-size:14px}
+.checks input{width:22px;height:22px}
 .fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin:8px 0}
 .fields label{font-size:12px;font-weight:600;color:var(--ink-soft);display:block;margin-bottom:2px}
 .fields select{width:100%}
@@ -199,10 +205,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <div class="note" style="margin:6px 0 0;font-weight:700">Findings</div>
       <div class="checks" id="tpChecks"></div>
       <div class="fields" id="tpFields"></div>
-      <div class="row">
+      <div class="row"><button class="btn secondary small" id="tpClear" type="button">Clear this tooth</button></div>
+      <div class="row actions" style="flex-wrap:nowrap">
         <button class="btn secondary small" id="tpPrev" type="button">&larr; Previous</button>
-        <button class="btn secondary small" id="tpClear" type="button">Clear this tooth</button>
-        <button class="btn small" id="tpClose" type="button">Done with this tooth</button>
+        <button class="btn small" id="tpClose" type="button" style="flex:1">Done with this tooth</button>
       </div>
     </div>
 
@@ -211,6 +217,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <p class="note" id="extractNote"></p>
       <div class="row">
         <button class="btn" id="pdfBtn" type="button">Download PDF</button>
+        <button class="btn secondary" id="openPdfBtn" type="button">Open PDF</button>
         <span class="note" id="pdfNote" style="margin:0"></span>
       </div>
     </div>
@@ -300,13 +307,13 @@ function toothSvg(info, t) {
   const rgb = c => 'rgb(' + c.join(',') + ')';
   const poly = pts => pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
   const missing = D.normTooth(t).missing;
-  return `<svg viewBox="0 0 ${D.BOX.w} ${D.BOX.h}" width="32" height="${(32 * D.BOX.h / D.BOX.w).toFixed(0)}" aria-hidden="true">` +
+  return `<svg viewBox="0 0 ${D.BOX.w} ${D.BOX.h}" aria-hidden="true">` +
     g.roots.map(r => `<polygon points="${poly(r)}" fill="${missing ? '#f5f5f5' : '#e1dacd'}" stroke="${rgb(col[1])}" stroke-width="1"/>`).join('') +
     `<polygon points="${poly(g.crown)}" fill="${rgb(col[0])}" stroke="${rgb(col[1])}" stroke-width="1.2"${missing ? ' stroke-dasharray="2 2"' : ''}/></svg>`;
 }
 function renderMouth() {
   const Q = D.quadrants(cur.species);
-  const arch = qs => qs.map(q => `<div class="quad ${q.leftBlock ? 'left' : 'right'}" style="width:${11 * 36}px;max-width:100%">` + q.teeth.map(n => {
+  const arch = qs => qs.map(q => `<div class="quad ${q.leftBlock ? 'left' : 'right'}">` + q.teeth.map(n => {
     const info = D.toothInfo(cur.species, n), t = cur.teeth[n];
     return `<button type="button" class="tooth ${selTooth === n ? 'sel' : ''}" data-tooth="${n}" aria-label="Tooth ${n}"><span class="tn">${n}</span>${toothSvg(info, t)}<span class="tk">${D.toothTokens(t).map(esc).join('<br>')}</span></button>`;
   }).join('') + '</div>').join('');
@@ -394,12 +401,42 @@ $('startB').addEventListener('click', () => startAt('B'));
 
 /* ---- PDF: one animal per file ---- */
 function pdfName(c) { return String(c.animalId).replace(/[^A-Za-z0-9._-]+/g, '_') + '_dental_chart.pdf'; }
-function downloadPdf(c) {
-  if (!window.jspdf) { alert('The PDF maker did not load. Check the connection once, then try again.'); return; }
+const touchDevice = () => !!(window.matchMedia && matchMedia('(pointer: coarse)').matches);
+// Phones and tablets cannot always save a download or print, so they get the share sheet (Save to Files / Drive, email, AirDrop,
+// messages). Computers get a normal download. If neither works the PDF opens in a new tab and the browser's own save/share is used.
+async function deliverPdf(c) {
+  if (!window.jspdf) return { how: 'error', msg: 'The PDF maker did not load. Check the connection once, then try again.' };
   const doc = D.buildPdf(c, window.jspdf.jsPDF, { dateText: new Date(c.updated || Date.now()).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) });
-  doc.save(pdfName(c));
+  const name = pdfName(c), blob = doc.output('blob');
+  try {
+    const file = new File([blob], name, { type: 'application/pdf' });
+    if (touchDevice() && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: name }); return { how: 'shared', msg: 'Shared ' + name + ' (choose Save to Files, Drive, email...)' }; }
+      catch (e) { if (e && e.name === 'AbortError') return { how: 'cancelled', msg: '' }; /* otherwise fall through to a download */ }
+    }
+  } catch (e) { /* no File support: download instead */ }
+  try {
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return { how: 'downloaded', msg: 'Downloaded ' + name + '. If nothing happened, tap "Open PDF" below.', blob, name };
+  } catch (e) {
+    window.open(URL.createObjectURL(blob), '_blank');
+    return { how: 'opened', msg: 'Opened the PDF in a new tab; use the browser\'s share or save button there.' };
+  }
 }
-$('pdfBtn').addEventListener('click', () => { if (cur) { touch(); downloadPdf(cur); $('pdfNote').textContent = 'Downloaded ' + pdfName(cur); } });
+function openPdfTab(c) {
+  const doc = D.buildPdf(c, window.jspdf.jsPDF, { dateText: new Date(c.updated || Date.now()).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) });
+  window.open(URL.createObjectURL(doc.output('blob')), '_blank');
+}
+async function pdfFor(c, noteEl) {
+  const r = await deliverPdf(c);
+  if (r.how === 'error') { alert(r.msg); return; }
+  if (noteEl) noteEl.textContent = r.msg;
+}
+$('pdfBtn').addEventListener('click', () => { if (cur) { touch(); pdfFor(cur, $('pdfNote')); } });
+$('openPdfBtn').addEventListener('click', () => { if (cur && window.jspdf) { touch(); openPdfTab(cur); } });
+if (touchDevice()) $('pdfBtn').textContent = 'Share / save PDF';
 
 /* ---- saved charts ---- */
 function renderSaved() {
@@ -407,13 +444,13 @@ function renderSaved() {
   $('savedList').innerHTML = keys.map(k => {
     const c = CHARTS[k], ex = D.extractionSentence(c), n = Object.keys(c.teeth || {}).length;
     return `<div class="saved" data-key="${esc(k)}"><span class="grow"><b>${esc(c.animalId)}</b> · ${c.species === 'feline' ? 'Feline' : 'Canine'}${c.grade !== '' ? ' · G' + esc(c.grade) + '/4' : ''}${D.PROCEDURES[c.procedure] ? ' · ' + esc(D.PROCEDURES[c.procedure]) : ''}<br><span class="note" style="margin:0">${n} teeth charted${ex ? ' · ' + esc(ex) : ''}</span></span>` +
-      `<button type="button" class="btn small" data-act="open">Open</button><button type="button" class="btn small" data-act="pdf">Download PDF</button><button type="button" class="btn small rust" data-act="del">Delete</button></div>`;
+      `<button type="button" class="btn small" data-act="open">Open</button><button type="button" class="btn small" data-act="pdf">PDF</button><button type="button" class="btn small rust" data-act="del">Delete</button></div>`;
   }).join('') || '<p class="note">No charts yet.</p>';
 }
 $('savedList').addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const k = b.closest('.saved').dataset.key, c = CHARTS[k]; if (!c) return;
-  if (b.dataset.act === 'pdf') downloadPdf(c);
+  if (b.dataset.act === 'pdf') pdfFor(c, null);
   if (b.dataset.act === 'open') { renderPicker(c.surgId || ''); if (!c.surgId) { $('animalPick').value = '__other'; $('manualRow').classList.remove('hidden'); } cur = c; selTooth = null; $('toothPanel').classList.add('hidden'); $('chartArea').classList.remove('hidden'); renderAll(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   if (b.dataset.act === 'del') { if (!confirm('Delete the dental chart for ' + c.animalId + '? The surgery note keeps what was already filled in.')) return; delete CHARTS[k]; saveCharts(); if (cur === c) { cur = null; $('chartArea').classList.add('hidden'); } renderPicker(); renderSaved(); }
 });
