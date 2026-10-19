@@ -468,7 +468,13 @@ function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aa
 function aaWarnRetract(a){
   if(a && a.aaSentAt) alert(`Notes for ${a.animalId || 'this animal'} were already sent to the Admission AA. That card stays on their page: tell them to ignore or remove it.`);
 }
+function refreshChartStatus(){
+  document.querySelectorAll('[data-chartstatus]').forEach(el=>{
+    el.textContent = MedChart.aaChartLine(MedChart.findChartBySourceAnimal(el.dataset.chartstatus));
+  });
+}
 function renderAaShare(){
+  refreshChartStatus();
   if(AAShare.isOn(AA_TOOL) && !state.animals.length) AAShare.setOn(AA_TOOL, false);   // an empty list means the shift is over
   const on = AAShare.isOn(AA_TOOL);
   const toggle = document.getElementById('aaShareToggle');
@@ -617,7 +623,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.3';
+const APP_VERSION = '2026-10-19.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2115,6 +2121,7 @@ function openExam(id){
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
   refreshNote(a);
+  refreshChartStatus();
   document.getElementById('noteDisplay').classList.remove('hidden');
   document.getElementById('noteEditArea').classList.add('hidden');
   document.getElementById('editToggleBtn').textContent = 'Edit';
@@ -2410,7 +2417,7 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Treatment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Current and today's medication — dose, route, frequency (e.g. "Doxycycline 50mg PO BID"). If a line here is a genuinely new medication that needs its own printable 14-day chart, click "+ Register medication chart" — it'll parse this text and add the confirmed line back in here automatically.</p>
     <textarea class="free-input" id="fld_treatment" style="min-height:80px">${esc(a.treatment||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div>
   </div>`;
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
 
@@ -2518,7 +2525,7 @@ function bindExamForm(a){
   if(treatmentEl){
     treatmentEl.addEventListener('input', ()=>{ a.treatment = treatmentEl.value; refreshNote(a); });
     treatmentEl.addEventListener('change', ()=>{
-      a.treatment = MedChart.annotateMgPerKg(treatmentEl.value, a.weight, a.species);
+      a.treatment = MedChart.annotateRecheck(MedChart.annotateMgPerKg(treatmentEl.value, a.weight, a.species));
       treatmentEl.value = a.treatment;
       refreshNote(a); saveShift();
     });
