@@ -746,6 +746,28 @@
     return chart.aaEnteredAt ? '\u2705 Done: the Admission AA has marked this chart as done.'
       : '\u23f3 Sent to the Admission AA' + (hm ? ' at ' + hm : '') + ' \u2713. Waiting for them to mark it done.';
   }
+  // For the Medication Charts page, which lists charts from every day: a one-line "where has this got to" for a chart that has
+  // been sent (or tried to be) to the Admission AA, whatever the share switch says now.
+  function aaChartBadge(chart) {
+    if (!chart || !aaToolFor(chart) || !global.AAShare) return '';
+    if (!chart.aaSentAt) return chart.aaErr ? '\u274c NOT SENT to the Admission AA (' + chart.aaErr + ').' : '';
+    if (aaChartStatus(chart) === 'stale') return '\u274c Changed since it was sent to the Admission AA.';
+    var hm = new Date(chart.aaSentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return chart.aaEnteredAt ? '\u2705 Done: the Admission AA has marked this chart as done.' : '\u23f3 Sent to the Admission AA at ' + hm + '. Waiting for them to mark it done.';
+  }
+  // What to ask the dashboard about: every chart that was sent.
+  function aaSentPairs() {
+    return loadCharts().filter(function (c) { return aaToolFor(c) && c.aaSentAt && String(c.animalId || '').trim(); })
+      .map(function (c) { return { kind: 'med_chart', animal_id: c.animalId }; });
+  }
+  // Mark charts Done (the AA's card is gone) or waiting again (it came back), across all days. Returns how many changed.
+  function aaApplyCheckAll(pending, nowISO) {
+    var list = loadCharts().filter(function (c) { return aaToolFor(c) && c.aaSentAt; });
+    var before = list.map(function (c) { return c.aaEnteredAt || ''; });
+    var n = global.AAShare.applyCheck(list, 'med_chart', pending, nowISO, function (c) { return c.animalId; });
+    list.forEach(function (c, i) { if ((c.aaEnteredAt || '') !== before[i]) aaPatchChart(c.id, { aaEnteredAt: c.aaEnteredAt || '' }); });
+    return n;
+  }
   function aaNotify() { if (typeof aaListener === 'function') { try { aaListener(); } catch (e) { /* display only */ } } }
   function aaBlobToB64(blob) {
     return new Promise(function (res, rej) {
@@ -1090,6 +1112,9 @@
     annotateRecheck: annotateRecheck,
     putLabelsInNote: putLabelsInNote,
     aaChartLine: aaChartLine,
+    aaChartBadge: aaChartBadge,
+    aaSentPairs: aaSentPairs,
+    aaApplyCheckAll: aaApplyCheckAll,
     recheckDisplay: recheckDisplay,
     computeGrid: computeGrid,
     medStartOffset: medStartOffset,
