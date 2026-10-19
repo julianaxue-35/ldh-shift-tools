@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-20.1';
+const APP_VERSION = '2026-10-20.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1917,13 +1917,17 @@ function sortedAnimals(){
 }
 
 function groupedListHtml(animals){
+  /* Animals with no ID yet (just added by hand) come first, newest at the top, so they are easy to find and fill in
+     instead of sitting in the middle of whichever room they were given. */
+  const NEW_KEY = 'New \u2014 no ID yet';
   const rooms = [];
   const byRoom = new Map();
   animals.forEach(a=>{
-    const room = parseLocation(a.location).room;
+    const room = String(a.animalId||'').trim() ? parseLocation(a.location).room : NEW_KEY;
     if(!byRoom.has(room)){ byRoom.set(room, []); rooms.push(room); }
     byRoom.get(room).push(a);
   });
+  if(byRoom.has(NEW_KEY)){ rooms.splice(rooms.indexOf(NEW_KEY), 1); rooms.unshift(NEW_KEY); byRoom.get(NEW_KEY).sort((x,y)=> state.animals.indexOf(y) - state.animals.indexOf(x)); }
   return rooms.map(room=>{
     const cards = byRoom.get(room).map(a=>`
     <div class="animal-card">
