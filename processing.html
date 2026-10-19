@@ -418,14 +418,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <script src="sync-code.js"></script>
 <script src="dash-sync.js"></script>
 <script src="aa-share.js"></script>
-<script src="flag-link.js"></script>
 <script src="medchart.js"></script>
 <script>
 // Bump this string on every edit to this file — it's how the update-check
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.4';
+const APP_VERSION = '2026-10-19.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -983,8 +982,6 @@ function normalizeAnimal(a){
     a.medPlan = [a.medPlan, a.nextStepNotes.trim()].filter(Boolean).join('\n');
   }
   a.nextStepNotes = '';
-  if(a.flagDoneAt == null) a.flagDoneAt = '';   // when the dashboard flag was marked done from here
-  if(a.flagPlan == null) a.flagPlan = '';
   if(a.aaEnteredAt == null) a.aaEnteredAt = '';   // when the Admission AA was seen to have entered it
   if(a.aaSentAt == null) a.aaSentAt = null;   // Admission AA share: when a send was last confirmed
   if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
@@ -1912,7 +1909,7 @@ function groupedListHtml(animals){
         <div class="sub">${esc(a.location||'no location')} &middot; due ${isPriorityDue(a.dueDate) ? `<b style="color:#c0392b">${esc(a.dueDate)}</b>` : esc(a.dueDate||'-')}</div>
       </div>
       <div>
-        ${flagBadgeHtml(a)}${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+        ${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -2080,79 +2077,6 @@ function renderElsewhere(elsewhere){
 }
 window.addEventListener('load', ()=>{ setTimeout(()=>pullDoneElsewhere(false), 1500); });
 setInterval(()=>{ if(!document.hidden) pullDoneElsewhere(false); }, 3*60*1000);
-
-/* ---------- Also flagged on the dashboard? (2026-10-19) ----------
-   If a Processing animal has an OPEN request on the dashboard (staff flagged it), say so, and let the vet mark that flag
-   done with a quick plan from here instead of going through the full Sick & Injured exam. Nothing is guessed: it only
-   shows what the dashboard confirmed, and only says "done" once the dashboard has confirmed that too. */
-const FLAGS = new Map();     // animal key -> the open request the dashboard reported
-const flagKeyOf = a => FlagLink.key(a.animalId);
-function flagBadgeHtml(a){
-  if(!a || a.flagDoneAt || !FLAGS.has(flagKeyOf(a))) return '';
-  return '<span class="badge" style="background:var(--rust-soft);color:var(--rust)" title="Flagged on the dashboard">⚑ Flagged</span> ';
-}
-function flagReasonText(f){
-  const parts = [];
-  if(f.condition) parts.push(String(f.condition).replace(/_/g,' '));
-  if(f.problem) parts.push(f.problem);
-  return parts.join(' — ') || 'no reason given';
-}
-async function refreshFlags(){
-  const titles = state.animals.filter(a=>String(a.animalId||'').trim() && !a.flagDoneAt).map(a=>a.animalId);
-  if(!titles.length) return;
-  const flags = await FlagLink.check(titles);
-  if(!flags) return;                                     // couldn't reach the dashboard: show nothing new
-  FLAGS.clear();
-  flags.forEach(f=>{ const k = FlagLink.key(f.title); if(!FLAGS.has(k)) FLAGS.set(k, f); });
-  renderShiftList();
-  const open = state.animals.find(x=>x.id === state.openId);
-  if(open) renderFlagBanner(open);
-}
-function renderFlagBanner(a){
-  const body = document.getElementById('examBody');
-  if(!body) return;
-  let box = document.getElementById('flagBanner');
-  const f = a && !a.flagDoneAt ? FLAGS.get(flagKeyOf(a)) : null;
-  if(!f && !(a && a.flagDoneAt)){ if(box) box.remove(); return; }
-  if(!box){ box = document.createElement('div'); box.id = 'flagBanner'; box.style.cssText = 'margin:0 0 12px;padding:10px 12px;border-radius:8px;border:1px solid var(--rust);background:var(--rust-soft);font-size:13px;line-height:1.5'; body.prepend(box); }
-  if(a.flagDoneAt){ box.innerHTML = '✅ The dashboard flag for this animal is marked done' + (a.flagPlan ? ': <i>' + esc(a.flagPlan) + '</i>' : '') + '.'; return; }
-  box.innerHTML = `<b>⚑ Also flagged on the dashboard</b> (${esc(f.location || 'no location')}): ${esc(flagReasonText(f))}.
-    <div style="margin-top:6px"><button type="button" class="btn small rust" id="flagDoneBtn">Mark the flag done + quick plan</button></div>`;
-  box.querySelector('#flagDoneBtn').addEventListener('click', ()=>openFlagDoneModal(a));
-}
-function openFlagDoneModal(a){
-  document.querySelectorAll('#flagModal').forEach(el=>el.remove());
-  const f = FLAGS.get(flagKeyOf(a));
-  const wrap = document.createElement('div');
-  wrap.id = 'flagModal';
-  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px';
-  wrap.innerHTML = `<div style="background:var(--card);border-radius:12px;max-width:420px;width:100%;padding:18px;box-shadow:var(--shadow)">
-    <h2 style="margin:0 0 6px;font-size:17px">Mark the flag done: ${esc(a.animalId)}</h2>
-    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Flagged for: ${esc(f ? flagReasonText(f) : '')}</p>
-    <label style="font-size:12px;font-weight:700">Quick plan (shelter staff see this on the dashboard)</label>
-    <textarea id="flagPlanText" rows="3" style="width:100%;margin:4px 0 8px" placeholder="e.g. Eating well, no vomiting since. Recheck in 3 days."></textarea>
-    <p id="flagErr" style="color:#c0392b;font-size:12.5px;display:none;margin-bottom:8px"></p>
-    <div class="row-actions"><button class="btn" id="flagSave">Mark done</button> <button class="btn secondary" id="flagCancel">Cancel</button></div></div>`;
-  document.body.appendChild(wrap);
-  wrap.querySelector('#flagCancel').addEventListener('click', ()=>wrap.remove());
-  wrap.querySelector('#flagSave').addEventListener('click', async ()=>{
-    const plan = wrap.querySelector('#flagPlanText').value.trim();
-    const err = wrap.querySelector('#flagErr');
-    if(!plan){ err.textContent = 'Write a quick plan first.'; err.style.display = 'block'; return; }
-    const btn = wrap.querySelector('#flagSave'); btn.disabled = true;
-    const r = await FlagLink.done(a.animalId, plan);
-    btn.disabled = false;
-    if(!r){ err.textContent = 'Not marked done: ' + (FlagLink.lastError() || "couldn't reach the dashboard") + ' Try again.'; err.style.display = 'block'; return; }
-    wrap.remove();
-    if(!r.found){ alert('The dashboard has no open flag for ' + a.animalId + ' any more (someone may have just finished it).'); FLAGS.delete(flagKeyOf(a)); renderFlagBanner(a); renderShiftList(); return; }
-    a.flagDoneAt = new Date().toISOString(); a.flagPlan = plan; FLAGS.delete(flagKeyOf(a)); saveShift();
-    if(r.waiting_medication) alert('Plan saved. This case needs a medication label, so it stays open on the dashboard until the nurse has made the label.');
-    renderFlagBanner(a); renderShiftList();
-  });
-  setTimeout(()=>wrap.querySelector('#flagPlanText').focus(), 50);
-}
-window.addEventListener('load', ()=>{ setTimeout(refreshFlags, 2000); });
-setInterval(()=>{ if(!document.hidden) refreshFlags(); }, 3*60*1000);
 
 function renderShiftList(){
   const list = document.getElementById('animalList');
@@ -2365,7 +2289,6 @@ function openExam(id){
   bindExamForm(a);
   refreshNote(a);
   refreshChartStatus();
-  renderFlagBanner(a);
   document.getElementById('noteDisplay').classList.remove('hidden');
   document.getElementById('noteEditArea').classList.add('hidden');
   document.getElementById('editToggleBtn').textContent = 'Edit';
@@ -2776,7 +2699,7 @@ function bindExamForm(a){
   });
   const animalIdEl = document.getElementById('fld_animalid');
   if(animalIdEl) animalIdEl.addEventListener('change', ()=>{
-    a.animalId = animalIdEl.value.trim(); DashSync.rekey(a, 'processing'); saveShift(); openExam(a.id); refreshFlags();
+    a.animalId = animalIdEl.value.trim(); DashSync.rekey(a, 'processing'); saveShift(); openExam(a.id);
   });
   const locationEl = document.getElementById('fld_location');
   if(locationEl) locationEl.addEventListener('change', ()=>{
@@ -2791,7 +2714,7 @@ function bindExamForm(a){
     const clones = [];
     for(let i=0;i<n;i++){
       const clone = JSON.parse(JSON.stringify(a));
-      clone.aaSentAt = null; clone.aaSig = null; clone.aaSentId = null; clone.aaErr = ''; clone.aaEnteredAt = ''; clone.flagDoneAt = ''; clone.flagPlan = '';   // a copy has not been sent
+      clone.aaSentAt = null; clone.aaSig = null; clone.aaSentId = null; clone.aaErr = ''; clone.aaEnteredAt = '';   // a copy has not been sent
       clone.id = uid();
       clone.animalId = ''; // she fills this in per copy — never duplicate IDs
       clone.microchip = ''; // each animal's chip is unique, never copy this
@@ -3804,7 +3727,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   incoming.forEach(a=>{
     if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
     a.dashSynced = false;
-    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = ''; a.aaEnteredAt = ''; a.flagDoneAt = ''; a.flagPlan = '';   // the sender's send stamps do not apply to this phone
+    a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = ''; a.aaEnteredAt = '';   // the sender's send stamps do not apply to this phone
   });
   const key = a => (a.animalId||'').toString().trim().toLowerCase();
   const byKey = new Map();
