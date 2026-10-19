@@ -219,7 +219,8 @@ function editCardHtml(c){
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
           <label style="font-size:12px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
         <div><label style="font-size:11px">Days</label><br>
-          <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px"></div>
+          <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px">
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:2px" data-recheck="${i}">Recheck ${esc(MedChart.recheckDisplay(m) || '—')}</div></div>
         <div><label style="font-size:11px">If once-daily, start</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
           <label style="font-size:12px"><input type="radio" name="ec_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
@@ -256,6 +257,7 @@ function bindEditCard(){
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) editDraft[i][field]=el.value; }
       else editDraft[i][field] = el.value;
+      const rc = document.querySelector('[data-recheck="'+i+'"]'); if(rc) rc.textContent = 'Recheck ' + (MedChart.recheckDisplay(editDraft[i]) || '\u2014');
     });
   });
   document.querySelectorAll('[data-delmedrow]').forEach(btn=>{
@@ -330,7 +332,8 @@ function renderNewChartForm(){
             <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
             <label style="font-size:12px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
           <div><label style="font-size:11px">Days</label><br>
-            <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px"></div>
+            <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px">
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:2px" data-recheck="${i}">Recheck ${esc(MedChart.recheckDisplay(m) || '—')}</div></div>
           <div><label style="font-size:11px">If once-daily, start</label><br>
             <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="AM" ${m.startSlot!=='PM'?'checked':''}> AM</label>
             <label style="font-size:12px"><input type="radio" name="nc_slot_${i}" data-mfield="startSlot" data-mi="${i}" value="PM" ${m.startSlot==='PM'?'checked':''}> PM</label></div>
@@ -401,6 +404,7 @@ function bindNewChartForm(){
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) newChartDraft[i][field]=el.value; }
       else newChartDraft[i][field] = el.value;
+      const rc = document.querySelector('[data-recheck="'+i+'"]'); if(rc) rc.textContent = 'Recheck ' + (MedChart.recheckDisplay(newChartDraft[i]) || '\u2014');
     });
   });
   document.querySelectorAll('[data-delmedrow]').forEach(btn=>{

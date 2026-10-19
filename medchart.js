@@ -207,29 +207,47 @@
     return med.drugKey === 'meloxicam' || /must be given with food/i.test(med.drugWarning || '') ||
       /\bmeloxicam\b|\bmetacam\b/i.test(med.drugLabel || '');
   }
-  function reviewDateText(med, baseDate) {
-    var m = /\b(?:review|re-?check|until|till|to|by)\s+(?:due\s+)?(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?/i.exec(med.rawText || '');
-    if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);
+  // The recheck is the day AFTER the last dose: day 1 + the number of days. It follows the Days box. A date the vet
+  // typed in the plan ("review 26/10") is used only while Days is still what was read from that same line; once
+  // Days is changed, the recheck is worked out from the new number of days.
+  function reviewDateText(med, baseDate, chartStart) {
     var days = parseInt(med.days, 10);
+    var daysUnchanged = med.daysParsed == null || parseInt(med.daysParsed, 10) === days;
+    var m = daysUnchanged ? /\b(?:review|re-?check|until|till|to|by)\s+(?:due\s+)?(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?/i.exec(med.rawText || '') : null;
+    if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);
     if (!days) return '';
     var d = new Date(baseDate || Date.now());
     d.setHours(12, 0, 0, 0);
-    d.setDate(d.getDate() + (med.startOption === 'today' ? 0 : 1) + days);
+    d.setDate(d.getDate() + ((med.startOption || chartStart || 'tomorrow') === 'today' ? 0 : 1) + days);
     return d.getDate() + '/' + (d.getMonth() + 1);
   }
-  function buildLabelSentence(med, baseDate) {
+  // For the editors: "Tue 27/10" (weekday + date), or '' when there is no way to work one out.
+  function recheckDisplay(med, baseDate, chartStart) {
+    var txt = reviewDateText(med, baseDate, chartStart);
+    var m = /^(\d{1,2})\/(\d{1,2})$/.exec(txt);
+    if (!m) return '';
+    var base = new Date(baseDate || Date.now());
+    var d = new Date(base.getFullYear(), parseInt(m[2], 10) - 1, parseInt(m[1], 10), 12);
+    if (d.getTime() < base.getTime() - 30 * 86400000) d.setFullYear(d.getFullYear() + 1);
+    return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + txt;
+  }
+  function buildLabelSentence(med, baseDate, chartStart) {
     var head = [med.drugLabel, med.doseText, routeWords(med.route), freqWords(med.freq)]
       .filter(Boolean).join(' ').trim();
     if (!head) return '';
-    var review = reviewDateText(med, baseDate);
+    var review = reviewDateText(med, baseDate, chartStart);
     var out = head + (review ? ', review due ' + review : '');
     if (needsFood(med)) out += '. Must be given with food.';
     return out;
   }
   // The label that goes out: her own wording if she edited it, else rebuilt
   // from the current fields (so editing a saved chart never leaves it stale).
-  function labelFor(med, baseDate) {
-    return (med.labelEdited && med.labelText) ? med.labelText : buildLabelSentence(med, baseDate);
+  function labelFor(med, baseDate, chartStart) {
+    if (!(med.labelEdited && med.labelText)) return buildLabelSentence(med, baseDate, chartStart);
+    // her own wording stays, but every medication carries a recheck date: add one if she did not write one
+    var txt = med.labelText, review = reviewDateText(med, baseDate, chartStart);
+    if (review && !/\b(review|re-?check)\b/i.test(txt)) txt = txt.replace(/[\s.]+$/, '') + ', review due ' + review;
+    return txt;
   }
 
   // Returns one entry per line of the Plan text. Every field the
@@ -277,6 +295,7 @@
         warnings: warnings,
         labelEdited: false
       };
+      row.daysParsed = row.days;   // so a typed review date is only trusted while Days is unchanged
       row.labelText = buildLabelSentence(row);
       return row;
     });
@@ -449,7 +468,7 @@
       var box = BOXES[i];
       xml = setCellXml(xml, box.med, m.drugLabel || '');
       xml = setCellXml(xml, box.days, parseInt(m.days, 10) || 0);
-      var reviewTxt = reviewDateText(m, chart.createdAt ? new Date(chart.createdAt) : new Date());
+      var reviewTxt = reviewDateText(m, chart.createdAt ? new Date(chart.createdAt) : new Date(), chart.startOption);
       xml = setCellXml(xml, box.warn, [m.drugWarning || '', reviewTxt ? 'Review due ' + reviewTxt : ''].filter(Boolean).join('  |  '));
       xml = setCellXml(xml, box.dose, 'Dose: ' + (m.doseText || ''));
       xml = setCellXml(xml, box.freq, 'Freq: ' + freqWords(m.freq));
@@ -545,7 +564,7 @@
   function buildDashboardLabel(chart) {
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     return (chart.meds || []).map(function (m) {
-      return labelFor(m, base);
+      return labelFor(m, base, chart.startOption);
     }).filter(Boolean).join('; ');
   }
   function syncChartToDashboard(chart) {
@@ -633,7 +652,7 @@
   function aaToolFor(chart) { return (chart && AA_TOOL_OF[chart.sourceTool]) || null; }
   function aaChartLines(chart) {
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
-    return (chart.meds || []).map(function (m) { return labelFor(m, base); }).filter(Boolean);
+    return (chart.meds || []).map(function (m) { return labelFor(m, base, chart.startOption); }).filter(Boolean);
   }
   // Covers everything that changes the Excel file, not just the drug lines (start day, weight, plan text).
   function aaChartSig(chart) {
@@ -1011,6 +1030,8 @@
     parseMedPlan: parseMedPlan,
     buildLabelSentence: buildLabelSentence,
     labelFor: labelFor,
+    reviewDateText: reviewDateText,
+    recheckDisplay: recheckDisplay,
     computeGrid: computeGrid,
     medStartOffset: medStartOffset,
     chartBaseOffset: chartBaseOffset,
