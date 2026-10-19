@@ -272,6 +272,8 @@
   // `warnings` list naming exactly what to double-check.
   function parseMedPlan(text) {
     return splitLines(text).map(function (line) {
+      // our own "(recheck d/m)" note-marker is not a date the vet typed: the chart works the recheck out from the days
+      line = line.replace(RECHECK_MARK_RE, '');
       var parts = splitInstruction(line);
       var drug = findDrug(line);
       var strength = detectStrength(parts.head);
