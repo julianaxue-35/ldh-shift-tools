@@ -578,7 +578,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-19.1';
+const APP_VERSION = '2026-10-19.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2924,6 +2924,8 @@ function healthCheckHtml(a){
         <textarea class="free-input" data-hcnoteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.hcNotes[f.key]||'')}</textarea>
       </div>`;
     });
+    h += `<div class="pe-field"><div class="lbl">BCS (/5)</div>
+      <select class="plain" id="fld_bcs" style="width:100%"><option value="">-</option>${['1','1.5','2','2.5','3','3.5','4','4.5','5'].map(v=>`<option ${a.bcs===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
     h += `<div class="pe-field">
       <div style="margin-top:8px"><label style="font-size:12px">Desexing status if known</label><br><input class="plain" id="fld_hcDesexKnown" value="${esc(a.hcDesexKnown||'')}" style="width:100%"></div>
       <div style="margin-top:8px"><label style="font-size:12px">Waivers (reference — full waiver list is in Pathway/Discharge below)</label><br><input class="plain" id="fld_hcWaivers" value="${esc(a.hcWaivers||'')}" style="width:100%"></div>
@@ -3001,9 +3003,7 @@ function examFormHtml(a){
       <select class="plain" id="fld_mm" style="width:100%">${['Pink','Pale pink','Pale','Injected','Cyanotic','Not able to be examined'].map(v=>`<option ${a.mm===v?'selected':''}>${v}</option>`).join('')}</select></div>
     <div><label style="font-size:12px">CRT</label><br>
       <select class="plain" id="fld_crt" style="width:100%">${['<2s','2s','2-3s','>3s','Not able to be examined'].map(v=>`<option ${a.crt===v?'selected':''}>${v}</option>`).join('')}</select></div>
-  </div>
-  <div style="margin-top:8px"><label style="font-size:12px">BCS (/5)</label><br>
-    <select class="plain" id="fld_bcs" style="width:100%"><option value="">-</option>${['1','1.5','2','2.5','3','3.5','4','4.5','5'].map(v=>`<option ${a.bcs===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
+  </div>`;
 
   h += needsBlockHtml(a);
 
@@ -3944,7 +3944,7 @@ function assembleNote(a){
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
-  L.push(`HR: ${a.hrNE ? 'Not able to be examined' : (a.hr||'-')}  Resp: ${a.rr}  MM: ${a.mm}  CRT: ${a.crt}${a.bcs ? `  BCS: ${a.bcs}/5` : ''}`);
+  L.push(`HR: ${a.hrNE ? 'Not able to be examined' : (a.hr||'-')}  Resp: ${a.rr}  MM: ${a.mm}  CRT: ${a.crt}`);
   const cardiacParts = [];
   if(a.caMurmur) cardiacParts.push(`Murmur grade ${a.caMurmurGrade}/6`);
   if(a.caGallop) cardiacParts.push('Gallop rhythm');
@@ -4031,6 +4031,7 @@ function assembleNote(a){
       const isNsf = a.hcNsf[f.key] !== false;
       L.push(`${f.label}: ${isNsf ? 'NSF' : (a.hcNotes[f.key]&&a.hcNotes[f.key].trim() ? a.hcNotes[f.key].trim() : 'Abnormal — no further detail recorded')}`);
     });
+    L.push(`BCS: ${a.bcs ? a.bcs + '/5' : '-'}`);
     L.push('');
     L.push(`Gender: ${a.sex||'-'}`);
     L.push(`Desexing Status if known: ${a.hcDesexKnown||'-'}`);
