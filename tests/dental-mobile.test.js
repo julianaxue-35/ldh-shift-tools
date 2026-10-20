@@ -21,13 +21,27 @@ async function open(browser, opts, init) {
 }
 (async () => {
   const browser = await chromium.launch();
-  const sizes = [['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], ['small phone', { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true }], ['tablet upright', { viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true }], ['tablet sideways', { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true }]];
+  const sizes = [['phone', { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true }], ['small phone', { viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true }], ['tablet upright', { viewport: { width: 768, height: 1024 }, hasTouch: true, isMobile: true }], ['tablet 10in upright', { viewport: { width: 800, height: 1280 }, hasTouch: true, isMobile: true }], ['tablet sideways', { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true }]];
   for (const [name, o] of sizes) {
     const { page, errors, ctx } = await open(browser, o);
     const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
     t.ok(m.sw <= m.iw, name + ': nothing runs off the side of the screen (' + m.sw + ' <= ' + m.iw + ')');
     const teeth = await page.$$eval('.tooth', ts => ts.map(x => { const r = x.getBoundingClientRect(); return [r.width, r.height, r.right, r.left]; }));
     t.ok(teeth.length === 42 && teeth.every(r => r[0] >= 28 && r[1] >= 60 && r[2] <= o.viewport.width + 1 && r[3] >= -1), name + ': all 42 teeth are on screen and big enough to tap (narrowest ' + Math.min(...teeth.map(r => r[0])).toFixed(0) + 'px)');
+    // sides: the patient's RIGHT quadrants (1 and 4) vs LEFT (2 and 3), and every row is a straight line
+    const pos = await page.$$eval('.tooth', ts => Object.fromEntries(ts.map(x => { const r = x.getBoundingClientRect(); return [x.dataset.tooth, [Math.round(r.left), Math.round(r.top)]]; })));
+    const wide = o.viewport.width >= 740;
+    if (wide) {
+      t.ok(pos[101][0] < pos[201][0] && pos[104][0] < pos[204][0] && pos[110][0] < pos[101][0] && pos[210][0] > pos[201][0], name + ': 1 and 4 (right) are on the left of the screen, 2 and 3 (left) on the right, incisors meeting in the middle');
+      t.ok(pos[401][0] < pos[301][0] && pos[411][0] < pos[401][0] && pos[311][0] > pos[301][0], name + ': the lower jaw follows: 4 on the left, 3 on the right');
+      t.ok(pos[101][1] === pos[201][1] && pos[110][1] === pos[210][1] && pos[401][1] === pos[301][1], name + ': both sides of each jaw sit on one straight line');
+    } else {
+      t.ok(await page.$$eval('.lr', ls => ls.every(l => !l.offsetParent)), name + ': the Right / Left corner labels are not shown when the rows are stacked');
+      const heads = await page.$$eval('.quad-h', hs => hs.filter(h => h.offsetParent).map(h => h.textContent.trim()));
+      t.ok(heads.length === 4 && /Upper right/.test(heads[0]) && /Upper left/.test(heads[1]) && /Lower right/.test(heads[2]) && /Lower left/.test(heads[3]), name + ': each stacked row says which side it is: ' + heads.join(' | '));
+      t.ok(pos[101][0] < pos[110][0] && pos[201][0] < pos[210][0] && pos[401][0] < pos[411][0] && pos[301][0] < pos[311][0], name + ': every row runs from the incisors out (01, 02, 03...)');
+      t.ok(pos[101][1] === pos[110][1] && pos[201][1] === pos[210][1] && pos[401][1] === pos[411][1] && pos[301][1] === pos[311][1] && pos[101][1] < pos[201][1] && pos[201][1] < pos[401][1] && pos[401][1] < pos[301][1], name + ': each row is a straight line, rows in order');
+    }
     const small = await page.$$eval('#toothPanel select, #toothPanel input:not([type=checkbox]), #toothPanel .checks label, #desc, #procedure, #tpClose, #tpPrev, #pdfBtn, [data-grade]', els => els.filter(e => e.offsetParent).filter(e => e.getBoundingClientRect().height < 43 || (/^(SELECT|INPUT)$/.test(e.tagName) && parseFloat(getComputedStyle(e).fontSize) < 16)).map(e => e.id || e.tagName + (e.dataset.field || e.dataset.check || '')));
     t.ok(small.length === 0, name + ': controls are at least 44px tall and fields use 16px text (no iPhone zoom): ' + small.join(','));
     t.ok(errors.length === 0, name + ': no page errors ' + errors.join(';'));
