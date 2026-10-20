@@ -56,9 +56,19 @@ body.embed .wrap{padding:0 0 16px}
 /* the mouth */
 .mouth{overflow-x:hidden}
 .arch-label{font-size:11px;font-weight:700;color:var(--ink-soft);text-align:center;letter-spacing:.08em;margin:6px 0 2px}
-.arch{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.quad{display:flex;min-width:0}
-@media (max-width:820px){.arch{grid-template-columns:1fr}}
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:start}
+.qwrap{min-width:0}
+.quad{display:flex;min-width:0;align-items:flex-start}
+.quad-h{display:none;font-size:11px;font-weight:700;color:var(--ink-soft);margin:10px 0 2px;letter-spacing:.04em}
+/* Wide enough (tablet and up): one straight row per jaw, the patient's RIGHT quadrants (1 and 4) on the left of the screen and the
+   LEFT quadrants (2 and 3) on the right, incisors meeting in the middle. On a phone the four quadrants stack, each headed with its
+   side, every one running 01, 02, 03... from the left. */
+@media (max-width:739px){
+  .arch{grid-template-columns:1fr}
+  .quad.left{flex-direction:row-reverse;justify-content:flex-end}
+  .quad-h{display:block}
+  .lr{display:none !important}
+}
 .quad.left{justify-content:flex-end}
 .tooth{flex:0 1 44px;min-width:0;border:1px solid transparent;border-radius:6px;background:none;padding:1px 0 2px;display:flex;flex-direction:column;align-items:center;font-size:10px;color:var(--ink)}
 .tooth:hover{background:var(--teal-soft)}
@@ -238,7 +248,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-10-19.1';
+const APP_VERSION = '2026-10-20.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
@@ -313,10 +323,11 @@ function toothSvg(info, t) {
 }
 function renderMouth() {
   const Q = D.quadrants(cur.species);
-  const arch = qs => qs.map(q => `<div class="quad ${q.leftBlock ? 'left' : 'right'}">` + q.teeth.map(n => {
+  const names = { 1: 'Upper right', 2: 'Upper left', 4: 'Lower right', 3: 'Lower left' };
+  const arch = qs => qs.map(q => `<div class="qwrap"><div class="quad-h">${names[q.quadrant]} (${q.quadrant}01&ndash;${Math.max.apply(null, q.teeth)})</div><div class="quad ${q.leftBlock ? 'left' : 'right'}">` + q.teeth.map(n => {
     const info = D.toothInfo(cur.species, n), t = cur.teeth[n];
     return `<button type="button" class="tooth ${selTooth === n ? 'sel' : ''}" data-tooth="${n}" aria-label="Tooth ${n}"><span class="tn">${n}</span>${toothSvg(info, t)}<span class="tk">${D.toothTokens(t).map(esc).join('<br>')}</span></button>`;
-  }).join('') + '</div>').join('');
+  }).join('') + '</div></div>').join('');
   $('archUpper').innerHTML = arch(Q.upper);
   $('archLower').innerHTML = arch(Q.lower);
 }
