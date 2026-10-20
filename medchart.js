@@ -102,8 +102,8 @@
 
   function detectFreq(text) {
     var low = text.toLowerCase();
-    if (/\bbid\b|\bb\.i\.d\.?\b|twice\s+(a\s+)?day|twice\s+daily|morning\s+and\s+(night|evening)|am\s+and\s+pm/.test(low)) return 'BID';
-    if (/\bsid\b|\bs\.i\.d\.?\b|\bonce\s+(a\s+)?day\b|once\s+daily|\boid\b/.test(low)) return 'SID';
+    if (/\bbid\b|\bb\.i\.d\.?\b|twice[\s-]+(a\s+)?(day|daily)|two\s+times\s+(a\s+)?(day|daily)|\b2\s*x\s*\/?\s*(a\s+)?(day|daily)|\bq\s?12\s?h|every\s+12\s+hours?|morning\s+and\s+(night|evening)|am\s+and\s+pm/.test(low)) return 'BID';
+    if (/\bsid\b|\bs\.i\.d\.?\b|\bonce[\s-]+(a\s+|per\s+|every\s+)?(day|daily)\b|\bonce\s+daily|\boid\b|\bqd\b|\bq\s?24\s?h|every\s+24\s+hours?|every\s+day\b|\b1\s*x\s*\/?\s*(a\s+)?(day|daily)|\bdaily\b/.test(low)) return 'SID';
     return null;
   }
 
@@ -298,6 +298,9 @@
       var drug = findDrug(line);
       var strength = detectStrength(parts.head);
       var freq = detectFreq(line);
+      // Meloxicam is ALWAYS once daily at LDH: whatever the line says, it is charted once daily
+      var meloxWarn = '';
+      if (drug && drug.key === 'meloxicam') { if (freq === 'BID') meloxWarn = 'Meloxicam is once daily only: set to once daily'; freq = 'SID'; }
       var route = detectRoute(line, drug);
       var days = detectDays(line);
       var doseText = detectDoseText(parts.tail) || detectDoseText(line);
@@ -305,6 +308,7 @@
       var warnings = [];
       if (!drug) warnings.push('Drug not recognised — pick manually');
       if (!freq) warnings.push('Frequency unclear — confirm SID/BID');
+      if (meloxWarn) warnings.push(meloxWarn);
       if (!route) warnings.push('Route unclear — confirm');
       if (!days) warnings.push('Duration unclear — confirm number of days');
       if (!doseText) warnings.push('Dose amount unclear — confirm');
@@ -804,7 +808,18 @@
     } catch (e) { /* never let the AA hand-off break the local save */ }
   }
 
+  // Meloxicam is once daily only: whatever reached the chart (typed, edited, or a draft changed by hand), it is saved once daily
+  function isMeloxicam(m) { return m.drugKey === 'meloxicam' || /\bmeloxicam\b|\bmetacam\b/i.test(m.drugLabel || ''); }
+  function enforceMeloxicamOnceDaily(chart) {
+    (chart.meds || []).forEach(function (m) {
+      if (!isMeloxicam(m) || m.freq === 'SID') return;
+      m.freq = 'SID';
+      if (m.labelEdited && m.labelText) m.labelText = m.labelText.replace(/twice\s+daily|\bBID\b/gi, 'once daily');
+      else m.labelText = buildLabelSentence(m, chart.createdAt, chart.startOption);
+    });
+  }
   function addChart(chart) {
+    enforceMeloxicamOnceDaily(chart);
     var list = loadCharts();
     list.push(chart);
     saveCharts(list);
