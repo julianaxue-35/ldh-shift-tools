@@ -114,6 +114,7 @@ function renderList(){
           <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${MedChart.chartBaseOffset(c)===0?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
           ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
           ${MedChart.aaChartBadge(c) ? `<div class="meta aa-status" style="font-weight:600">${esc(MedChart.aaChartBadge(c))}</div>` : ''}
+          ${MedChart.nurseLabelBadge(c) ? `<div class="meta nl-status" style="font-weight:600">${esc(MedChart.nurseLabelBadge(c))}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
       </div>
@@ -122,12 +123,22 @@ function renderList(){
         <tbody>${rows}</tbody>
       </table>
       <div style="margin-top:8px;display:flex;gap:8px">
+        <button type="button" class="btn small nl-send" data-nl="${esc(c.id)}">${MedChart.nurseLabelStatus(c)==='sent' ? 'Label sent to the Welfare nurse (send again)' : MedChart.nurseLabelStatus(c)==='stale' ? 'Send the changed label to the Welfare nurse' : 'Send label to the Welfare nurse'}</button>
         <button type="button" class="btn secondary small" data-edit="${esc(c.id)}">Edit</button>
         <button type="button" class="btn secondary small" data-del="${esc(c.id)}">Delete this chart</button>
       </div>
     </div>`;
   }).join('');
 
+  list.querySelectorAll('[data-nl]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const chart = MedChart.loadCharts().find(x=>x.id===btn.dataset.nl); if(!chart) return;
+      if(!String(chart.animalId||'').trim()){ alert('Add the Animal ID to this chart first (Edit).'); return; }
+      btn.disabled = true; btn.textContent = 'Sending...';
+      await MedChart.sendLabelsToNurse(chart);
+      renderList();
+    });
+  });
   list.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(!confirm('Delete this medication chart? This cannot be undone.')) return;
