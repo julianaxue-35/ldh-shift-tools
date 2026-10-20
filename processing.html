@@ -424,7 +424,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-20.2';
+const APP_VERSION = '2026-10-20.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1235,9 +1235,19 @@ function reflowFreeText(text){
 }
 /* Medication lists: one drug per line is kept; hard-wrapped "- " bullets are
    rejoined; duplicate lines dropped; blank-line runs collapsed. */
+/* A medication that was hard-wrapped at the source (the reminder import breaks long lines mid-instruction, e.g.
+   "gabapentin 200mg (28.2mg/kg) to" + Enter + "0.25mL PO BID.") arrives as two lines. A line that carries on the previous
+   one (starts with a bracket / route / frequency / duration, or the line above stops half-way through a phrase) is
+   joined back on, so one medication stays one line. A new drug (a word that is not a route / frequency / duration) still
+   starts its own line. */
+const MED_CONT_START = /^(?:[()]|po\b|sc\b|im\b|iv\b|bid\b|sid\b|tid\b|qid\b|prn\b|q\s?\d+\s?h?\b|x\s*\d|for\s+\d|\d+(?:\.\d+)?\s*(?:ml|mls|mg|mcg|g|tabs?|tablets?|capsules?|drops?|units?|%)(?![a-z])|\d+\s*(?:days?|weeks?)\b|until\b|then\b|with\s+food\b|orally\b|twice\b|once\b|daily\b|every\b|days?\b|weeks?\b)/i;
+const MED_DANGLING_END = /(?:\b(?:to|of|and|x|for|then|at|with|per|every|q|by|in|on|a|an|the|start|give|dose|total)|[,(\/+-])\s*$/i;
+function medContinues(prev, line){
+  return MED_CONT_START.test(line) || MED_DANGLING_END.test(prev);
+}
 function reflowMedText(text){
   if(!text) return text;
-  const seen = new Set(), out = [];
+  const out = [];
   const src = String(text);
   const hasBullets = /^\s*[-•*]\s/m.test(src);
   let bulletOpen = false;
@@ -1248,11 +1258,17 @@ function reflowMedText(text){
       if(/^[-•*]\s/.test(line)) bulletOpen = true;
       else if(bulletOpen && out.length && out[out.length-1]){ out[out.length-1] += ' ' + line; return; }
     }
+    if(!/^[-•*]\s/.test(line) && out.length && out[out.length-1] && medContinues(out[out.length-1], line)){ out[out.length-1] += ' ' + line; return; }
+    out.push(line);
+  });
+  const seen = new Set(), result = [];
+  out.forEach(line=>{
+    if(!line){ result.push(line); return; }
     const key = line.toLowerCase().replace(/\s+/g,' ');
     if(seen.has(key)) return;
-    seen.add(key); out.push(line);
+    seen.add(key); result.push(line);
   });
-  return out.join('\n').trim();
+  return result.join('\n').replace(/\n{3,}/g,'\n\n').trim();
 }
 function add28DayAnimal(){
   const a = makeAnimal({animalId:'', location:'', dueDate:'', species:'dog', ageYears:'', sex:''});
