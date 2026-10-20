@@ -285,7 +285,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
   <div class="card" id="shareCard">
     <h2>Share this shift (multi-station)</h2>
-    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Off by default. Turn on so Prep, Surgery and Recovery devices see the same animals live. Microchip numbers never leave the device they were typed on — other stations only see "implanted". Sign in with the surgery-stations login.</p>
+    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Off by default. Turn on so Prep, Surgery and Recovery devices see the same animals live. The microchip number is shared too, so every station sees the number in the notes (it is never sent to the dashboard). Sign in with the surgery-stations login.</p>
     <div id="shareOffWrap">
       <input class="plain" id="shareEmail" type="email" autocomplete="username" placeholder="Surgery stations email" style="width:100%;margin-bottom:6px">
       <input class="plain" id="sharePass" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;margin-bottom:6px">
@@ -579,7 +579,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.1';
+const APP_VERSION = '2026-10-21.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1531,7 +1531,7 @@ function surgTypeLabel(t, species){
 /* Same admin-status dropdown as Processing-Notes-Tool_3 / SickInjured-Notes-Tool
    ("Next step in pathway"), reused here so admin sees one consistent status
    vocabulary across all three tools. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting foster','Awaiting rescue'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Hold for possible match','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting foster','Awaiting rescue'];
 
 /* Only these four are logged with a time. Flea/vaccination/FIV/microchip/
    worming are plain "given" ticks in the needs block (no timestamp). */
@@ -2702,7 +2702,8 @@ function chartDraftHtml(a, draft, planText){
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
-          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label>
+          <label style="font-size:12px;margin-left:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="EOD" ${m.freq==='EOD'?'checked':''}> EOD (every other day)</label></div>
         <div><label style="font-size:11px">Days</label><br>
           <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:60px"></div>
         <div><label style="font-size:11px">If once-daily, start</label><br>
@@ -3739,7 +3740,7 @@ function bindExamForm(a){
   if(addBlankMedBtn) addBlankMedBtn.addEventListener('click', ()=>{ chartDrafts[a.id] = [blankMedRow()]; openExam(a.id); });
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
+    const parsed = MedChart.parseMedPlan(a.newMedChartText||'', a.species);
     // registering the chart also adds the post-op buprenorphine (if Required) and oral meloxicam (if toggled)
     const bupAdded = syncBupChart(a, true);
     syncMeloxPlanItem(a);
@@ -4084,7 +4085,7 @@ function assembleNote(a){
   (a.customTicks||[]).forEach(ct=>{ L.push(isRecheckTick(ct) ? (ct.done ? `- ${ct.label}: ${recheckResultText(ct)} (${ct.time})` : `- ${ct.label}: not recorded`) : (ct.done ? `- ${ct.label} (${ct.time})` : `- ${ct.label}: not marked done`)); });
   // (the Comment box is deliberately NOT written into the medical note)
   if(chipHasFullNumber(a)) L.push(`  Microchip: ${a.microchipNum}`);
-  else if(chipDone) L.push('  Microchip: implanted (number not recorded on this device)');
+  else if(chipDone) L.push('  Microchip: implanted (number not recorded)');
   if(a.ticks['ivc'] && a.ticks['ivc'].done) L.push(`  IVC gauge: ${a.ivcGauge}`);
   if(a.ticks['intubation'] && a.ticks['intubation'].done) L.push(`  ET tube size: ${a.etTubeSize||'-'}${a.etTubeSize && /^[\d.]+$/.test(a.etTubeSize) ? 'mm' : ''}`);
   if(a.alfaxPreMl) L.push(`  ${inductionName(a)} pre-op given: ${a.alfaxPreMl}mL`);
@@ -4553,15 +4554,15 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
    stations editing different parts of one animal don't overwrite each other. */
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
-const SHARE_LOCAL_ONLY_KEYS = ['microchipNum','examSectionsOpen','cloudScrubbed','chipTickRemote'];
+const SHARE_LOCAL_ONLY_KEYS = ['examSectionsOpen','cloudScrubbed','chipTickRemote'];   // (2026-10-21: microchipNum now syncs between the stations; it still never goes to the dashboard)
 const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
-// Number entry is closed off on stations that only RECEIVED the implanted tick from another device
-function chipEntryLocked(a){ return shareReady && share.on && !!a.chipTickRemote && !chipHasFullNumber(a); }
+// Any station can enter or correct the number now (it syncs to the others), so number entry is never locked
+function chipEntryLocked(a){ return false; }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
 function confirmChipNumbersPresent(){
   const missing = state.animals.filter(a=>a.registered && a.ticks['microchip'] && a.ticks['microchip'].done && !chipHasFullNumber(a));
   if(!missing.length) return true;
-  return confirm(`${missing.length} animal(s) (${missing.map(a=>a.animalId||'no ID').join(', ')}) show a microchip as implanted but have no number on THIS device — the Word file will say "implanted (number not recorded on this device)" for them.\n\nMicrochip numbers never leave the device they were typed on, so export from the device that scanned them if you need the number in the document.\n\nOK = export anyway, Cancel = go back.`);
+  return confirm(`${missing.length} animal(s) (${missing.map(a=>a.animalId||'no ID').join(', ')}) show a microchip as implanted but have no number yet — the Word file will say "implanted (number not recorded)" for them.\n\nType the number in before exporting, or the document will say it is missing.\n\nOK = export anyway, Cancel = go back.`);
 }
 /* Deleted-animal tombstones (2026-10-08). Report: "when I press delete the patients reappear".
    Root cause: sharePull() treats ANY cloud row with no matching local animal as a NEW animal
@@ -4705,7 +4706,7 @@ async function sharePull(){
       if(!remote || !Object.keys(remote).length) return; // scrubbed after export
       const local = state.animals.find(x=>x.id===row.id);
       if(!local){
-        const n = normalizeAnimal(Object.assign(shareClone(remote), { id: row.id, microchipNum: '' }));
+        const n = normalizeAnimal(Object.assign(shareClone(remote), { id: row.id }));
         if(n.ticks.microchip && n.ticks.microchip.done) n.chipTickRemote = true;
         state.animals.push(n); share.base[row.id] = shareClone(remote); changed.add(row.id);
       } else if(!local.cloudScrubbed){

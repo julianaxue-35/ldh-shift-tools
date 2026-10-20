@@ -105,7 +105,7 @@ function renderList(){
       <td>${esc(m.doseText)}</td>
       <td>${esc(m.freq)}</td>
       <td>${esc(m.route)}</td>
-      <td>${esc(m.days)}d${m.freq==='SID' ? ' ('+esc(m.startSlot)+' start)' : ''} &middot; from ${MedChart.medStartOffset(m,c)===0?'today':'tomorrow'}</td>
+      <td>${esc(m.days)}d${m.freq==='SID' || m.freq==='EOD' ? ' ('+esc(m.startSlot)+' start)' : ''} &middot; from ${MedChart.medStartOffset(m,c)===0?'today':'tomorrow'}</td>
     </tr>${(m.drugWarning||(m.warnings&&m.warnings.length)) ? `<tr><td colspan="5" class="warn">${esc([m.drugWarning].concat(m.warnings||[]).filter(Boolean).join(' · '))}</td></tr>` : ''}`).join('');
     return `<div class="card" data-chartid="${esc(c.id)}">
       <div class="card-hdr">
@@ -230,7 +230,8 @@ function editCardHtml(c){
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
-          <label style="font-size:12px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+          <label style="font-size:12px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label>
+          <label style="font-size:12px;margin-left:8px"><input type="radio" name="ec_freq_${i}" data-mfield="freq" data-mi="${i}" value="EOD" ${m.freq==='EOD'?'checked':''}> EOD (every other day)</label></div>
         <div><label style="font-size:11px">Days</label><br>
           <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px">
           <div style="font-size:11px;color:var(--ink-soft);margin-top:2px" data-recheck="${i}">Recheck ${esc(MedChart.recheckDisplay(m) || '—')}</div></div>
@@ -343,7 +344,8 @@ function renderNewChartForm(){
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
           <div><label style="font-size:11px">Frequency</label><br>
             <label style="font-size:12px;margin-right:8px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
-            <label style="font-size:12px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+            <label style="font-size:12px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label>
+          <label style="font-size:12px;margin-left:8px"><input type="radio" name="nc_freq_${i}" data-mfield="freq" data-mi="${i}" value="EOD" ${m.freq==='EOD'?'checked':''}> EOD (every other day)</label></div>
           <div><label style="font-size:11px">Days</label><br>
             <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:70px">
           <div style="font-size:11px;color:var(--ink-soft);margin-top:2px" data-recheck="${i}">Recheck ${esc(MedChart.recheckDisplay(m) || '—')}</div></div>
@@ -404,7 +406,7 @@ function bindNewChartForm(){
 
   const parseBtn = document.getElementById('nc_parseBtn');
   if(parseBtn) parseBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(newChartMeta.planText||'');
+    const parsed = MedChart.parseMedPlan(newChartMeta.planText||'', newChartMeta.species);
     if(!parsed.length){ alert('Type a medication instruction in the Plan box first.'); return; }
     newChartDraft = parsed;
     renderNewChartForm();

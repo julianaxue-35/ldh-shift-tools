@@ -623,7 +623,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-20.3';
+const APP_VERSION = '2026-10-21.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -965,7 +965,7 @@ function matchResolvable(lineText){
    pathway", so the admin sees a consistent status vocabulary from either
    tool. When a previous consult's Pathway/Plan text already names one of
    these, it carries forward as the starting selection; the vet can change it. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue','Awaiting sort'];
+const PATHWAY_OPTIONS = ['Hold in vet care','Hold for possible match','Remain in court hold status','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Vet: no-GA required','Awaiting foster','Awaiting rescue','Awaiting sort'];
 function matchPathway(text){
   if(!text) return '';
   const norm = text.toLowerCase();
@@ -2026,7 +2026,8 @@ function chartDraftHtml(a, draft, planText){
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
-          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label>
+          <label style="font-size:12px;margin-left:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="EOD" ${m.freq==='EOD'?'checked':''}> EOD (every other day)</label></div>
         <div><label style="font-size:11px">Days</label><br>
           <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:60px">
           <div style="font-size:11px;color:var(--ink-soft);margin-top:2px" data-recheck="${i}">Recheck ${esc(MedChart.recheckDisplay(m) || '—')}</div></div>
