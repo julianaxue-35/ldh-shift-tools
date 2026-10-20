@@ -293,7 +293,7 @@
   // parser couldn't confidently detect still gets a sane editable
   // default (never left silently blank in the preview), plus a
   // `warnings` list naming exactly what to double-check.
-  function parseMedPlan(text) {
+  function parseMedPlan(text, species) {
     return splitLines(text).map(function (line) {
       // our own "(recheck d/m)" note-marker is not a date the vet typed: the chart works the recheck out from the days
       line = line.replace(RECHECK_MARK_RE, '');
@@ -303,7 +303,7 @@
       var freq = detectFreq(line);
       // Meloxicam is ALWAYS once daily at LDH: whatever the line says, it is charted once daily
       var meloxWarn = '';
-      if (drug && drug.key === 'meloxicam') { if (freq === 'BID') meloxWarn = 'Meloxicam is once daily only: set to once daily'; freq = 'SID'; }
+      if (drug && drug.key === 'meloxicam' && species !== 'rabbit') { if (freq === 'BID') meloxWarn = 'Meloxicam is once daily only: set to once daily'; freq = 'SID'; }
       var route = detectRoute(line, drug);
       var days = detectDays(line);
       var doseText = detectDoseText(parts.tail) || detectDoseText(line);

@@ -395,7 +395,7 @@ function bindNewChartForm(){
 
   const parseBtn = document.getElementById('nc_parseBtn');
   if(parseBtn) parseBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(newChartMeta.planText||'');
+    const parsed = MedChart.parseMedPlan(newChartMeta.planText||'', newChartMeta.species);
     if(!parsed.length){ alert('Type a medication instruction in the Plan box first.'); return; }
     newChartDraft = parsed;
     renderNewChartForm();

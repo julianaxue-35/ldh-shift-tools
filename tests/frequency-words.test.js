@@ -28,6 +28,7 @@ const t = require('./check')('frequency-words');
     return [mk('rabbit'), mk('dog')];
   });
   t.ok(saved[0] === 'BID' && saved[1] === 'SID', 'a rabbit keeps twice-daily meloxicam, a dog is once daily: ' + saved.join());
+  t.ok(await page.evaluate(() => MedChart.parseMedPlan('meloxicam 0.1ml PO BID for 3 days', 'rabbit')[0].freq) === 'BID' && await page.evaluate(() => MedChart.parseMedPlan('meloxicam 0.1ml PO BID for 3 days', 'dog')[0].freq) === 'SID', 'a rabbit\'s meloxicam typed as BID stays twice daily; a dog\'s becomes once daily');
   // the picker on the Medication Charts page (edit and new chart) offers all three
   await page.evaluate(() => { const meds = MedChart.parseMedPlan('gabapentin 0.25ml po BID for 4 days'); MedChart.saveCharts([{ id: 'c1', sourceAnimalId: 'x', sourceTool: 'surgery', createdAt: new Date().toISOString(), animalId: 'F-1', species: 'dog', weight: '10', location: 'P1', vetInCharge: 'JX', problemList: '', startOption: 'tomorrow', meds }]); });
   await page.reload(); await page.waitForSelector('[data-chartid="c1"]');

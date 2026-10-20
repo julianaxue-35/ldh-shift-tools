@@ -3740,7 +3740,7 @@ function bindExamForm(a){
   if(addBlankMedBtn) addBlankMedBtn.addEventListener('click', ()=>{ chartDrafts[a.id] = [blankMedRow()]; openExam(a.id); });
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
+    const parsed = MedChart.parseMedPlan(a.newMedChartText||'', a.species);
     // registering the chart also adds the post-op buprenorphine (if Required) and oral meloxicam (if toggled)
     const bupAdded = syncBupChart(a, true);
     syncMeloxPlanItem(a);
