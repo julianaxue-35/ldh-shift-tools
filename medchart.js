@@ -805,11 +805,34 @@
       });
     }, function () { return fail("Couldn't build the Excel chart to send."); }).then(done, function () { return done(false); });
   }
-  function aaAutoSend(chart) {
+  // `force` = the Admission AA already holds an earlier version of this chart, so the edit must reach her whatever the switch says
+  function aaAutoSend(chart, force) {
     try {
       var tool = aaToolFor(chart);
-      if (tool && global.AAShare && global.AAShare.isOn(tool)) aaSendChart(chart);
+      if (tool && global.AAShare && (force || global.AAShare.isOn(tool))) aaSendChart(chart);
     } catch (e) { /* never let the AA hand-off break the local save */ }
+  }
+  // Catch-up: a chart edited after it was sent (or one that never got through while sharing is on) is sent again without anyone
+  // pressing anything: when a page opens, when the phone is back online, when the app comes back to the front, and every minute.
+  var aaTried = {};
+  function aaCatchUp(ignoreThrottle) {
+    try {
+      if (!global.AAShare) return 0;
+      var now = Date.now(), n = 0;
+      loadCharts().forEach(function (c) {
+        if (aaSendingCharts[c.id] || (!ignoreThrottle && aaTried[c.id] && now - aaTried[c.id] < 90000)) return;
+        var tool = aaToolFor(c); if (!tool) return;
+        var st = aaChartStatus(c);
+        if (st === 'stale' || (st === 'notsent' && global.AAShare.isOn(tool))) { aaTried[c.id] = now; n++; aaSendChart(c); }
+      });
+      return n;
+    } catch (e) { return 0; }
+  }
+  if (global.addEventListener) {
+    global.addEventListener('online', function () { aaCatchUp(true); });
+    global.addEventListener('load', function () { setTimeout(aaCatchUp, 2500); });
+    if (global.document && global.document.addEventListener) global.document.addEventListener('visibilitychange', function () { if (!global.document.hidden) aaCatchUp(); });
+    setInterval(aaCatchUp, 60000);
   }
 
   // Meloxicam is once daily only: whatever reached the chart (typed, edited, or a draft changed by hand), it is saved once daily
@@ -846,10 +869,11 @@
     var list = loadCharts();
     var idx = list.findIndex(function (c) { return c.id === id; });
     if (idx === -1) return null;
+    var alreadySent = !!list[idx].aaSentAt;
     list[idx] = Object.assign({}, list[idx], patch);
     saveCharts(list);
     syncChartToDashboard(list[idx]);
-    aaAutoSend(list[idx]);
+    aaAutoSend(list[idx], alreadySent);
     return list[idx];
   }
   // Finds a previously-saved chart for the same underlying animal
@@ -1158,6 +1182,7 @@
     aaCharts: aaCharts,
     aaChartsToSend: aaChartsToSend,
     aaSendChart: aaSendChart,
+    aaCatchUp: aaCatchUp,
     aaIsSending: function (id) { return !!aaSendingCharts[id]; },
     onAaChange: function (fn) { aaListener = fn; },
     findChartBySourceAnimal: findChartBySourceAnimal,
