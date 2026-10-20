@@ -37,7 +37,7 @@ const t = require('./check')('frequency-words');
   await page.check('input[name="ec_freq_0"][value="EOD"]');
   await page.click('#ec_saveBtn');
   await page.waitForTimeout(300);
-  const f = await page.evaluate(() => MedChart.loadCharts()[0].meds[0].freq + '|' + MedChart.aaChartLine(MedChart.loadCharts()[0]));
+  const f = await page.evaluate(() => MedChart.loadCharts()[0].meds[0].freq + '|' + MedChart.labelFor(MedChart.loadCharts()[0].meds[0], new Date(), "tomorrow"));
   t.ok(/^EOD\|/.test(f) && /every other day/.test(f), 'picking EOD and saving charts it every other day: ' + f.slice(0, 70));
   t.ok(errors.length === 0, 'no page errors: ' + errors.join('; '));
   await browser.close();
