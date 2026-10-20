@@ -579,7 +579,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-20.1';
+const APP_VERSION = '2026-10-21.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1989,6 +1989,40 @@ function shareTodayKey(){ const d=new Date(); return d.getFullYear()+'-'+String(
 function saveNurseInit(v){ try{ localStorage.setItem(LS_NURSE_INIT, JSON.stringify({d: shareTodayKey(), v})); }catch(e){} }
 try{ const n = JSON.parse(localStorage.getItem(LS_NURSE_INIT)||'null'); if(n && n.d===shareTodayKey() && n.v) nurseInitEl.value = n.v; }catch(e){}
 nurseInitEl.addEventListener('change', ()=>{ saveNurseInit(nurseInitEl.value.trim()); shareInitialsChanged(); });
+
+/* ---------- Start of shift: initials are cleared each new day and asked for again (same as Processing and Sick & Injured) ----------
+   The vet initials and the "day" they were entered share one key across all the shift tools, so once a vet has started the
+   shift in ANY tool (Processing, Sick & Injured or Surgery) the others already have the initials and do not ask again. */
+const LS_INIT_DAY = LS_INIT + '_day';
+(function startOfShift(){
+  const today = new Date().toLocaleDateString('en-CA');
+  let seen = ''; try{ seen = localStorage.getItem(LS_INIT_DAY) || ''; }catch(e){}
+  if(seen === today) return;
+  vetInitEl.value = ''; nurseInitEl.value = '';
+  try{ localStorage.setItem(LS_INIT, ''); }catch(e){}
+  saveNurseInit('');
+  const wrap = document.createElement('div');
+  wrap.id = 'startShiftModal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px';
+  wrap.innerHTML = '<div style="background:var(--card);border-radius:12px;max-width:380px;width:100%;padding:20px;box-shadow:var(--shadow)"><h2 style="margin:0 0 6px;font-size:17px">Start of shift</h2>' +
+    '<p style="font-size:13px;color:var(--ink-soft);margin-bottom:12px">New day: your initials were cleared. Enter them now — they go on every note and chart you send today.</p>' +
+    '<label style="font-size:12px;font-weight:700">Vet initials (required)</label><input id="startShiftVet" maxlength="6" placeholder="e.g. JX" style="width:100%;margin:4px 0 10px">' +
+    '<label style="font-size:12px;font-weight:700">Nurse initials (if a nurse is helping)</label><input id="startShiftNurse" maxlength="6" placeholder="optional" style="width:100%;margin:4px 0 12px">' +
+    '<p id="startShiftErr" style="color:#c0392b;font-size:12.5px;display:none;margin-bottom:8px">Vet initials are needed to start the shift.</p>' +
+    '<button class="btn" id="startShiftSave">Start shift</button></div>';
+  document.body.appendChild(wrap);
+  const save = ()=>{
+    const v = wrap.querySelector('#startShiftVet').value.trim().toUpperCase();
+    if(!v){ wrap.querySelector('#startShiftErr').style.display = 'block'; wrap.querySelector('#startShiftVet').focus(); return; }
+    vetInitEl.value = v; nurseInitEl.value = wrap.querySelector('#startShiftNurse').value.trim().toUpperCase();
+    try{ localStorage.setItem(LS_INIT, v); localStorage.setItem(LS_INIT_DAY, today); }catch(e){}
+    vetInitEl.dispatchEvent(new Event('change')); nurseInitEl.dispatchEvent(new Event('change'));
+    wrap.remove();
+  };
+  wrap.querySelector('#startShiftSave').addEventListener('click', save);
+  wrap.querySelector('#startShiftVet').addEventListener('keydown', e=>{ if(e.key === 'Enter') save(); });
+  setTimeout(()=>wrap.querySelector('#startShiftVet').focus(), 50);
+})();
 
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
