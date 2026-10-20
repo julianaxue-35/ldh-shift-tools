@@ -605,6 +605,65 @@
       return labelFor(m, base, chart.startOption);
     }).filter(Boolean).join('; ');
   }
+  // ---------- the long medication label, sent to the Welfare nurse (2026-10-21) ----------
+  // e.g. "Meloxicam, give 1 tablet orally once daily with food for 5 days, stop if vomiting, diarrhoea, or not eating, review on 26/10".
+  // One label per medication line. Goes to the Nurses page as a "Medication label to make" task with the animal ID, space and the
+  // vet's initials; sending again after an edit updates the open task instead of adding another.
+  function nurseLabelText(med, base, chartStart) {
+    var name = String(med.drugLabel || '').trim();
+    if (!name) return '';
+    var give = [med.doseText ? 'give ' + med.doseText : '', routeWords(med.route), freqWords(med.freq)].filter(Boolean).join(' ');
+    var days = parseInt(med.days, 10);
+    var out = name + (give ? ', ' + give : '') + (needsFood(med) ? ' with food' : '') + (days ? ' for ' + days + ' day' + (days === 1 ? '' : 's') : '');
+    var warn = String(med.drugWarning || '').split(/\s*\|\s*/).join('. ').split(/\.\s+/).map(function (w) { return w.trim().replace(/\.$/, ''); })
+      .filter(function (w) { return w && !/given with food/i.test(w) && !/schedule 8/i.test(w); })
+      .map(function (w) { return w.replace(/^STOP\b/, 'stop'); });
+    if (warn.length) out += ', ' + warn.join(', ');
+    var review = reviewDateText(med, base, chartStart);
+    if (review) out += ', review on ' + review;
+    return out.replace(/\s{2,}/g, ' ').trim();
+  }
+  function nurseLabels(chart) {
+    var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
+    var out = [];
+    (chart.meds || []).forEach(function (m, i) { var t = nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
+    return out;
+  }
+  function nurseLabelSig(chart) {
+    var str = JSON.stringify([nurseLabels(chart), chart.location || '', chart.animalId || '', chart.vetInCharge || '']), h = 5381;
+    for (var i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+    return String(h);
+  }
+  function nurseLabelStatus(chart) {
+    if (!String(chart.animalId == null ? '' : chart.animalId).trim()) return 'noid';
+    if (!chart.nurseLabelSentAt) return 'notsent';
+    return chart.nurseLabelSig === nurseLabelSig(chart) ? 'sent' : 'stale';
+  }
+  function nurseLabelBadge(chart) {
+    if (!chart) return '';
+    if (chart.nurseLabelErr) return '\u274c Label NOT SENT to the Welfare nurse (' + chart.nurseLabelErr + ').';
+    var st = nurseLabelStatus(chart);
+    if (st === 'sent') return '\u2705 Label sent to the Welfare nurse at ' + new Date(chart.nurseLabelSentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.';
+    if (st === 'stale') return '\u274c Changed since the label was sent to the Welfare nurse.';
+    return '';
+  }
+  var nurseSending = {};
+  function sendLabelsToNurse(chart) {
+    if (!chart || nurseSending[chart.id]) return Promise.resolve(false);
+    var labels = nurseLabels(chart);
+    var id = String(chart.animalId == null ? '' : chart.animalId).trim();
+    if (!id || !labels.length) return Promise.resolve(false);
+    nurseSending[chart.id] = true;
+    var sig = nurseLabelSig(chart);
+    var fail = function (msg) { aaPatchChart(chart.id, { nurseLabelErr: msg }); return false; };
+    return Promise.resolve().then(function () {
+      return global.LDHSync.fetch({ method: 'POST', body: JSON.stringify({ nurse_label: { animal_id: id, location: chart.location || 'Location TBC', sent_by: chart.vetInCharge || '', labels: labels } }) });
+    }).then(function (res) {
+      if (res && res.ok) { aaPatchChart(chart.id, { nurseLabelSentAt: new Date().toISOString(), nurseLabelSig: sig, nurseLabelErr: '' }); return true; }
+      return fail(res && res.status === 400 ? 'the dashboard did not accept it' : 'could not reach the dashboard');
+    }, function () { return fail('no connection'); }).then(function (ok) { delete nurseSending[chart.id]; return ok; });
+  }
+
   function syncChartToDashboard(chart) {
     try {
       var shift = DASHBOARD_SHIFT[chart.sourceTool];
@@ -1137,6 +1196,7 @@
     aaCharts: aaCharts,
     aaChartsToSend: aaChartsToSend,
     aaSendChart: aaSendChart,
+    nurseLabelText: nurseLabelText, nurseLabels: nurseLabels, nurseLabelStatus: nurseLabelStatus, nurseLabelBadge: nurseLabelBadge, sendLabelsToNurse: sendLabelsToNurse,
     aaIsSending: function (id) { return !!aaSendingCharts[id]; },
     onAaChange: function (fn) { aaListener = fn; },
     findChartBySourceAnimal: findChartBySourceAnimal,
