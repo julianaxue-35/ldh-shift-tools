@@ -2702,7 +2702,8 @@ function chartDraftHtml(a, draft, planText){
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
-          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label></div>
+          <label style="font-size:12px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="BID" ${m.freq==='BID'?'checked':''}> BID</label>
+          <label style="font-size:12px;margin-left:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="EOD" ${m.freq==='EOD'?'checked':''}> EOD (every other day)</label></div>
         <div><label style="font-size:11px">Days</label><br>
           <input type="number" class="plain" data-mfield="days" data-mi="${i}" value="${esc(m.days)}" min="1" max="14" style="width:60px"></div>
         <div><label style="font-size:11px">If once-daily, start</label><br>
@@ -3739,7 +3740,7 @@ function bindExamForm(a){
   if(addBlankMedBtn) addBlankMedBtn.addEventListener('click', ()=>{ chartDrafts[a.id] = [blankMedRow()]; openExam(a.id); });
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const parsed = MedChart.parseMedPlan(a.newMedChartText||'');
+    const parsed = MedChart.parseMedPlan(a.newMedChartText||'', a.species);
     // registering the chart also adds the post-op buprenorphine (if Required) and oral meloxicam (if toggled)
     const bupAdded = syncBupChart(a, true);
     syncMeloxPlanItem(a);
