@@ -102,6 +102,7 @@
 
   function detectFreq(text) {
     var low = text.toLowerCase();
+    if (/\beod\b|\be\.o\.d\.?\b|every\s+(other|second|2nd|alternate)\s+day|\balternate\s+days?\b|\bq\s?48\s?h|every\s+48\s+hours?|every\s+2\s+days?|\bon\s+alternate\b/.test(low)) return 'EOD';
     if (/\bbid\b|\bb\.i\.d\.?\b|twice[\s-]+(a\s+)?(day|daily)|two\s+times\s+(a\s+)?(day|daily)|\b2\s*x\s*\/?\s*(a\s+)?(day|daily)|\bq\s?12\s?h|every\s+12\s+hours?|morning\s+and\s+(night|evening)|am\s+and\s+pm/.test(low)) return 'BID';
     if (/\bsid\b|\bs\.i\.d\.?\b|\bonce[\s-]+(a\s+|per\s+|every\s+)?(day|daily)\b|\bonce\s+daily|\boid\b|\bqd\b|\bq\s?24\s?h|every\s+24\s+hours?|every\s+day\b|\b1\s*x\s*\/?\s*(a\s+)?(day|daily)|\bdaily\b/.test(low)) return 'SID';
     return null;
@@ -119,8 +120,10 @@
   }
 
   function detectDays(text) {
-    var m = text.match(/for\s+(\d+)\s*day/i);
-    return m ? parseInt(m[1], 10) : null;
+    var m = text.match(/(?:\bfor\b|\bx\b|\u00d7|\bover\b)\s*(\d+)\s*days?\b/i);
+    if (m) return parseInt(m[1], 10);
+    var w = text.match(/(?:\bfor\b|\bx\b|\u00d7|\bover\b)\s*(\d+)\s*weeks?\b/i);
+    return w ? parseInt(w[1], 10) * 7 : null;
   }
 
   // Matches "250mg", "1200mcg", or a compound concentration like
@@ -201,7 +204,7 @@
     return ROUTE_WORDS[route] || String(route).toLowerCase();
   }
   function freqWords(freq) {
-    return freq === 'BID' ? 'twice daily' : (freq === 'SID' ? 'once daily' : (freq || ''));
+    return freq === 'BID' ? 'twice daily' : (freq === 'SID' ? 'once daily' : (freq === 'EOD' ? 'every other day' : (freq || '')));
   }
   function needsFood(med) {
     return med.drugKey === 'meloxicam' || /must be given with food/i.test(med.drugWarning || '') ||
@@ -358,6 +361,7 @@
       var k = day - shift; // this med's own day number
       if (k >= 1 && k <= D) {
         if (med.freq === 'BID') { a = '◯'; p = '◯'; }
+        else if (med.freq === 'EOD') { if (k % 2 === 1) { if (med.startSlot === 'PM') p = '◯'; else a = '◯'; } }   // every other day: days 1, 3, 5...
         else if (med.startSlot === 'PM') { p = '◯'; }
         else { a = '◯'; }
       } else if (k === D + 1) {
@@ -810,7 +814,9 @@
 
   // Meloxicam is once daily only: whatever reached the chart (typed, edited, or a draft changed by hand), it is saved once daily
   function isMeloxicam(m) { return m.drugKey === 'meloxicam' || /\bmeloxicam\b|\bmetacam\b/i.test(m.drugLabel || ''); }
+  // (rabbits are the one exception: the Surgery tool gives them oral meloxicam twice daily on purpose)
   function enforceMeloxicamOnceDaily(chart) {
+    if (chart.species === 'rabbit') return;
     (chart.meds || []).forEach(function (m) {
       if (!isMeloxicam(m) || m.freq === 'SID') return;
       m.freq = 'SID';
