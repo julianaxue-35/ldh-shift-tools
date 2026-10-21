@@ -474,6 +474,21 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       </div>
     </details>
 
+    <details class="faq-item">
+      <summary>Send an animal to the Behaviour team (with my note)</summary>
+      <div class="a">
+        <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
+        <ol>
+          <li>Make sure the animal has its <b>ID</b> (the button is greyed out until it does). Finish or edit the note first if you can: what you send is the note as it is right now.</li>
+          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours) and enter your <b>initials</b> (required).</li>
+          <li>Wait for <b>Sent to Behaviour &#10003;</b>. If it says <b>NOT SENT</b> (no signal, or the dashboard refused it), press the button again to resend. Nothing is sent in the background.</li>
+        </ol>
+        <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending the same day updates the same card on the Behaviour page (a resend after midnight, or under a different ID, makes a new card). If someone else resends the same animal the same day, their note replaces yours and the card says it was re-sent.</p>
+        <p><b>What happens to the note?</b> The Behaviour team reads it on their page. When they tick <b>Done</b>, the note is <b>deleted from the database</b> (their Done comment stays and shows on the Shelter board). If nobody ticks Done, it is deleted within 7 days anyway. Your own copy in this tool is not touched.</p>
+        <p>The Behaviour team decides who takes it (cats stay with the cat side, dogs with the dog side). This is separate from the Admission AA: sending to Behaviour does not enter anything in ShelterMate.</p>
+      </div>
+    </details>
+
     <div class="faq-refs">
       <b>Sources:</b> Griffin B, et al. 2016 ASV Veterinary Medical Care Guidelines for Spay-Neuter Programs, <i>JAVMA</i> 249(2):165-188 &middot; Levy JK, Bard KM, Tucker SJ, et al. Perioperative mortality in cats and dogs undergoing spay or castration at a high-volume clinic. <i>Vet J.</i> 2017;224:11-15 &middot; Brodbelt DC, et al. CEPSAF, <i>Vet Anaesth Analg.</i> 2008 &middot; Drugs.com Tiletamine-Zolazepam veterinary monograph; Narrative review, clinical applications of tiletamine-zolazepam in canine/feline anaesthesia, <i>Frontiers in Veterinary Science</i>, 2026.
     </div>
@@ -568,6 +583,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="aa-share.js"></script>
+<script src="behaviour-send.js"></script>
 <script src="medchart.js"></script>
 <script src="dental.js"></script>
 <script>
@@ -579,7 +596,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.2';
+const APP_VERSION = '2026-10-21.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -733,7 +750,8 @@ function normalizeAnimal(a){
     microchipNum:'9560000', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
     rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
     pathway:'',
-    noteEdited:null, registered:false
+    noteEdited:null, registered:false,
+    bhSentAt:null, bhSig:null, bhErr:''   // Send to Behaviour: when a send was confirmed, fingerprint of the note sent, last refusal
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
   // age is years only now — older records saved in months are converted so nothing is lost
@@ -2498,6 +2516,7 @@ function groupedListHtml(animals, opts){
         <div>
           <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
           ${opts.allowNext && !a.registered ? `<button class="btn small ${a.nextUp?'':'secondary'}" data-nextup="${a.id}">${a.nextUp?'✓ Next — tap to unmark':'Mark next'}</button>` : ''}
+          ${BehaviourSend.buttonHtml(a, bhSigText(a))}
           <button class="btn small secondary" data-open="${a.id}">Exam</button>
           <button class="btn small rust" data-del="${a.id}">Remove</button>
         </div>
@@ -2507,6 +2526,10 @@ function groupedListHtml(animals, opts){
   });
   return html;
 }
+/* ---------- Send to Behaviour (2026-10-21): the whole current note goes to the Behaviour page ---------- */
+const bhNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
+// The fingerprint ignores the Date/Vet/Nurse line and closing initials, so a nurse change or midnight is not an "edit".
+const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
 function bindListButtons(){
   [['data-onmed','onMed'],['data-onmedlast','onMedLast']].forEach(([attr, field])=>{
     document.querySelectorAll('['+attr+']').forEach(el=>{
@@ -2520,6 +2543,10 @@ function bindListButtons(){
     });
   });
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
+  document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
+    const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
+    BehaviourSend.open(a, {noteText:()=>bhNoteOf(a), sigText:()=>bhSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
+  }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'surgery');
