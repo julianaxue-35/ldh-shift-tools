@@ -70,7 +70,7 @@ async function start(tool, animals) {
       t.ok(b && b.note.includes('Whole note for BEH-1') && b.note.includes('\u{1F600}'), L + 'the whole note is attached');
       t.ok(/Sent to Behaviour/.test(await btn('BEH-1').textContent()), L + 'the button shows Sent ✓ after a confirmed send');
       await s.page.evaluate(() => { const a = state.animals.find(x => x.animalId === 'BEH-1'); a.noteEdited = 'Edited note'; });
-      if (tool.name !== 'Processing') await s.page.evaluate(() => renderShiftList());
+      await s.page.evaluate(() => renderShiftList());
       t.ok(/Edited/.test(await btn('BEH-1').textContent()), L + 'editing the note afterwards offers a resend');
       const kept = await s.page.evaluate(() => JSON.stringify(state.animals.find(x => x.animalId === 'BEH-1')));
       t.ok(/bhSentAt/.test(kept), L + 'the sent state is saved with the animal');

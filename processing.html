@@ -418,13 +418,14 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 <script src="sync-code.js"></script>
 <script src="dash-sync.js"></script>
 <script src="aa-share.js"></script>
+<script src="behaviour-send.js"></script>
 <script src="medchart.js"></script>
 <script>
 // Bump this string on every edit to this file — it's how the update-check
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.1';
+const APP_VERSION = '2026-10-21.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1014,6 +1015,9 @@ function normalizeAnimal(a){
   if(a.aaSig == null) a.aaSig = null;         // fingerprint of the note text that was sent
   if(a.aaSentId == null) a.aaSentId = null;   // the animal ID the card was sent under
   if(a.aaErr == null) a.aaErr = '';           // why the last send was refused, if it was
+  if(a.bhSentAt == null) a.bhSentAt = null;   // Send to Behaviour: when a send was last confirmed
+  if(a.bhSig == null) a.bhSig = null;         // fingerprint of the note that was sent
+  if(a.bhErr == null) a.bhErr = '';           // why the last send was refused
   if(!a.titleOverrides || typeof a.titleOverrides !== 'object') a.titleOverrides = {};
   if(a.vaccineGiven == null) a.vaccineGiven = false;
   if(a.vaccineKcRoute == null) a.vaccineKcRoute = '';
@@ -1953,6 +1957,7 @@ function groupedListHtml(animals){
       </div>
       <div>
         ${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+        ${BehaviourSend.buttonHtml(a, aaSigText(a))}
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -1965,6 +1970,10 @@ function groupedListHtml(animals){
 }
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
+  document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
+    const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
+    BehaviourSend.open(a, {noteText:()=>aaNoteOf(a), sigText:()=>aaSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
+  }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       aaWarnRetract(state.animals.find(a=>a.id===b.dataset.del));
