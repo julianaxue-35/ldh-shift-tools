@@ -475,6 +475,19 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </details>
 
     <details class="faq-item">
+      <summary>Send the medication labels to the nurse</summary>
+      <div class="a">
+        <p>After <b>+ Register medication chart</b>, a <b>Send to nurse</b> panel appears under it. It lists every medication on the chart with a tick. <b>Tick the ones the nurse has to make a label for; untick any that need no label made up</b> (for example a tablet given from stock). Press <b>Send to nurse</b> and the Welfare nurse sees one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
+        <p>In the chart preview you can also press <b>Save chart &amp; send to nurse</b> to do both at once. If you change the chart later the button changes to <b>Send the changed labels to nurse</b>. Sending again updates the nurse&rsquo;s task instead of adding a new one. If it says NOT sent (no connection), press the button again.</p>
+      </div>
+    </details>
+    <details class="faq-item">
+      <summary>Whose initials are on a note I send for yesterday&rsquo;s animal?</summary>
+      <div class="a">
+        <p>The initials of the vet who saw the animal. Each animal keeps the vet initials it was started under, so if you take over the next day and press Send on notes that were not sent overnight, they go with the <b>first vet&rsquo;s</b> initials, not yours. Animals you add today carry yours.</p>
+      </div>
+    </details>
+    <details class="faq-item">
       <summary>Send an animal to the Behaviour team (with my note)</summary>
       <div class="a">
         <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
@@ -596,7 +609,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.5';
+const APP_VERSION = '2026-10-22.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -721,7 +734,20 @@ function formatRecheckDate(dateStr){
    pattern used in the Sick & Injured tool after a real bug there: opening an
    animal missing a field the render code expects throws before the modal
    ever shows, which looks like "nothing happens" with no visible error. */
+/* 2026-10-22: whose initials are on this animal's note. Stamped once (vetBy / nurseBy), so a different vet who opens the
+   tool the next day and presses Send on yesterday's unsent notes does not put their own initials on animals they never
+   saw. An animal with no stamp yet (new today, or the vet had not typed initials) uses whoever is signed in. */
+function stampAuthor(a){
+  if(!a.vetBy){ let v = ''; try{ v = (localStorage.getItem(LS_INIT)||'').trim(); }catch(e){} a.vetBy = v; }   // loaded from last night: the saved initials are still the previous vet's
+  if(a.nurseBy == null) a.nurseBy = '-';   // '-' = nurse unknown (they are not saved between days)
+}
+function vetOf(a){ return (a && a.vetBy) || vetInitEl.value; }
+function nurseOf(a){ return !a || !a.nurseBy ? nurseInitEl.value : (a.nurseBy === '-' ? '' : a.nurseBy); }
+function stampNewAuthors(list){
+  (list||[]).forEach(a=>{ if(!a.vetBy && vetInitEl.value.trim()) a.vetBy = vetInitEl.value.trim(); if(!a.nurseBy && nurseInitEl.value.trim()) a.nurseBy = nurseInitEl.value.trim(); });
+}
 function normalizeAnimal(a){
+  stampAuthor(a);
   const defaults = {
     animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
     newMedChartText:'',
@@ -905,6 +931,7 @@ function loadShift(){
 }
 var shareReady = false; // set true once the sharing module (bottom of script) has initialised
 function saveShift(){
+  stampNewAuthors(state.animals);
   localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
   // Stamps the date this list was started (first animal added since it was
   // last empty), so a later export can tell if the list is a leftover from
@@ -1044,7 +1071,7 @@ function syncGabaChart(a){
   const days = parseInt(a.gabaDays, 10);
   if(g && days>0){
     MedChart.upsertAutoMed(
-      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetOf(a)||''},
       'auto-gaba',
       {rawText:g.lines[0], drugKey:'gabapentin', drugLabel:g.label, doseText:g.doseText, freq:'BID', route:'PO', days:Math.min(days,14), startSlot:'AM', startOption:'tomorrow', drugWarning:''}
     );
@@ -1131,7 +1158,7 @@ function syncMeloxPlanItem(a){
       changed = true;
     }
     MedChart.upsertAutoMed(
-      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
+      {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetOf(a)||''},
       'auto-melox',
       {rawText:medName, drugKey:'meloxicam', drugLabel:'Meloxicam oral suspension '+meloxOralConc(a.species), doseText:val+'mL',
        freq:meloxBid(a)?'BID':'SID', route:'PO', days:days, startSlot:timing,
@@ -1158,7 +1185,7 @@ function syncBupChart(a, addNow){
   const route = a.buprenorphineRoute||'IV';
   const text = `Buprenorphine 300mcg/mL — ${dp.bupren}mL ${route} once, ~4 hours post-surgery (0.02mg/kg)`;
   MedChart.upsertAutoMed(
-    {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetInitEl.value||''},
+    {sourceAnimalId:a.id, sourceTool:'surgery', animalId:a.animalId, species:a.species, weight:postWeight(a), location:a.location, vetInCharge:vetOf(a)||''},
     'auto-bup',
     {rawText:text, drugKey:'buprenorphine', drugLabel:'Buprenorphine 300mcg/mL', doseText:dp.bupren+'mL', freq:'SID', route:route, days:1,
      startSlot: cur ? cur.startSlot : (t.getHours()<12?'AM':'PM'),
@@ -2529,7 +2556,7 @@ function groupedListHtml(animals, opts){
 /* ---------- Send to Behaviour (2026-10-21): the whole current note goes to the Behaviour page ---------- */
 const bhNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
 // The fingerprint ignores the Date/Vet/Nurse line and closing initials, so a nurse change or midnight is not an "edit".
-const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
+const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseInitEl.value, vetOf(a), nurseOf(a)]);
 function bindListButtons(){
   [['data-onmed','onMed'],['data-onmedlast','onMedLast']].forEach(([attr, field])=>{
     document.querySelectorAll('['+attr+']').forEach(el=>{
@@ -2726,6 +2753,7 @@ function chartDraftHtml(a, draft, planText){
       </div>
       <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
         <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
+      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse (untick if the nurse does not need to make up this label)</label></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -2747,6 +2775,7 @@ function chartDraftHtml(a, draft, planText){
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
     <button type="button" class="btn small secondary" id="addMedRowBtn">+ Add another line</button>
+    <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart</button>
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
   </div></div>`;
@@ -2768,11 +2797,12 @@ function bindChartDraft(a, body){
     });
   });
   body.querySelectorAll('[data-mfield]').forEach(el=>{
-    const evt = (el.type==='radio') ? 'change' : 'input';
+    const evt = (el.type==='radio' || el.type==='checkbox') ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
       const i = parseInt(el.dataset.mi,10);
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
+      else if(el.type==='checkbox') draft[i][field] = el.checked;
       else draft[i][field] = el.value;
       if(field==='labelText'){ draft[i].labelEdited = true; }
       else if(!draft[i].labelEdited){
@@ -2792,7 +2822,8 @@ function bindChartDraft(a, body){
   const addBtn = document.getElementById('addMedRowBtn');
   if(addBtn) addBtn.addEventListener('click', ()=>{ draft.push(blankMedRow()); openExam(a.id); });
   const saveBtn = document.getElementById('saveChartBtn');
-  if(saveBtn) saveBtn.addEventListener('click', ()=>{
+  const saveSendBtn = document.getElementById('saveSendChartBtn');
+  const saveChart = (alsoSend)=>{
     const startWarn = MedChart.startOverflowMessage(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)), 'tomorrow');
     if(startWarn && !confirm(startWarn)) return;
     const existing = MedChart.findChartBySourceAnimal(a.id);
@@ -2804,7 +2835,7 @@ function bindChartDraft(a, body){
     const chart = {
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'surgery', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: postWeight(a), location: a.location,
-      vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
+      vetInCharge: vetOf(a) || '', problemList: (chartDraftPlans[a.id]||'').trim(),
       startOption: draft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
       meds: autoRows.concat(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)))
     };
@@ -2815,8 +2846,17 @@ function bindChartDraft(a, body){
     a.newMedChartText = '';
     saveShift();
     alert(MedChart.saveConfirmationMessage(chart));
+    if(alsoSend){
+      if(!String(chart.animalId||'').trim()) alert('The chart is saved, but it has no animal ID so it was NOT sent to the nurse. Add the ID, then press Send to nurse under the chart.');
+      else MedChart.sendLabelsToNurse(chart).then(ok=>{
+        MedChart.refreshNursePanels();
+        if(!ok){ const c = MedChart.findChartBySourceAnimal(a.id); alert('The chart is saved, but the labels were NOT sent to the nurse'+(c && c.nurseLabelErr ? ' ('+c.nurseLabelErr+')' : '')+'. Press Send to nurse under the chart to try again.'); }
+      });
+    }
     openExam(a.id);
-  });
+  };
+  if(saveBtn) saveBtn.addEventListener('click', ()=>saveChart(false));
+  if(saveSendBtn) saveSendBtn.addEventListener('click', ()=>saveChart(true));
   const cancelBtn = document.getElementById('cancelChartBtn');
   if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; openExam(a.id); });
 }
@@ -2876,6 +2916,7 @@ function openExam(id){
   }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
+  MedChart.refreshNursePanels();
   refreshNote(a);
   document.getElementById('noteDisplay').classList.remove('hidden');
   document.getElementById('noteEditArea').classList.add('hidden');
@@ -3459,6 +3500,7 @@ function examFormHtml(a){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
         <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}">+ Register medication chart</button>
         <button type="button" class="btn small secondary" id="addBlankMedBtn">+ Add a medication line manually</button></div>
+      <div data-nursepanel="${esc(a.id)}"></div>
     </div>`;
   }
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
@@ -4050,7 +4092,7 @@ function assembleNote(a){
   const L = [];
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog' && !isRabbit(a)) L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
-  L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
+  L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
   L.push(`Species: ${speciesName(a.species)||'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}`);
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
@@ -4155,7 +4197,7 @@ function assembleNote(a){
     L.push(`Procedures required: ${a.hcProcedures||'-'}`);
     L.push(`VHC: ${a.hcVhc||'-'}`);
     L.push('');
-    L.push(`Vet/nurse: ${vetInitEl.value||'-'} / ${nurseInitEl.value||'-'}`);
+    L.push(`Vet/nurse: ${vetOf(a)||'-'} / ${nurseOf(a)||'-'}`);
   }
   L.push('');
   L.push(`Procedure: ${surgTypeLabel(a.surgType, a.species)}${a.surgType==='other' && a.bookedProc ? ' — ' + a.bookedProc : ''}${a.surgType2 ? ' + ' + surgTypeLabel(a.surgType2, a.species) : ''}`);
@@ -4245,7 +4287,7 @@ function assembleNote(a){
     a.emergency.forEach(e=> L.push(`- ${e.time}  ${e.text}`));
   }
   L.push('');
-  L.push(vetInitEl.value || '');
+  L.push(vetOf(a) || '');
   return L.join('\n');
 }
 function refreshNote(a){

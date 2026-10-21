@@ -368,6 +368,19 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </details>
 
     <details class="faq-item">
+      <summary>Send the medication labels to the nurse</summary>
+      <div class="a">
+        <p>After <b>+ Register medication chart</b>, a <b>Send to nurse</b> panel appears under it. It lists every medication on the chart with a tick. <b>Tick the ones the nurse has to make a label for; untick any that need no label made up</b> (for example a tablet given from stock). Press <b>Send to nurse</b> and the Welfare nurse sees one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
+        <p>In the chart preview you can also press <b>Save chart &amp; send to nurse</b> to do both at once. If you change the chart later the button changes to <b>Send the changed labels to nurse</b>. Sending again updates the nurse&rsquo;s task instead of adding a new one. If it says NOT sent (no connection), press the button again.</p>
+      </div>
+    </details>
+    <details class="faq-item">
+      <summary>Whose initials are on a note I send for yesterday&rsquo;s animal?</summary>
+      <div class="a">
+        <p>The initials of the vet who saw the animal. Each animal keeps the vet initials it was started under, so if you take over the next day and press Send on notes that were not sent overnight, they go with the <b>first vet&rsquo;s</b> initials, not yours. Animals you add today carry yours.</p>
+      </div>
+    </details>
+    <details class="faq-item">
       <summary>Send an animal to the Behaviour team (with my note)</summary>
       <div class="a">
         <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
@@ -440,7 +453,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.4';
+const APP_VERSION = '2026-10-22.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -485,7 +498,7 @@ document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) dashCat
 const AA_TOOL = 'processing';
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
 // The signature ignores the Date/Vet/Nurse line and the closing initials, so a nurse change or midnight is not an "edit".
-const aaSigText = a => (aaPriorityOf(a) ? '[PRIORITY]\n' : '') + AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
+const aaSigText = a => (aaPriorityOf(a) ? '[PRIORITY]\n' : '') + AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value, vetOf(a), nurseOf(a)]);
 const aaSending = new Set();
 function aaFileToB64(file){
   return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
@@ -503,7 +516,7 @@ async function aaSendAnimal(a){
     const sigNow = AAShare.sig(aaSigText(a));
     let docxB64 = '';
     try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
-    const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:(document.getElementById('vetInit')||{}).value || '', priority:aaPriorityOf(a)});
+    const body = AAShare.buildBody({kind:'processing_note', animal:a, noteText, docxB64, sentBy:vetOf(a), priority:aaPriorityOf(a)});
     if(!body) return;
     if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; a.aaEnteredAt = ''; saveShift(); }
     else { a.aaErr = AAShare.lastError(); }
@@ -1001,7 +1014,20 @@ function allWaiverLabels(a){ return a.waiversSelected||[]; }
 /* Backfills any animal record onto the current field shape so a shift saved
    before a schema change still opens — see the localStorage-schema-migration
    pattern used across all 3 LDH shift tools. */
+/* 2026-10-22: whose initials are on this animal's note. Stamped once (vetBy / nurseBy), so a different vet who opens the
+   tool the next day and presses Send on yesterday's unsent notes does not put their own initials on animals they never
+   saw. An animal with no stamp yet (new today, or the vet had not typed initials) uses whoever is signed in. */
+function stampAuthor(a){
+  if(!a.vetBy){ let v = ''; try{ v = (localStorage.getItem(LS_INIT)||'').trim(); }catch(e){} a.vetBy = v; }   // loaded from last night: the saved initials are still the previous vet's
+  if(a.nurseBy == null) a.nurseBy = '-';   // '-' = nurse unknown (they are not saved between days)
+}
+function vetOf(a){ return (a && a.vetBy) || vetInitEl.value; }
+function nurseOf(a){ return !a || !a.nurseBy ? nurseInitEl.value : (a.nurseBy === '-' ? '' : a.nurseBy); }
+function stampNewAuthors(list){
+  (list||[]).forEach(a=>{ if(!a.vetBy && vetInitEl.value.trim()) a.vetBy = vetInitEl.value.trim(); if(!a.nurseBy && nurseInitEl.value.trim()) a.nurseBy = nurseInitEl.value.trim(); });
+}
 function normalizeAnimal(a){
+  stampAuthor(a);
   if(a.weight == null) a.weight = '';
   if(!Array.isArray(a.waiversSelected)){
     const migrated = [];
@@ -1069,6 +1095,7 @@ function loadShift(){
   }
 }
 function saveShift(){
+  stampNewAuthors(state.animals);
   localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
   // Stamps the date this list was started (first animal added since it was
   // last empty), so a later export can tell if the list is a leftover from
@@ -1388,7 +1415,7 @@ function examFormHtml28(a){
   h += `<div class="pe-field"><div class="lbl">Treatment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Current and today's medication — dose, route, frequency (e.g. "Doxycycline 50mg PO BID").</p>
     <textarea class="free-input" id="fld_treat28" style="min-height:80px">${esc(a.treat28||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>
   </div>`;
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
   h += `<div class="pe-field"><div class="lbl">PPE Required</div>
@@ -1516,7 +1543,7 @@ function assembleNote28(a){
   const L = [];
   L.push('28-DAY HEALTH CHECK (COURT HOLD)');
   L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
-  L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
+  L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
   if(a.ppeRequired) L.push(`PPE Required: ${a.ppeRequired}`);
   L.push('');
   L.push('Reason / History:');
@@ -1557,7 +1584,7 @@ function assembleNote28(a){
   if(a.plan28 && a.plan28.trim()) planLines.push(reflowFreeText(a.plan28.trim()));
   L.push(planLines.length ? planLines.join('\n') : '-');
   L.push('');
-  L.push(vetInitEl.value || '');
+  L.push(vetOf(a) || '');
   return L.join('\n');
 }
 
@@ -2250,6 +2277,7 @@ function chartDraftHtml(a, draft, planText){
       </div>
       <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
         <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
+      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse (untick if the nurse does not need to make up this label)</label></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -2272,6 +2300,7 @@ function chartDraftHtml(a, draft, planText){
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
     <button type="button" class="btn small secondary" id="addMedRowBtn">+ Add another line</button>
+    <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal);color:#fff">Save chart</button>
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
   </div></div>`;
@@ -2293,11 +2322,12 @@ function bindChartDraft(a, body){
     });
   });
   body.querySelectorAll('[data-mfield]').forEach(el=>{
-    const evt = (el.type==='radio') ? 'change' : 'input';
+    const evt = (el.type==='radio' || el.type==='checkbox') ? 'change' : 'input';
     el.addEventListener(evt, ()=>{
       const i = parseInt(el.dataset.mi,10);
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
+      else if(el.type==='checkbox') draft[i][field] = el.checked;
       else draft[i][field] = el.value;
       { const rc = body.querySelector('[data-recheck="'+i+'"]'); if(rc) rc.textContent = 'Recheck ' + (MedChart.recheckDisplay(draft[i]) || '\u2014'); }
       if(field==='labelText'){ draft[i].labelEdited = true; }
@@ -2318,7 +2348,8 @@ function bindChartDraft(a, body){
   const addBtn = document.getElementById('addMedRowBtn');
   if(addBtn) addBtn.addEventListener('click', ()=>{ draft.push(blankMedRow()); openExam(a.id); });
   const saveBtn = document.getElementById('saveChartBtn');
-  if(saveBtn) saveBtn.addEventListener('click', ()=>{
+  const saveSendBtn = document.getElementById('saveSendChartBtn');
+  const saveChart = (alsoSend)=>{
     const startWarn = MedChart.startOverflowMessage(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)), 'tomorrow');
     if(startWarn && !confirm(startWarn)) return;
     const existing = MedChart.findChartBySourceAnimal(a.id);
@@ -2326,7 +2357,7 @@ function bindChartDraft(a, body){
     const chart = {
       id: MedChart.uid(), sourceAnimalId: a.id, sourceTool: 'processing', createdAt: new Date().toISOString(),
       animalId: a.animalId, species: a.species, weight: a.weight, location: a.location, microchip: a.microchip,
-      vetInCharge: vetInitEl.value || '', problemList: (chartDraftPlans[a.id]||'').trim(),
+      vetInCharge: vetOf(a) || '', problemList: (chartDraftPlans[a.id]||'').trim(),
       startOption: draft.some(m=>m.startOption==='today') ? 'today' : 'tomorrow',
       meds: draft.map(m=>Object.assign({startOption:'tomorrow'}, m))
     };
@@ -2342,8 +2373,17 @@ function bindChartDraft(a, body){
     delete chartDrafts[a.id];
     delete chartDraftPlans[a.id];
     alert(MedChart.saveConfirmationMessage(chart));
+    if(alsoSend){
+      if(!String(chart.animalId||'').trim()) alert('The chart is saved, but it has no animal ID so it was NOT sent to the nurse. Add the ID, then press Send to nurse under the chart.');
+      else MedChart.sendLabelsToNurse(chart).then(ok=>{
+        MedChart.refreshNursePanels();
+        if(!ok){ const c = MedChart.findChartBySourceAnimal(a.id); alert('The chart is saved, but the labels were NOT sent to the nurse'+(c && c.nurseLabelErr ? ' ('+c.nurseLabelErr+')' : '')+'. Press Send to nurse under the chart to try again.'); }
+      });
+    }
     openExam(a.id);
-  });
+  };
+  if(saveBtn) saveBtn.addEventListener('click', ()=>saveChart(false));
+  if(saveSendBtn) saveSendBtn.addEventListener('click', ()=>saveChart(true));
   const cancelBtn = document.getElementById('cancelChartBtn');
   if(cancelBtn) cancelBtn.addEventListener('click', ()=>{ delete chartDrafts[a.id]; delete chartDraftPlans[a.id]; openExam(a.id); });
 }
@@ -2362,6 +2402,7 @@ function openExam(id){
   }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
+  MedChart.refreshNursePanels();
   refreshNote(a);
   refreshChartStatus();
   document.getElementById('noteDisplay').classList.remove('hidden');
@@ -2436,7 +2477,7 @@ function examFormHtml(a){
   if(a.notExamined){
     h += `<div style="margin-top:10px"><label style="font-size:12px">Assessment</label><br><textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:60px" placeholder="e.g. start on gabapentin">${esc(a.assessmentNotes||'')}</textarea></div>
     <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
     h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
@@ -2632,7 +2673,7 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Plan</div>
     <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">Medication plan, and anything else for this pathway not covered by the options above.</p>
     <textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px" placeholder="e.g. Continue gabapentin 100mg PO BID">${esc(a.medPlan||'')}</textarea>
-    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>
   </div>`;
   if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
 
@@ -3328,7 +3369,7 @@ function assembleNote(a){
   const L = [];
   L.push(`${speciesLabel(a).toUpperCase()} PHYSICAL EXAM`);
   L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
-  L.push(`Date: ${todayStr()}    Vet: ${vetInitEl.value||'-'}    Nurse: ${nurseInitEl.value||'-'}`);
+  L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
   if(a.notExamined){
     L.push('');
     L.push('NOT ABLE TO BE EXAMINED THIS SHIFT');
