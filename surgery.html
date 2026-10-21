@@ -568,6 +568,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 </script>
 <script src="vendor/jszip.min.js"></script>
 <script src="sync-code.js"></script>
+<script src="aa-share.js"></script>
+<script src="behaviour-send.js"></script>
 <script src="medchart.js"></script>
 <script src="dental.js"></script>
 <script>
@@ -579,7 +581,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.2';
+const APP_VERSION = '2026-10-21.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -733,7 +735,8 @@ function normalizeAnimal(a){
     microchipNum:'9560000', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
     rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
     pathway:'',
-    noteEdited:null, registered:false
+    noteEdited:null, registered:false,
+    bhSentAt:null, bhSig:null, bhErr:''   // Send to Behaviour: when a send was confirmed, fingerprint of the note sent, last refusal
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
   // age is years only now — older records saved in months are converted so nothing is lost
@@ -2498,6 +2501,7 @@ function groupedListHtml(animals, opts){
         <div>
           <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
           ${opts.allowNext && !a.registered ? `<button class="btn small ${a.nextUp?'':'secondary'}" data-nextup="${a.id}">${a.nextUp?'✓ Next — tap to unmark':'Mark next'}</button>` : ''}
+          ${BehaviourSend.buttonHtml(a, bhSigText(a))}
           <button class="btn small secondary" data-open="${a.id}">Exam</button>
           <button class="btn small rust" data-del="${a.id}">Remove</button>
         </div>
@@ -2507,6 +2511,10 @@ function groupedListHtml(animals, opts){
   });
   return html;
 }
+/* ---------- Send to Behaviour (2026-10-21): the whole current note goes to the Behaviour page ---------- */
+const bhNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
+// The fingerprint ignores the Date/Vet/Nurse line and closing initials, so a nurse change or midnight is not an "edit".
+const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseInitEl.value]);
 function bindListButtons(){
   [['data-onmed','onMed'],['data-onmedlast','onMedLast']].forEach(([attr, field])=>{
     document.querySelectorAll('['+attr+']').forEach(el=>{
@@ -2520,6 +2528,10 @@ function bindListButtons(){
     });
   });
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
+  document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
+    const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
+    BehaviourSend.open(a, {noteText:()=>bhNoteOf(a), sigText:()=>bhSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
+  }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'surgery');

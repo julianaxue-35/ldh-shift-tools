@@ -5,7 +5,7 @@ const t = require('./check')('behaviour-send-ui');
 const TOOLS = [
   { file: 'sick-injured.html', name: 'S&I', shiftKey: null },
   { file: 'processing.html', name: 'Processing', shiftKey: 'ldh_processing_shift_v1' },
-  { file: 'surgery.html', name: 'Surgery', shiftKey: null }
+  { file: 'surgery.html', name: 'Surgery', shiftKey: 'ldh_surgery_shift_v1' }
 ];
 
 async function start(tool, animals) {
