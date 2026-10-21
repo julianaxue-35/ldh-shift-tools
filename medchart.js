@@ -174,8 +174,8 @@
   // "Drug [strength] amount..."), so an unrecognised drug still gets a
   // clean, readable guess rather than a full sentence.
   function guessDrugNameOnly(line, head) {
-    var trimmedHead = head.trim();
-    if (trimmedHead !== line.trim()) return trimmedHead || line.trim();
+    var trimmedHead = head.trim().replace(/[,;:\s]+$/, '');
+    if (head.trim() !== line.trim()) return trimmedHead || line.trim();
     var numMatch = line.match(/\d/);
     if (!numMatch) return line.trim();
     return line.slice(0, numMatch.index).trim() || line.trim();
@@ -216,7 +216,7 @@
   function reviewDateText(med, baseDate, chartStart) {
     var days = parseInt(med.days, 10);
     var daysUnchanged = med.daysParsed == null || parseInt(med.daysParsed, 10) === days;
-    var m = daysUnchanged ? /\b(?:review|re-?check|until|till|to|by)\s+(?:due\s+)?(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?/i.exec(med.rawText || '') : null;
+    var m = daysUnchanged ? /\b(?:review|re-?check|until|till|to|by)\s+(?:due\s+|on\s+)?(\d{1,2})\s*\/\s*(\d{1,2})(?:\s*\/\s*\d{2,4})?/i.exec(med.rawText || '') : null;
     if (m) return parseInt(m[1], 10) + '/' + parseInt(m[2], 10);
     if (!days) return '';
     var d = new Date(baseDate || Date.now());
@@ -342,6 +342,10 @@
       };
       row.daysParsed = row.days;   // so a typed review date is only trusted while Days is unchanged
       row.labelText = buildLabelSentence(row);
+      // A line the vet wrote AS the label ("meloxicam, give 1 tablet orally with food for 5 days, stop if vomiting..., review on 26/10")
+      // is kept word for word as the label wording that goes to the nurses and into the note. The Drug field stays the short name
+      // (the spreadsheet has little room for it): the two are never made to follow each other.
+      if (/\bgive\b/i.test(line) || /,\s*(?:stop|review)\b/i.test(line)) { row.labelEdited = true; row.labelText = line.replace(/\s+/g, ' ').replace(/[.\s]+$/, ''); }
       return row;
     });
   }
@@ -634,7 +638,8 @@
   function nurseLabels(chart) {
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     var out = [];
-    (chart.meds || []).forEach(function (m, i) { var t = nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
+    // the label wording is what goes to the nurses: the vet's own wording if she wrote or edited it, else the full label built from the fields
+    (chart.meds || []).forEach(function (m, i) { var t = (m.labelEdited && m.labelText) ? labelFor(m, base, chart.startOption) : nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
     return out;
   }
   function nurseLabelSig(chart) {
