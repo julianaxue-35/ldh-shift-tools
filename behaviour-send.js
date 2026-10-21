@@ -8,6 +8,12 @@
   var WINDOWS = ['30_60m', 'today', '48h'];
   function send(body, fetcher) { return AAShare.send(body, fetcher); }
   function hasId(a) { return !!(a && String(a.animalId == null ? '' : a.animalId).trim()); }
+  // Microchip numbers never go to the dashboard: drop any "Microchip ..." line that carries a number, and mask any
+  // 15-digit run that is left (a chip number written elsewhere in the note).
+  function stripChips(text) {
+    return String(text == null ? '' : text).split('\n').filter(function (l) { return !/^\s*micro-?chip\b.*\d{9,}/i.test(l); })
+      .join('\n').replace(/\b\d{15}\b/g, '[number removed]');
+  }
   function buildBody(o) {
     if (!hasId(o.animal)) return null;
     return { behaviour: {
@@ -16,7 +22,8 @@
       reason: String(o.reason == null ? '' : o.reason).trim(),
       sent_by: String(o.sentBy == null ? '' : o.sentBy).trim(),
       window: WINDOWS.indexOf(o.window) === -1 ? 'today' : o.window,
-      note: String(o.noteText == null ? '' : o.noteText)
+      note: stripChips(o.noteText),
+      species: o.animal && (o.animal.species === 'cat' || o.animal.species === 'dog') ? o.animal.species : ''
     } };
   }
   // 'none' = never sent, 'sent' = sent and unchanged, 'stale' = the note was edited after it was sent
@@ -63,5 +70,5 @@
       });
     };
   }
-  return { buttonHtml: buttonHtml, open: open, buildBody: buildBody, status: status, WINDOWS: WINDOWS, sig: AAShare.sig, send: send, lastError: function () { return AAShare.lastError(); } };
+  return { buttonHtml: buttonHtml, open: open, buildBody: buildBody, stripChips: stripChips, status: status, WINDOWS: WINDOWS, sig: AAShare.sig, send: send, lastError: function () { return AAShare.lastError(); } };
 });

@@ -483,8 +483,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
           <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours) and enter your <b>initials</b> (required).</li>
           <li>Wait for <b>Sent to Behaviour &#10003;</b>. If it says <b>NOT SENT</b> (no signal, or the dashboard refused it), press the button again to resend. Nothing is sent in the background.</li>
         </ol>
-        <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending updates the same card on the Behaviour page; it does not make a duplicate.</p>
-        <p><b>What happens to the note?</b> The Behaviour team reads it on their page. When they tick <b>Done</b>, the note is <b>deleted from the database</b> (their Done comment stays and shows on the Shelter board). If nobody ticks Done within 7 days it is deleted anyway. Your own copy in this tool is not touched.</p>
+        <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending the same day updates the same card on the Behaviour page (a resend after midnight, or under a different ID, makes a new card). If someone else resends the same animal the same day, their note replaces yours and the card says it was re-sent.</p>
+        <p><b>What happens to the note?</b> The Behaviour team reads it on their page. When they tick <b>Done</b>, the note is <b>deleted from the database</b> (their Done comment stays and shows on the Shelter board). If nobody ticks Done, it is deleted within 7 days anyway. Your own copy in this tool is not touched.</p>
         <p>The Behaviour team decides who takes it (cats stay with the cat side, dogs with the dog side). This is separate from the Admission AA: sending to Behaviour does not enter anything in ShelterMate.</p>
       </div>
     </details>
@@ -596,7 +596,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-21.4';
+const APP_VERSION = '2026-10-21.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
