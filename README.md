@@ -34,6 +34,10 @@ Surgery is blue, Sick & Injured is orange, Processing is green — otherwise ide
 may not be copied, modified, distributed or used without her express written permission, except by
 her current employer for as long as she remains engaged there.
 
+## Send to Behaviour (Processing, Sick & Injured, Surgery, 2026-10-21)
+
+Each animal card has a **Send to Behaviour** button (greyed out until the animal has an ID). The vet gives a reason, a time frame and initials; the animal and its **whole current note** go to the dashboard's Behaviour page (Edge Function shape `behaviour`; confirmed send, NOT SENT + resend, `behaviour-send.js`). Editing the note afterwards shows "Edited — resend"; resending updates the same card. The dashboard deletes the attached note when the Behaviour team ticks Done (or after 7 days). Fictional animals only until IT signs off. Tests: `behaviour-send.test.mjs`, `behaviour-send-ui.test.js`.
+
 ## Share with Admission AA (Processing and Sick & Injured, 2026-10-18)
 
 On the Incomplete tab of both Processing and Sick & Injured, **Share this shift with Admission AA** is off by default. While it is on, each animal you register is sent to the Admission AA page as a task to enter in ShelterMate (notes text plus a one-animal Word file). Finish the notes before you register. Animals already registered when you switch on are sent straight away.
