@@ -638,8 +638,9 @@
   function nurseLabels(chart) {
     var base = chart.createdAt ? new Date(chart.createdAt) : new Date();
     var out = [];
+    // 2026-10-22: a medication ticked off "Send to nurse" (m.nurseSend === false) needs no label made up, so it is not sent
     // the label wording is what goes to the nurses: the vet's own wording if she wrote or edited it, else the full label built from the fields
-    (chart.meds || []).forEach(function (m, i) { var t = (m.labelEdited && m.labelText) ? labelFor(m, base, chart.startOption) : nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
+    (chart.meds || []).forEach(function (m, i) { if (m.nurseSend === false) return; var t = (m.labelEdited && m.labelText) ? labelFor(m, base, chart.startOption) : nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
     return out;
   }
   function nurseLabelSig(chart) {
@@ -675,6 +676,59 @@
       if (res && res.ok) { aaPatchChart(chart.id, { nurseLabelSentAt: new Date().toISOString(), nurseLabelSig: sig, nurseLabelErr: '' }); return true; }
       return fail(res && res.status === 400 ? 'the dashboard did not accept it' : 'could not reach the dashboard');
     }, function () { return fail('no connection'); }).then(function (ok) { delete nurseSending[chart.id]; return ok; });
+  }
+
+  // ---------- "Send to nurse" panel on the tool pages (2026-10-22) ----------
+  // Under "+ Register medication chart" each tool has <div data-nursepanel="<animal id>"></div>. refreshNursePanels() fills it:
+  // a tick box per medication on the saved chart (only the ticked ones go to the Welfare nurse; a med that needs no label made
+  // up is unticked), the Send to nurse button, and a plain line on where it has got to. Wiring is by event delegation, so the
+  // tools only need the empty div and a call to refreshNursePanels() when they redraw.
+  function escH(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function nurseMedName(m) { return String(m.drugLabel || m.rawText || '').trim() || '(unnamed medication)'; }
+  function nursePanelHtml(chart) {
+    if (!chart) return '<div class="np-line" style="font-size:12.5px;margin-top:6px;color:#555">Register the medication chart first, then send the labels to the nurse from here.</div>'
+      + '<button type="button" class="btn small secondary np-send" data-sendnurse style="margin-top:6px">Send to nurse</button>';
+    var st = nurseLabelStatus(chart), n = nurseLabels(chart).length;
+    var rows = (chart.meds || []).map(function (m, i) {
+      return '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0"><input type="checkbox" data-nursepick="' + escH(chart.id) + '" data-mi="' + i + '"' + (m.nurseSend === false ? '' : ' checked') + ' style="width:auto"> Send to nurse: ' + escH(nurseMedName(m)) + '</label>';
+    }).join('');
+    var line = st === 'noid' ? '\u274c No animal ID, so it cannot be sent to the nurse.'
+      : !n ? 'No medication is ticked "Send to nurse", so nothing will go.'
+      : (nurseLabelBadge(chart) || ('Not sent to the nurse yet: ' + n + ' label' + (n === 1 ? '' : 's') + ' will go.'));
+    var btn = st === 'sent' ? 'Send to nurse again' : st === 'stale' ? 'Send the changed labels to nurse' : 'Send to nurse';
+    return '<div style="margin-top:8px"><div style="font-size:11.5px;font-weight:700;margin-bottom:2px">Which medications need the nurse to make up a label?</div>' + rows
+      + '<div class="np-line" style="font-size:12.5px;margin-top:6px;line-height:1.4">' + escH(line) + '</div>'
+      + '<button type="button" class="btn small np-send" data-sendnurse style="margin-top:6px">' + escH(btn) + '</button></div>';
+  }
+  function refreshNursePanels() {
+    if (!global.document) return;
+    Array.prototype.forEach.call(global.document.querySelectorAll('[data-nursepanel]'), function (el) {
+      el.innerHTML = nursePanelHtml(findChartBySourceAnimal(el.getAttribute('data-nursepanel')));
+    });
+  }
+  if (global.document && global.document.addEventListener) {
+    global.document.addEventListener('change', function (e) {
+      var cb = e.target && e.target.closest && e.target.closest('[data-nursepick]'); if (!cb) return;
+      var chart = loadCharts().find(function (c) { return c.id === cb.getAttribute('data-nursepick'); }); if (!chart) return;
+      var meds = JSON.parse(JSON.stringify(chart.meds || [])), i = parseInt(cb.getAttribute('data-mi'), 10);
+      if (!meds[i]) return;
+      meds[i].nurseSend = !!cb.checked;
+      aaPatchChart(chart.id, { meds: meds });
+      refreshNursePanels();
+    });
+    global.document.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest && e.target.closest('[data-sendnurse]'); if (!b) return;
+      var panel = b.closest('[data-nursepanel]'); if (!panel) return;
+      var src = panel.getAttribute('data-nursepanel'), chart = findChartBySourceAnimal(src);
+      if (!chart) { global.alert('Register the medication chart first (+ Register medication chart), then send it to the nurse.'); return; }
+      if (!String(chart.animalId == null ? '' : chart.animalId).trim()) { global.alert('Add the animal ID first: the nurse needs it on the label.'); return; }
+      if (!nurseLabels(chart).length) { global.alert('Tick at least one medication to send to the nurse.'); return; }
+      b.disabled = true; b.textContent = 'Sending...';
+      sendLabelsToNurse(chart).then(function (ok) {
+        refreshNursePanels();
+        if (!ok) { var c = findChartBySourceAnimal(src); global.alert('NOT sent to the nurse' + (c && c.nurseLabelErr ? ' (' + c.nurseLabelErr + ')' : '') + '. Press Send to nurse to try again.'); }
+      });
+    });
   }
 
   function syncChartToDashboard(chart) {
@@ -1246,7 +1300,7 @@
     aaCharts: aaCharts,
     aaChartsToSend: aaChartsToSend,
     aaSendChart: aaSendChart,
-    nurseLabelText: nurseLabelText, nurseLabels: nurseLabels, nurseLabelStatus: nurseLabelStatus, nurseLabelBadge: nurseLabelBadge, sendLabelsToNurse: sendLabelsToNurse,
+    nurseLabelText: nurseLabelText, nurseLabels: nurseLabels, nurseLabelStatus: nurseLabelStatus, nurseLabelBadge: nurseLabelBadge, sendLabelsToNurse: sendLabelsToNurse, refreshNursePanels: refreshNursePanels, nursePanelHtml: nursePanelHtml,
     aaCatchUp: aaCatchUp,
     aaIsSending: function (id) { return !!aaSendingCharts[id]; },
     onAaChange: function (fn) { aaListener = fn; },

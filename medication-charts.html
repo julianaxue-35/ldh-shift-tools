@@ -100,13 +100,14 @@ function renderList(){
   }
   list.innerHTML = charts.map(c=>{
     if(c.id === editingChartId) return editCardHtml(c);
-    const rows = c.meds.map(m=>`<tr>
+    const rows = c.meds.map((m,mi)=>`<tr>
       <td>${esc(m.drugLabel)||'<em>(unspecified)</em>'}</td>
       <td>${esc(m.doseText)}</td>
       <td>${esc(m.freq)}</td>
       <td>${esc(m.route)}</td>
       <td>${esc(m.days)}d${m.freq==='SID' || m.freq==='EOD' ? ' ('+esc(m.startSlot)+' start)' : ''} &middot; from ${MedChart.medStartOffset(m,c)===0?'today':'tomorrow'}</td>
-    </tr>${(m.drugWarning||(m.warnings&&m.warnings.length)) ? `<tr><td colspan="5" class="warn">${esc([m.drugWarning].concat(m.warnings||[]).filter(Boolean).join(' · '))}</td></tr>` : ''}`).join('');
+      <td><label style="white-space:nowrap"><input type="checkbox" data-nursepick="${esc(c.id)}" data-mi="${mi}" ${m.nurseSend===false?'':'checked'}> to nurse</label></td>
+    </tr>${(m.drugWarning||(m.warnings&&m.warnings.length)) ? `<tr><td colspan="6" class="warn">${esc([m.drugWarning].concat(m.warnings||[]).filter(Boolean).join(' · '))}</td></tr>` : ''}`).join('');
     return `<div class="card" data-chartid="${esc(c.id)}">
       <div class="card-hdr">
         <div>
@@ -119,7 +120,7 @@ function renderList(){
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
       </div>
       <table class="meds">
-        <thead><tr><th>Drug</th><th>Dose</th><th>Freq</th><th>Route</th><th>Duration</th></tr></thead>
+        <thead><tr><th>Drug</th><th>Dose</th><th>Freq</th><th>Route</th><th>Duration</th><th>Label</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div style="margin-top:8px;display:flex;gap:8px">
@@ -130,6 +131,10 @@ function renderList(){
     </div>`;
   }).join('');
 
+  list.querySelectorAll('[data-nursepick]').forEach(cb=>{
+    // MedChart saves the tick (its own change handler runs first); redraw so the button and status line follow it
+    cb.addEventListener('change', ()=>setTimeout(renderList, 0));
+  });
   list.querySelectorAll('[data-nl]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const chart = MedChart.loadCharts().find(x=>x.id===btn.dataset.nl); if(!chart) return;
