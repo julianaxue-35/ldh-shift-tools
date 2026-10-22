@@ -453,7 +453,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.3';
+const APP_VERSION = '2026-10-22.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3911,15 +3911,32 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
       })
       .catch(function(){});
   }
+  var laterUntil = 0;   // "Later" hides the banner for a while so the vet can get on with the shift
   function showUpdateBanner(){
-    if(document.getElementById('updateBanner')) return;
+    if(document.getElementById('updateBanner') || Date.now() < laterUntil) return;
     const bar = document.createElement('div');
     bar.id = 'updateBanner';
     bar.style.cssText = 'position:sticky;top:0;z-index:9999;background:#b5730a;color:#fff;padding:10px 14px;font-size:13px;text-align:center;font-family:system-ui,-apple-system,Roboto,Arial,sans-serif';
-    bar.innerHTML = 'A newer version of this tool is available. <button id="updateReloadBtn" style="margin-left:10px;background:#fff;color:#b5730a;border:none;border-radius:4px;padding:4px 10px;font-weight:600;cursor:pointer">Reload now</button>';
+    bar.innerHTML = 'A newer version of this tool is available. Finish what you are typing, then reload (your list is saved first). ' +
+      '<button id="updateReloadBtn" style="margin-left:10px;background:#fff;color:#b5730a;border:none;border-radius:4px;padding:4px 10px;font-weight:600;cursor:pointer">Reload now</button>' +
+      '<button id="updateLaterBtn" style="margin-left:8px;background:transparent;color:#fff;border:1px solid #fff;border-radius:4px;padding:4px 10px;cursor:pointer">Later</button>';
     document.body.prepend(bar);
+    document.getElementById('updateLaterBtn').addEventListener('click', function(){
+      laterUntil = Date.now() + 30 * 60 * 1000;
+      bar.remove();
+    });
     document.getElementById('updateReloadBtn').addEventListener('click', function(){
-      location.href = location.pathname + '?_r=' + Date.now();
+      const btn = this; btn.disabled = true; btn.textContent = 'Saving…';
+      // 1. save what is being typed (a field only saves when it loses focus), and the whole list
+      try{ const ae = document.activeElement; if(ae && ae !== document.body && ae.blur) ae.blur(); }catch(e){}
+      try{ if(typeof saveShift === 'function') saveShift(); }catch(e){}
+      // 2. refresh the tool's other script files from the server. The page itself is re-fetched fresh, but its scripts were
+      //    served from the browser cache, so the new page ran against OLD copies and crashed.
+      let went = false;
+      const go = function(){ if(went) return; went = true; location.href = location.pathname + '?_r=' + Date.now(); };
+      const urls = Array.prototype.map.call(document.querySelectorAll('script[src]'), function(s){ return s.src; });
+      setTimeout(go, 5000);
+      Promise.all(urls.map(function(u){ return fetch(u, {cache:'reload'}).catch(function(){}); })).then(go, go);
     });
   }
   checkForUpdate();
