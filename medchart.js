@@ -686,8 +686,7 @@
   function escH(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function nurseMedName(m) { return String(m.drugLabel || m.rawText || '').trim() || '(unnamed medication)'; }
   function nursePanelHtml(chart) {
-    if (!chart) return '<div class="np-line" style="font-size:12.5px;margin-top:6px;color:#555">Register the medication chart first, then send the labels to the nurse from here.</div>'
-      + '<button type="button" class="btn small secondary np-send" data-sendnurse style="margin-top:6px">Send to nurse</button>';
+    if (!chart) return '';   // nothing to show until a chart is registered: the Send to nurse button is in the chart preview itself
     var st = nurseLabelStatus(chart), n = nurseLabels(chart).length;
     var rows = (chart.meds || []).map(function (m, i) {
       return '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0"><input type="checkbox" data-nursepick="' + escH(chart.id) + '" data-mi="' + i + '"' + (m.nurseSend === false ? '' : ' checked') + ' style="width:auto"> Send to nurse: ' + escH(nurseMedName(m)) + '</label>';

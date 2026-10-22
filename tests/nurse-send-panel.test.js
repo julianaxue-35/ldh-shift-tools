@@ -33,14 +33,14 @@ async function run(tool) {
       a[field] = 'meloxicam 1 tablet po once daily for 5 days\nlactulose 1ml po bid for 5 days';
       state.animals.push(a); saveShift(); renderShiftList(); window.__aid = a.id; openExam(a.id);
     }, tool.field);
-    await page.waitForSelector('[data-nursepanel]');
-    t.ok(/Register the medication chart first/.test(await page.textContent('[data-nursepanel]')), L + 'before a chart exists the panel says to register it first');
-    dialogs.length = 0; await page.click('[data-nursepanel] [data-sendnurse]');
-    t.ok(dialogs.length === 1 && /Register the medication chart first/.test(dialogs[0]) && posts.length === 0, L + 'Send to nurse with no chart explains and sends nothing: ' + dialogs[0]);
+    await page.waitForSelector('[data-regchart]');
+    t.ok(!(await page.locator('[data-nursepanel] [data-sendnurse]').count()), L + 'before a chart is registered there is no separate Send to nurse button (it is in the chart preview)');
+    t.ok(!(await page.locator('#addMedRowBtn, #addBlankMedBtn').count()), L + 'there is no "add a line" button');
     await page.click('[data-regchart]');
     await page.waitForSelector('#saveSendChartBtn');
     const ticks = await page.$$eval('[data-mfield="nurseSend"]', els => els.map(e => e.checked));
     t.ok(ticks.length >= 2 && ticks.every(Boolean), L + 'every medication row has a "Send to nurse" tick, on by default: ' + ticks);
+    t.ok(await page.isVisible('#saveSendChartBtn') && /send to nurse/i.test(await page.textContent('#saveSendChartBtn')), L + 'the chart preview has the Save chart & send to nurse button');
     await page.uncheck('[data-mfield="nurseSend"][data-mi="1"]');
     dialogs.length = 0;
     await page.click('#saveSendChartBtn');
