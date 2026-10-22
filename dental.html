@@ -248,7 +248,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-10-20.1';
+const APP_VERSION = '2026-10-22.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
@@ -473,7 +473,9 @@ $('legend').innerHTML = D.abbreviationKey().map(r => `<div><b>${esc(r[0])}</b> $
 // embedded in the Surgery tool's exam: tell it how tall the chart is so it can size the frame
 if (document.body.classList.contains('embed') && window.parent !== window) {
   let lastH = 0;
-  const postHeight = () => { const h = document.documentElement.scrollHeight; if (h === lastH) return; lastH = h; try { window.parent.postMessage({ ldhDentalHeight: h }, '*'); } catch (e) { /* not framed */ } };
+  // The height of the CONTENT (the body), not documentElement.scrollHeight: scrollHeight is never less than the frame itself, and
+  // the Surgery tool makes the frame 20px taller than what we report, so it grew by 20px every 400 ms and the chart flashed (2026-10-22).
+  const postHeight = () => { const h = Math.ceil(document.body.getBoundingClientRect().height); if (h === lastH) return; lastH = h; try { window.parent.postMessage({ ldhDentalHeight: h }, '*'); } catch (e) { /* not framed */ } };
   if (window.ResizeObserver) new ResizeObserver(postHeight).observe(document.body);
   setInterval(postHeight, 400);          // browsers pause the observer for frames that are off screen
 }
