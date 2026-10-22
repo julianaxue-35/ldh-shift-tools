@@ -453,7 +453,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.2';
+const APP_VERSION = '2026-10-22.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1070,13 +1070,19 @@ function normalizeAnimal(a){
   return a;
 }
 
+// One odd record must never cost the whole list: drop empty/non-object entries, and keep a record as it is if tidying it up fails.
+function normalizeList(list){
+  return (list||[]).filter(a=> a && typeof a==='object' && !Array.isArray(a)).map(a=>{
+    try{ return normalizeAnimal(a); }catch(e){ try{ console.warn('Kept a record that could not be tidied:', e); }catch(e2){} return a; }
+  });
+}
 function loadShift(){
   const raw = localStorage.getItem(LS_SHIFT);
   if(raw==null) return []; // genuinely first use, or she cleared the list — not a failure
   try{
     const parsed = JSON.parse(raw);
     if(!Array.isArray(parsed)) throw new Error('saved shift data was not a list');
-    return parsed.map(normalizeAnimal);
+    return normalizeList(parsed);
   }catch(e){
     // Saved data is corrupted (not just empty) — recover from the newest
     // auto-backup instead of silently discarding everything, and say so
@@ -1085,7 +1091,7 @@ function loadShift(){
     if(backups.length){
       const latest = backups[backups.length-1];
       try{
-        const recovered = (latest.data||[]).map(normalizeAnimal);
+        const recovered = normalizeList(latest.data);
         alert(`Your saved list looked corrupted, so it's been restored from an automatic backup taken ${new Date(latest.ts).toLocaleString()}. Please double-check everything below, and export a copy once you're happy with it.`);
         return recovered;
       }catch(e2){ /* fall through to the empty-list alert below */ }
@@ -1094,9 +1100,24 @@ function loadShift(){
     return [];
   }
 }
+// Browser storage is shared by every tool on this site and can fill up. A failed save used to throw and say nothing, so the
+// vet carried on believing their work was safe. Drop the old backups first to make room; if it is still full, say so (once).
+let shiftFullWarned = false;
+function persistShift(){
+  const json = JSON.stringify(state.animals);
+  try{ localStorage.setItem(LS_SHIFT, json); return true; }
+  catch(e){
+    try{ localStorage.removeItem(LS_BACKUP); localStorage.setItem(LS_SHIFT, json); return true; }catch(e2){}
+    if(!shiftFullWarned){
+      shiftFullWarned = true;
+      alert('Your browser storage is FULL, so your latest changes could NOT be saved on this device. Export or send your list now (Save to file / Send to Admission AA), then clear old lists in the other tools or use another browser.');
+    }
+    return false;
+  }
+}
 function saveShift(){
   stampNewAuthors(state.animals);
-  localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+  if(!persistShift()) return;
   // Stamps the date this list was started (first animal added since it was
   // last empty), so a later export can tell if the list is a leftover from
   // a previous shift day rather than today's. Cleared automatically once
