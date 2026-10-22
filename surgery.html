@@ -280,6 +280,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
+<div id="smBanner" role="alert" style="display:none;position:sticky;top:0;z-index:50;background:#b3261e;color:#fff;padding:10px 14px;font-weight:700;font-size:14px;text-align:center"></div>
 
 <div class="wrap tab-panel" id="tabShift">
 
@@ -376,6 +377,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <h2>How to use Surgery — FAQ</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">How to run a Surgery shift with this tool start to finish. Tap a question to expand.</p>
 
+    <details class="faq-item">
+      <summary>Entered on ShelterMate — why is there a red banner?</summary>
+      <div class="a">A note is not finished until it is in ShelterMate. On the <b>Completed</b> tab, press <b>Entered on ShelterMate</b> on each animal once its note is in. Any completed note that has not been ticked shows a red <b>ENTER IT NOW</b> banner across the top, every time the tool is opened, until it is ticked. Pressed by mistake? Tap <b>&#10003; On ShelterMate</b> to undo.</div>
+    </details>
     <details class="faq-item">
       <summary>Step 1 — before the day: the booking sheet</summary>
       <div class="a">Vets or nurses fill in the <b>Surgery Booking Template</b> Excel sheet the day before surgery (use the "⬇ Download booking template" button on the Shift List tab if you need a blank copy). Upload the completed sheet the next day to register every booked animal in one go — ID, type, species, location, age, procedure, tasks and notes all come across automatically.</div>
@@ -609,7 +614,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.4';
+const APP_VERSION = '2026-10-22.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -753,6 +758,7 @@ function normalizeAnimal(a){
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
+    smEntered:null,   // when the completed note was ticked off as entered on ShelterMate (null = still to enter)
     hr:'', rr:'Normal bronchovesicular sounds', mm:'Pink', crt:'<2s', bcs:'',
     caMurmur:false, caMurmurGrade:'1', caGallop:false, caArrhythmia:false, caPurring:false,
     hcPerformed:false,
@@ -981,7 +987,7 @@ function saveShift(){
 function checkStaleShiftBeforeChange(actionLabel){
   const shiftDate = localStorage.getItem(LS_SHIFT_DATE);
   if(!state.animals.length || !shiftDate || shiftDate === todayStr()) return true;
-  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now (you'll re-add today's animals after)\nCancel = ${actionLabel} anyway, including that old data`);
+  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.${smWarnText()}\n\nOK = clear the old list now (you'll re-add today's animals after)\nCancel = ${actionLabel} anyway, including that old data`);
   if(!wipe) return true;
   maybeBackupShift(true);
   state.animals = [];
@@ -1000,7 +1006,7 @@ function checkStaleShiftBeforeAdd(){ return checkStaleShiftBeforeChange('add'); 
 function checkStaleShiftOnLoad(){
   const shiftDate = localStorage.getItem(LS_SHIFT_DATE);
   if(!state.animals.length || !shiftDate || shiftDate === todayStr()) return;
-  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.\n\nOK = clear the old list now\nCancel = keep it for now (you can clear it later from the Shift List tab)`);
+  const wipe = confirm(`This list still has animals from ${shiftDate} — looks like it wasn't cleared after that shift.${smWarnText()}\n\nOK = clear the old list now\nCancel = keep it for now (you can clear it later from the Shift List tab)`);
   if(!wipe) return;
   maybeBackupShift(true);
   state.animals = [];
@@ -2539,6 +2545,22 @@ function onMedBannerHtml(a, compact){
     💊 ON ${meds ? esc(meds) : 'MEDICATION (DRUG NOT RECORDED)'}, LAST DOSE GIVEN ${last ? esc(last) : '— NOT RECORDED'}
     ${compact ? '' : `<div style="font-size:11px;font-weight:400;text-transform:none;margin-top:2px">${charted.length ? 'Includes medication from this animal\'s registered chart. ' : ''}Change the details on the Shift list.</div>`}</div>`;
 }
+/* ---------- Entered on ShelterMate (2026-10-22): a completed note is not finished until it is in ShelterMate ---------- */
+function smPending(){ return state.animals.filter(a=> a.registered && !a.smEntered); }
+function renderSmBanner(){
+  const el = document.getElementById('smBanner'); if(!el) return;
+  const p = smPending();
+  if(!p.length){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  const ids = p.map(a=> a.animalId || '(no ID)').join(', ');
+  el.innerHTML = '\u26A0 ENTER IT NOW \u2014 ' + p.length + ' completed note' + (p.length===1?'':'s') + ' not yet entered on ShelterMate: ' + esc(ids) +
+    ' <button type="button" class="btn small" id="smGoBtn" style="margin-left:8px">Open Completed</button>';
+  el.style.display = 'block';
+  document.getElementById('smGoBtn').addEventListener('click', ()=> showTab('completed'));
+}
+function smWarnText(list){
+  const p = (list||state.animals).filter(a=> a.registered && !a.smEntered);
+  return p.length ? `\n\n\u26A0 ${p.length} of these ${p.length===1?'has':'have'} NOT been entered on ShelterMate yet (${p.map(a=>a.animalId||'(no ID)').join(', ')}). Enter ${p.length===1?'it':'them'} first.` : '';
+}
 function groupedListHtml(animals, opts){
   opts = opts || {};
   const groups = {fresh:[], cat:[], dog:[], rabbit:[], other:[]};
@@ -2564,6 +2586,7 @@ function groupedListHtml(animals, opts){
         </div>
         <div>
           <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
+          ${opts.sm && a.registered ? (a.smEntered ? `<button class="btn small secondary" data-smundo="${a.id}" title="Tap to undo">\u2713 On ShelterMate</button>` : `<button class="btn small" data-smdone="${a.id}" style="background:#b3261e;color:#fff">Entered on ShelterMate</button>`) : ''}
           ${opts.allowNext && !a.registered ? `<button class="btn small ${a.nextUp?'':'secondary'}" data-nextup="${a.id}">${a.nextUp?'✓ Next — tap to unmark':'Mark next'}</button>` : ''}
           ${BehaviourSend.buttonHtml(a, bhSigText(a))}
           <button class="btn small secondary" data-open="${a.id}">Exam</button>
@@ -2592,6 +2615,12 @@ function bindListButtons(){
     });
   });
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
+  [['data-smdone', ()=>new Date().toISOString()], ['data-smundo', ()=>null]].forEach(([attr, val])=>{
+    document.querySelectorAll('['+attr+']').forEach(b=> b.addEventListener('click', ()=>{
+      const a = state.animals.find(x=>x.id===b.getAttribute(attr)); if(!a) return;
+      a.smEntered = val(); saveShift(); renderShiftList();
+    }));
+  });
   document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
     const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
     BehaviourSend.open(a, {noteText:()=>bhNoteOf(a), sigText:()=>bhSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
@@ -2655,6 +2684,7 @@ function renderShiftList(){
     document.getElementById('completedCount').textContent = 0;
     document.getElementById('completedList').innerHTML = '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>';
     bindListButtons();
+    renderSmBanner();
     renderBackupList();
     return;
   }
@@ -2670,8 +2700,9 @@ function renderShiftList(){
   const completedMatches = completed.filter(a=>matchesIdSearch(a, completedQ));
   document.getElementById('completedList').innerHTML = !completed.length
     ? '<p style="font-size:13px;color:var(--ink-soft)">Nothing registered yet today.</p>'
-    : (completedMatches.length ? groupedListHtml(completedMatches) : '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>');
+    : (completedMatches.length ? groupedListHtml(completedMatches, {sm:true}) : '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>');
   bindListButtons();
+  renderSmBanner();
   renderBackupList();
 }
 function renderBackupList(){
@@ -2711,7 +2742,7 @@ document.getElementById('examSearchBox').addEventListener('input', renderShiftLi
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
-  if(confirm(`Remove all ${registeredCount} registered animal(s) from the list? Only do this once you've actually exported/emailed them — animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
+  if(confirm(`Remove all ${registeredCount} registered animal(s) from the list?${smWarnText()} Only do this once you've actually exported/emailed them — animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
     maybeBackupShift(true);
     state.animals = state.animals.filter(a=>!a.registered);
     saveShift(); renderShiftList();
@@ -2719,7 +2750,7 @@ document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
-  if(confirm(`Remove all ${state.animals.length} animal(s) from today's list? This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
+  if(confirm(`Remove all ${state.animals.length} animal(s) from today's list?${smWarnText()} This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
     state.animals = [];
     saveShift(); renderShiftList();

@@ -1,0 +1,1 @@
+- Surgery: "Entered on ShelterMate" tick on Completed notes + ENTER IT NOW banner (Oct 22): `surgery-sheltermate-tick`; `shift-load-robust`, `shift-save-full` cover odd saved records and a full browser storage.
