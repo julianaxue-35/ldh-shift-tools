@@ -370,8 +370,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <details class="faq-item">
       <summary>Send the medication labels to the nurse</summary>
       <div class="a">
-        <p>After <b>+ Register medication chart</b>, a <b>Send to nurse</b> panel appears under it. It lists every medication on the chart with a tick. <b>Tick the ones the nurse has to make a label for; untick any that need no label made up</b> (for example a tablet given from stock). Press <b>Send to nurse</b> and the Welfare nurse sees one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
-        <p>In the chart preview you can also press <b>Save chart &amp; send to nurse</b> to do both at once. If you change the chart later the button changes to <b>Send the changed labels to nurse</b>. Sending again updates the nurse&rsquo;s task instead of adding a new one. If it says NOT sent (no connection), press the button again.</p>
+        <p>Press <b>+ Register medication chart</b>. The chart preview opens with every medication on it, and <b>under each medication a tick: &ldquo;Send to nurse to make up&rdquo;</b>. Leave it ticked for medication the nurse has to make up a label for; <b>untick the ones that need nothing made up</b>. Then press <b>Save chart &amp; send to nurse</b> (or just <b>Save chart</b> if none of it goes to the nurse). The Welfare nurse gets one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
+        <p>After saving, each medication keeps its tick, and a <b>Send to nurse</b> button appears under the chart so you can send again. If you change the chart later it says <b>Send the changed labels to nurse</b>; sending again updates the nurse&rsquo;s task instead of adding a new one. To add another medication, type it in the plan and press Register again. If it says NOT sent (no connection), press the button again.</p>
       </div>
     </details>
     <details class="faq-item">
@@ -453,7 +453,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.1';
+const APP_VERSION = '2026-10-22.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2277,7 +2277,7 @@ function chartDraftHtml(a, draft, planText){
       </div>
       <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
         <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
-      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse (untick if the nurse does not need to make up this label)</label></div>
+      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse to make up (untick if this one needs no label made up)</label></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -2299,7 +2299,6 @@ function chartDraftHtml(a, draft, planText){
     </div>`;
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-    <button type="button" class="btn small secondary" id="addMedRowBtn">+ Add another line</button>
     <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal);color:#fff">Save chart</button>
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
@@ -2345,8 +2344,6 @@ function bindChartDraft(a, body){
       openExam(a.id);
     });
   });
-  const addBtn = document.getElementById('addMedRowBtn');
-  if(addBtn) addBtn.addEventListener('click', ()=>{ draft.push(blankMedRow()); openExam(a.id); });
   const saveBtn = document.getElementById('saveChartBtn');
   const saveSendBtn = document.getElementById('saveSendChartBtn');
   const saveChart = (alsoSend)=>{
