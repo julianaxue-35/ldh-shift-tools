@@ -609,7 +609,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.1';
+const APP_VERSION = '2026-10-22.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2111,8 +2111,9 @@ function matchSpecies(text){
 }
 function matchSex(text){
   const t = (text||'').toLowerCase();
-  if(/female|\bf\b/.test(t)) return 'Female entire';
-  if(/male|\bm\b/.test(t)) return 'Male entire';
+  const desexed = /desex|neuter|spay|castrat|sterili[sz]/.test(t);   // already de-sexed (2026-10-22), e.g. "Male neutered", "Female (spayed)"
+  if(/female|\bf\b/.test(t)) return desexed ? 'Female desexed' : 'Female entire';
+  if(/male|\bm\b/.test(t)) return desexed ? 'Male desexed' : 'Male entire';
   return '';
 }
 /* One "Treatment" column holds a mix of treatment names across multiple rows
@@ -3110,6 +3111,8 @@ function examFormHtml(a){
         <option value="">-</option>
         <option ${a.sex==='Male entire'?'selected':''}>Male entire</option>
         <option ${a.sex==='Female entire'?'selected':''}>Female entire</option>
+        <option ${a.sex==='Male desexed'?'selected':''}>Male desexed</option>
+        <option ${a.sex==='Female desexed'?'selected':''}>Female desexed</option>
       </select></div>
   </div>`;
   h += `<div class="two-col" style="margin-top:8px">
