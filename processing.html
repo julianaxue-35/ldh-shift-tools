@@ -364,9 +364,54 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <details class="faq-item">
       <summary>When should I export?</summary>
-      <div class="a">Export your notes at <b>12pm and 4pm</b> each day. That gives the admission AA enough time to enter your notes and update statuses in ShelterMate, and gives nurses time to collect and give medications before end of shift.</div>
+      <div class="a">Export your notes at <b>12pm and 4pm</b> each day. That gives the admission AA enough time to enter your notes and update statuses in ShelterMate, and gives nurses time to collect and give medications before end of shift. If <b>Share this shift with Admission AA</b> is on, registering has already sent each note, so the export is your backup copy: check the Share card shows nothing <b>NOT SENT</b> before you finish.</div>
     </details>
 
+    <details class="faq-item">
+      <summary>Send my notes to the Admission AA (&ldquo;Share this shift with Admission AA&rdquo;)</summary>
+      <div class="a">
+        <p>The AA enters your notes in ShelterMate. This switch sends each note across to the Admission AA page on the dashboard as a task, so you do not have to email files.</p>
+        <ol>
+          <li>On the <b>Shift List</b> tab, tick <b>Share this shift with Admission AA</b>. <b>Off = nothing is sent.</b> The switch is remembered on this phone, and turns itself off when the list is emptied.</li>
+          <li><b>Finish the note first</b>, then press <b>Register to Word &amp; Excel</b>. Registering sends that animal&rsquo;s note (as text and a Word file) to the AA. Any medication chart you saved for the animal goes with it.</li>
+          <li>The animal needs an <b>ID</b>. With no ID it shows <b>No ID</b> and cannot be sent: add the ID, then press <b>Resend</b>.</li>
+          <li>Switched it on after you had already registered some? Turning it on sends everything registered that has not gone yet.</li>
+        </ol>
+        <p><b>Priority:</b> when you register an animal there is a <b>&#9889; Send to the Admission AA as PRIORITY</b> tick. It is ticked for you automatically when the animal&rsquo;s next step is <i>Awaiting foster</i>. Tick or untick it yourself and your choice stands. The AA does priority animals first.</p>
+        <p><b>Edited the note after sending?</b> Press <b>Refresh</b> on the note and register again (or press <b>Resend</b> in the Share card). The AA&rsquo;s card is updated, not duplicated. Changing the vet or nurse initials, or crossing midnight, does <i>not</i> count as an edit.</p>
+        <p><b>Changed the animal&rsquo;s ID after sending?</b> You are asked first: sending under the new ID makes a <b>new</b> card, and the old card stays until you tell the AA to remove it. Likewise, un-registering or deleting an animal cannot unsend its card.</p>
+        <p>Export to Word and Excel still works as normal. Treat it as your backup copy.</p>
+      </div>
+    </details>
+    <details class="faq-item">
+      <summary>How do I know what has been sent, and whether the AA has entered it?</summary>
+      <div class="a">
+        <p>Every animal card (while Share is on) carries a badge:</p>
+        <ul>
+          <li><b>Sent to AA</b> (amber): the dashboard confirmed it has the note. The AA has not entered it yet.</li>
+          <li><b>Entered in ShelterMate &#10003;</b> (green): the AA has ticked it off, so it is done.</li>
+          <li><b>NOT SENT</b> (red): it did not go (no signal, or the dashboard refused it), or you changed the note after sending. Press <b>Resend</b>.</li>
+          <li><b>No ID</b> (red): add the animal&rsquo;s ID first.</li>
+        </ul>
+        <p>The Share card adds up the whole list: <i>&ldquo;12 sent &middot; 2 not sent &middot; 9 entered in ShelterMate&rdquo;</i>. Anything not sent is listed there with the reason and a <b>Resend</b> button (<b>Resend all</b> for the lot), and a red bar at the top of the page warns you while any are outstanding. Saved medication charts show the same status under the chart.</p>
+        <p><b>A send only counts once the dashboard confirms it.</b> If it cannot, the animal stays <b>NOT SENT</b>. Notes are never retried silently in the background, so look for red and press Resend.</p>
+        <p><b>Has the AA entered it?</b> The tool looks by itself when you open the page, when you come back to it, and every 5 minutes while it is open. Press <b>Check what the AA has entered</b> to look right now. If it cannot reach the dashboard it changes nothing.</p>
+        <p><b>End-of-shift check:</b> press it before you clear the list or go home. Each animal and chart is marked &#9989; entered, &#8987; sent but waiting for the AA, or &#10060; needs attention (not registered, no ID, not sent, or changed since sent). Fix every &#10060; first. <b>Clear</b> and <b>Export</b> also warn you if anything has not been sent.</p>
+      </div>
+    </details>
+    <details class="faq-item">
+      <summary>What syncs, and what stays on my phone?</summary>
+      <div class="a">
+        <p>Three different things, so you know which to trust:</p>
+        <ul>
+          <li><b>Dashboard counts (automatic).</b> Each animal&rsquo;s ID, location, shift and done status are sent to the dashboard in the background, so the task rings read &ldquo;X of Y&rdquo;. A send lost to patchy wifi is retried by itself every minute and when the phone comes back online: there is no button and nothing to do. Fix an ID or location here and the dashboard&rsquo;s case moves with it. Removing an animal removes its case. An animal with no location shows as <i>Location TBC</i>. This is a short summary only, <b>not your full note</b>.</li>
+          <li><b>Your full note (only when Share is on).</b> The whole note goes to the AA only through the <b>Share this shift with Admission AA</b> switch, or to the Behaviour team only if you press <b>Send to Behaviour</b>.</li>
+          <li><b>Everything else stays on this phone.</b> The full list, exam entries and backups live only in this browser: they do <b>not</b> appear on a colleague&rsquo;s phone. To move a list, use <b>Hand over to a colleague</b> below.</li>
+        </ul>
+        <p><b>Two vets working the same day?</b> The tool checks the dashboard every few minutes (or press <b>&#8635; Check for animals done by other vets</b>). Any animal someone else has already registered moves to <b>Done by another vet</b>, out of your pending list and your exports. If you try to register one that is already done, you are asked first. <b>Not done &mdash; put back</b> reverses it.</p>
+        <p><b>Handover file:</b> <b>Save handover file</b> packs the whole list into one file for your colleague to <b>Load</b>. Animals you already registered arrive as <i>Done by another vet</i>, so nothing is registered or sent to the AA twice. The sender&rsquo;s sent/entered badges do not carry across; the colleague&rsquo;s phone starts its own. Delete the file after it is loaded (it holds patient details).</p>
+      </div>
+    </details>
     <details class="faq-item">
       <summary>Send the medication labels to the nurse</summary>
       <div class="a">
@@ -453,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.4';
+const APP_VERSION = '2026-10-23.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it

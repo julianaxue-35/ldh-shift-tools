@@ -378,6 +378,22 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">How to run a Surgery shift with this tool start to finish. Tap a question to expand.</p>
 
     <details class="faq-item">
+      <summary>Is there a &ldquo;Send to Admission AA&rdquo; option in Surgery?</summary>
+      <div class="a">No. Surgery notes do not go to the Admission AA from this tool. At the end of the day, export the notes and send them to the surgery nurses (see <b>End of day</b> below), and tick each one <b>Entered on ShelterMate</b> once it is in. The <b>Share this shift with Admission AA</b> switch (with the Sent / Entered badges) is in <b>Sick &amp; Injured</b> and <b>Processing</b>.</div>
+    </details>
+    <details class="faq-item">
+      <summary>What syncs, and how do I know it has?</summary>
+      <div class="a">
+        <ul>
+          <li><b>Dashboard counts (automatic).</b> Each animal&rsquo;s ID, location and done status go to the dashboard in the background so the task rings read &ldquo;X of Y&rdquo;. Saving a completed animal sends it; removing one removes its case; a lost send heals itself when the phone is back online. It is a summary, not your full note, and there is nothing to press.</li>
+          <li><b>Share this shift (multi-station), off by default.</b> On the Shift List tab, enter the surgery-stations login and press <b>Turn on sharing</b> so the Prep, Surgery and Recovery devices see the same animals live. The status line tells you where it is up to: <b>&ldquo;Sharing on &#10003; &middot; synced 10:42&rdquo;</b> means this device and the cloud copy agree. <b>&ldquo;Sharing on &mdash; could not sync&hellip; (your work is saved on this device; will retry)&rdquo;</b> means you are offline or it failed: keep working, it retries by itself. Only the fields that changed are sent, so two stations editing different parts of the same animal do not overwrite each other. The microchip number is shared between stations but is <b>never</b> sent to the dashboard. A deleted animal stays deleted and does not reappear from another station.</li>
+          <li><b>With sharing off, everything stays on this device.</b> The list, notes and backups are in this browser only. Do not hand the device between stations for different animals: one device follows one animal the whole way (see the first answer above), or use sharing.</li>
+          <li><b>Send to Behaviour</b> and <b>Send to nurse</b> (medication labels) each show their own status on the animal: <b>Sent to Behaviour &#10003;</b>, or <b>NOT SENT</b> with a button to press again. Nothing is retried in the background.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details class="faq-item">
       <summary>Entered on ShelterMate — why is there a red banner?</summary>
       <div class="a">A note is not finished until it is in ShelterMate. On the <b>Completed</b> tab, press <b>Entered on ShelterMate</b> on each animal once its note is in. Any completed note that has not been ticked shows a red <b>ENTER IT NOW</b> banner across the top, every time the tool is opened, until it is ticked. Pressed by mistake? Tap <b>&#10003; On ShelterMate</b> to undo.</div>
     </details>
@@ -614,7 +630,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-22.6';
+const APP_VERSION = '2026-10-23.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
