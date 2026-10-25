@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-23.1';
+const APP_VERSION = '2026-10-26.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1174,7 +1174,12 @@ function splitAssessmentLines(text){
     const prev = merged.length ? merged[merged.length-1] : null;
     const prevIncomplete = prev!=null && !/[.!?:;]$/.test(prev);
     const continuesLowercase = /^[a-z]/.test(line);
-    if(prevIncomplete && continuesLowercase){
+    /* 2026-10-26: a problem's DDx often wraps onto the next line(s) ("... — resolved —" / "DDx: FHV-1 vs feline
+       calicivirus vs" / "Chlamydophila felis vs ..."), and each wrapped piece used to become its own problem.
+       A line also continues the one before when that one ends mid-thought (a dangling dash, colon after DDx, or
+       "vs"/"or"), or when it is itself the DDx. */
+    const prevDangling = prev!=null && (/[—–-]$/.test(prev) || /\bDDx\s*:?$/i.test(prev) || /\b(vs|v|or|and|with|secondary to)$/i.test(prev));
+    if(prev!=null && (prevDangling || /^DDx\b/i.test(line) || (prevIncomplete && continuesLowercase))){
       merged[merged.length-1] = prev + ' ' + line;
     } else {
       merged.push(line);
@@ -1231,6 +1236,14 @@ const MEDICATION_KEYWORDS = [
 ];
 const MEDICATION_RE = new RegExp('\\b(' + MEDICATION_KEYWORDS.join('|') + ')\\b', 'i');
 function isMedicationLine(text){ return MEDICATION_RE.test(text||''); }
+/* "problem — DDx: a vs b" -> {text:'problem', ddx:'a vs b'} so the differentials sit in the DDx field of the
+   problem (as typed in this tool), not as a condition of their own. */
+function problemFromLine(line){
+  const m = /^(.*?)[\s—–-]*\bDDx\s*:?\s*(.*)$/i.exec(line);
+  if(!m) return {text: line, ddx: ''};
+  const text = m[1].replace(/[\s—–-]+$/, '').trim(), ddx = m[2].trim();
+  return text ? {text, ddx} : {text: line, ddx: ''};   // a line that is ONLY a DDx stays as it is
+}
 function splitAssessmentAndMeds(assessmentText){
   const lines = splitAssessmentLines(assessmentText);
   const assessmentLines = [], medLines = [];
@@ -1376,10 +1389,11 @@ function addOrMergeFromRecheck(r){
   else if(medLines.length){
     medLines.forEach(ml=>{ if(!existing.treatment.includes(ml)) existing.treatment = existing.treatment ? existing.treatment+'\n'+ml : ml; });
   }
-  assessmentLines.forEach(t=>{
+  assessmentLines.forEach(line=>{
+    const {text:t, ddx} = problemFromLine(line);
     if(!existing.assessment.some(p=>p.text===t)){
       const m = matchResolvable(t);
-      existing.assessment.push({id:uid(), text:t, matched:m?m.key:null, resolved:null});
+      existing.assessment.push({id:uid(), text:t, ddx, matched:m?m.key:null, resolved:null});
     }
   });
   existing.lastConsultDate = sections.date || existing.lastConsultDate;
@@ -1750,9 +1764,10 @@ function makeAnimal(r){
     ppeRequired: '',
     history: sections.reasonHistory ? reflowFreeText(sections.reasonHistory) : '',
     exam: {demeanour:'', eating:'', urinating:'', defecating:'', free:''},
-    assessment: assessmentLines.map(t=>{
+    assessment: assessmentLines.map(line=>{
+      const {text:t, ddx} = problemFromLine(line);
       const m = matchResolvable(t);
-      return {id: uid(), text: t, matched: m ? m.key : null, resolved: null};
+      return {id: uid(), text: t, ddx, matched: m ? m.key : null, resolved: null};
     }),
     assessmentNotes: '',
     currentMed: currentMedText,
