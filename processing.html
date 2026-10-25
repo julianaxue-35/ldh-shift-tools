@@ -498,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-23.1';
+const APP_VERSION = '2026-10-26.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2538,8 +2538,8 @@ function examFormHtml(a){
     </div>
   </div>`;
   if(a.notExamined){
-    h += `<div style="margin-top:10px"><label style="font-size:12px">Assessment</label><br><textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:60px" placeholder="e.g. start on gabapentin">${esc(a.assessmentNotes||'')}</textarea></div>
-    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. reattempt HC">${esc(a.notExaminedPlan||'')}</textarea>
+    h += `<div style="margin-top:10px"><label style="font-size:12px">Assessment</label><br><textarea class="plain" id="fld_assessmentNotes" style="width:100%;min-height:60px" placeholder="e.g. High FAS, cannot be handled safely">${esc(a.assessmentNotes||'')}</textarea></div>
+    <div style="margin-top:10px"><label style="font-size:12px">Plan</label><br><textarea class="plain" id="fld_notExaminedPlan" style="width:100%;min-height:60px" placeholder="e.g. start on gabapentin 100mg PO BID, reattempt HC">${esc(a.notExaminedPlan||'')}</textarea>
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
@@ -2914,7 +2914,8 @@ function bindExamForm(a){
   });
   const notExamPlanEl = document.getElementById('fld_notExaminedPlan');
   if(notExamPlanEl) notExamPlanEl.addEventListener('change', ()=>{
-    a.notExaminedPlan = MedChart.annotateRecheck(notExamPlanEl.value); notExamPlanEl.value = a.notExaminedPlan; refreshNote(a); saveShift();
+    /* same passive mg/kg annotation as the Plan box on an examined animal (weight + strength already on record) */
+    a.notExaminedPlan = MedChart.annotateRecheck(MedChart.annotateMgPerKg(notExamPlanEl.value, a.weight, a.species)); notExamPlanEl.value = a.notExaminedPlan; refreshNote(a); saveShift();
   });
 
   const chipEl = document.getElementById('fld_microchip');
