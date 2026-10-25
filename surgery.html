@@ -630,7 +630,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-23.1';
+const APP_VERSION = '2026-10-26.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -4805,19 +4805,30 @@ async function sharePush(){
       if(error){ delErr = delErr || error; continue; }
       share.delConfirmed.add(id); delete share.base[id];
     }
+    /* 2026-10-26: one animal that fails to upload must not stop the rest. This loop used to `throw` on the first
+       error, so with 15 animals on the list only those BEFORE the failing one reached the other stations (report:
+       "15 on the computer, only 3 showed up on the iPad"), and every retry stopped at the same animal. Now each
+       animal is tried on its own and the status names how many (and which) did not go. */
+    const failed = []; let upErr = null;
     for(const a of state.animals){
       if(a.cloudScrubbed) continue;
       const cur = stripForSync(a), base = share.base[a.id];
       const patch = base ? shareDiff(base, cur) : cur;
       if(patch===undefined) continue;
-      const { error } = await share.client.rpc('merge_surgery_animal', {
-        p_id: a.id, p_shift_date: share.sessionDate, p_patch: patch,
-        p_surg_type: cur.surgType || null, p_done: !!cur.registered
-      });
-      if(error) throw error;
-      share.base[a.id] = cur;
+      try{
+        const { error } = await share.client.rpc('merge_surgery_animal', {
+          p_id: a.id, p_shift_date: share.sessionDate, p_patch: patch,
+          p_surg_type: cur.surgType || null, p_done: !!cur.registered
+        });
+        if(error) throw error;
+        share.base[a.id] = cur;
+      }catch(e){ failed.push(a.animalId || 'no ID'); upErr = upErr || e; }
     }
     if(delErr) throw delErr;
+    if(failed.length){
+      const m = (upErr && (upErr.message||upErr.code)) || 'unknown';
+      throw new Error(failed.length + ' of ' + state.animals.length + ' animal(s) did not upload (' + failed.slice(0,5).join(', ') + (failed.length>5?', …':'') + '): ' + m);
+    }
     share.initialsPending = false;
     shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
   }catch(e){
