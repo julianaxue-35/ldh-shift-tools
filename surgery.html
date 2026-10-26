@@ -311,6 +311,18 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div id="parsedBookingWrap"></div>
   </div>
 
+  <div class="card" id="aaShareCard" style="margin-bottom:12px">
+    <label style="display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer">
+      <input type="checkbox" id="aaShareToggle" style="width:20px;height:20px">
+      Share this shift with Admission AA
+    </label>
+    <p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;line-height:1.5">While this is on, each animal you register is sent to the Admission AA to enter in ShelterMate. Finish the notes <b>before</b> you register. Off = nothing is sent. When the Admission AA has entered it, the animal shows <b>Entered in ShelterMate</b> here by itself; anything they have not entered still needs you to tick it off.</p>
+    <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
+    <div id="aaShareList"></div>
+    <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
+    <div class="row-actions" style="margin-top:8px"><button class="btn small secondary" id="aaCheckBtn">Check what the AA has entered</button></div>
+  </div>
+
   <div class="card" id="shiftListCard">
     <div class="row-actions" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">Today's list (<span id="shiftCount">0</span>)</h2>
@@ -330,17 +342,6 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="row-actions" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">Completed (<span id="completedCount">0</span> registered to Word &amp; Excel)</h2>
       <button class="btn small secondary" id="clearCompletedTabBtn">Clear exported</button>
-    </div>
-    <div class="card" id="aaShareCard" style="margin:10px 0">
-      <label style="display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer">
-        <input type="checkbox" id="aaShareToggle" style="width:20px;height:20px">
-        Share this shift with Admission AA
-      </label>
-      <p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;line-height:1.5">While this is on, each animal you register is sent to the Admission AA to enter in ShelterMate. Finish the notes <b>before</b> you register. Off = nothing is sent. When the Admission AA has entered it, the animal shows <b>Entered in ShelterMate</b> here by itself; anything they have not entered still needs you to tick it off.</p>
-      <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
-      <div id="aaShareList"></div>
-      <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
-      <div class="row-actions" style="margin-top:8px"><button class="btn small secondary" id="aaCheckBtn">Check what the AA has entered</button></div>
     </div>
     <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin:10px 0">
     <div id="completedList"></div>
@@ -384,7 +385,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <details class="faq-item">
       <summary>Is there a &ldquo;Send to Admission AA&rdquo; option in Surgery?</summary>
-      <div class="a">Yes. On the <b>Completed</b> tab, turn on <b>Share this shift with Admission AA</b>. Each animal you register is then sent to the Admission AA (note plus a Word file) to enter in ShelterMate. Finish the notes <b>before</b> you press Register. Each completed animal shows <b>Sent to AA</b>, then <b>Entered in ShelterMate</b> once the Admission AA has done it. If the notes change after sending they are marked <b>NOT SENT</b> with a Resend button. Anything the Admission AA has not entered by the end of the day still shows the red <b>Entered on ShelterMate</b> reminder, so the surgery nurse can enter it and tick it off.</div>
+      <div class="a">Yes. On the <b>Shift list</b> tab, turn on <b>Share this shift with Admission AA</b>. Each animal you register is then sent to the Admission AA (note plus a Word file) to enter in ShelterMate. Finish the notes <b>before</b> you press Register. Each completed animal shows <b>Sent to AA</b>, then <b>Entered in ShelterMate</b> once the Admission AA has done it. If the notes change after sending they are marked <b>NOT SENT</b> with a Resend button. Anything the Admission AA has not entered by the end of the day still shows the red <b>Entered on ShelterMate</b> reminder, so the surgery nurse can enter it and tick it off.</div>
     </details>
     <details class="faq-item">
       <summary>What syncs, and how do I know it has?</summary>
@@ -636,7 +637,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.2';
+const APP_VERSION = '2026-10-27.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2759,7 +2760,7 @@ function renderAaShare(){
     </div>`;
   }).join('');
   row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaSigText).length);
-  if(s.unsent){ bar.textContent = `${s.unsent} note${s.unsent>1?'s':''} not sent to the Admission AA — open Completed to resend.`; bar.classList.remove('hidden'); }
+  if(s.unsent){ bar.textContent = `${s.unsent} note${s.unsent>1?'s':''} not sent to the Admission AA — open Shift list to resend.`; bar.classList.remove('hidden'); }
   else bar.classList.add('hidden');
 }
 function aaGuard(action){
@@ -3828,7 +3829,7 @@ function examFormHtml(a){
   h += `</div></details>`;
 
   h += `<div class="pe-field"><label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;color:${a.aaPriority?'var(--rust)':'inherit'}"><input type="checkbox" id="fld_aaPriority" ${a.aaPriority?'checked':''} style="width:20px;height:20px"> Add as a priority for the Admission AA (to be done within 30&ndash;60 minutes)</label>
-    <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Only matters when <b>Share this shift with Admission AA</b> is on (Completed tab): the note then shows at the top of the Admission AA&rsquo;s Surgery notes, marked priority.</p></div>`;
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Only matters when <b>Share this shift with Admission AA</b> is on (Shift list tab): the note then shows at the top of the Admission AA&rsquo;s Surgery notes, marked priority.</p></div>`;
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
   return h;
 }
