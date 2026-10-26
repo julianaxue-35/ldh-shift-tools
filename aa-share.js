@@ -46,7 +46,7 @@
     if (!hasId(o.animal)) return null;
     var payload = { text: String(o.noteText == null ? '' : o.noteText) };
     if (o.docxB64) payload.docx_b64 = o.docxB64;
-    if (o.priority === true) payload.priority = true;       // the vet asked for this one to be done first
+    if (o.priority === true) { payload.priority = true; if (o.dueMins > 0) payload.due_mins = o.dueMins; }       // the vet asked for this one to be done first (optionally within so many minutes)
     return { aa: { kind: o.kind, animal_id: String(o.animal.animalId).trim(), location: o.animal.location || '', sent_by: o.sentBy || '', payload: payload } };
   }
   var lastErr = '';
@@ -79,7 +79,9 @@
         if (!res || !res.ok) return null;
         return res.json().then(function (j) {
           if (!j || j.ok !== true || !Array.isArray(j.pending)) return null;
-          var set = {}; j.pending.forEach(function (k) { set[k] = true; }); return set;
+          var set = {}; j.pending.forEach(function (k) { set[k] = true; });
+          Object.defineProperty(set, '@by', { value: (j.done_by && typeof j.done_by === 'object') ? j.done_by : {}, enumerable: false });   // initials of whoever ticked each finished card off
+          return set;
         }, function () { return null; });
       }).catch(function () { return null; });
   }
@@ -89,8 +91,11 @@
     list.forEach(function (x) {
       if (!x.aaSentAt) return;
       var waiting = !!pending[pairKey(kind, (idOf ? idOf(x) : (x.aaSentId || x.animalId)))];
-      if (!waiting && !x.aaEnteredAt) { x.aaEnteredAt = nowISO; n++; }
-      else if (waiting && x.aaEnteredAt) { x.aaEnteredAt = ''; n++; }
+      var key = pairKey(kind, (idOf ? idOf(x) : (x.aaSentId || x.animalId)));
+      var by = !waiting && pending['@by'] ? String(pending['@by'][key] || '') : '';
+      if (!waiting && !x.aaEnteredAt) { x.aaEnteredAt = nowISO; if (by) x.aaEnteredBy = by; n++; }
+      else if (waiting && x.aaEnteredAt) { x.aaEnteredAt = ''; x.aaEnteredBy = ''; n++; }
+      else if (!waiting && by && x.aaEnteredBy !== by) { x.aaEnteredBy = by; n++; }
     });
     return n;
   }
