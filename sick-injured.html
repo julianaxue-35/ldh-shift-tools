@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.1';
+const APP_VERSION = '2026-10-27.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2217,7 +2217,7 @@ function chartDraftHtml(a, draft, planText){
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
     <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart</button>
-    <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
+    <button type="button" class="btn small" id="saveSendChartBtn" style="${draft.some(m=>m.nurseSend===true)?'':'display:none;'}background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
   </div></div>`;
   return h;
@@ -2244,6 +2244,7 @@ function bindChartDraft(a, body){
       const field = el.dataset.mfield;
       if(el.type==='radio'){ if(el.checked) draft[i][field] = el.value; }
       else if(el.type==='checkbox') draft[i][field] = el.checked;
+      if(field==='nurseSend'){ const sb = document.getElementById('saveSendChartBtn'); if(sb) sb.style.display = draft.some(m=>m.nurseSend===true) ? '' : 'none'; }   // nothing ticked = nothing to make up, so only Save chart
       else draft[i][field] = el.value;
       { const rc = body.querySelector('[data-recheck="'+i+'"]'); if(rc) rc.textContent = 'Recheck ' + (MedChart.recheckDisplay(draft[i]) || '\u2014'); }
       // typing the number of days settles the "Duration unclear" warning
@@ -2270,6 +2271,7 @@ function bindChartDraft(a, body){
   const saveBtn = document.getElementById('saveChartBtn');
   const saveSendBtn = document.getElementById('saveSendChartBtn');
   const saveChart = (alsoSend)=>{
+    if(alsoSend && !draft.some(m=>m.nurseSend===true)) alsoSend = false;   // never send labels for medications that were not ticked
     const startWarn = MedChart.startOverflowMessage(draft.map(m=>Object.assign({startOption:'tomorrow'}, m)), 'tomorrow');
     if(startWarn && !confirm(startWarn)) return;
     const existing = MedChart.findChartBySourceAnimal(a.id);
