@@ -536,7 +536,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 </div>
 
 <!-- EXAM MODAL -->
-<div id="monBar" class="hidden" role="tablist" aria-label="Animals under anaesthetic" style="position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--card);border-top:2px solid var(--teal-dark);box-shadow:0 -2px 10px rgba(0,0,0,.18);padding:6px 8px;display:flex;gap:6px;overflow-x:auto"></div>
+<div id="monBar" role="tablist" aria-label="Animals under anaesthetic" style="position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--card);border-top:2px solid var(--teal-dark);box-shadow:0 -2px 10px rgba(0,0,0,.18);padding:6px 8px;display:none;gap:6px;overflow-x:auto"></div>
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
   <div class="wrap" style="padding-top:0">
     <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);flex-wrap:wrap">
@@ -637,7 +637,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.3';
+const APP_VERSION = '2026-10-27.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -991,6 +991,7 @@ function persistShift(){
 function saveShift(){
   stampNewAuthors(state.animals);
   if(!persistShift()) return;
+  try{ renderMonBar(); }catch(e){}   // a premed tick / first reading adds the animal's monitoring tab straight away
   // Stamps the date this list was started (first animal added since it was
   // last empty), so a later export can tell if the list is a leftover from
   // a previous shift day rather than today's. Cleared automatically once
@@ -1661,8 +1662,8 @@ const ET_SIZES_DOG = range05(3, 13);    // dogs 3.0–13.0 mm
 function etSizesFor(a){ return a.species==='cat' ? ET_SIZES_CAT : a.species==='dog' ? ET_SIZES_DOG : range05(2, 13); }
 function ivcOptionsFor(a){
   const opts = [['22G','22G (blue)'],['24G','24G (yellow)']];
-  if(isRabbit(a)) return [['25G','25G']].concat(opts);
-  if(a.species==='cat') return opts.concat([['25G','25G (orange)']]);   // kittens
+  if(isRabbit(a)) return [['25G','25G (purple)']].concat(opts);
+  if(a.species==='cat') return opts.concat([['25G','25G (purple)']]);   // kittens
   return a.species==='dog' ? [['20G','20G (pink)']].concat(opts) : opts;
 }
 // Booking-sheet "Tasks" shorthand -> structured needs + extra checks
@@ -2668,7 +2669,15 @@ const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseIni
    A bar along the bottom with one tab for each animal that has had its premed and is not yet finished (no surgery end time,
    not registered). Tap a tab to jump straight to that animal's vital signs; tap the open animal's tab again to minimise back
    to the list. Each tab shows the minutes since the last recorded reading (amber at 5, red at 10). */
-function monActive(){ return state.animals.filter(a=> !a.registered && !a.surgEnd && a.ticks && (()=>{ const d = premedTickDef(a); const t = d && a.ticks[d.key]; return t && t.done; })()); }
+/* Under anaesthetic = premed given, or any vital sign already recorded, or IV catheter / intubation ticked; not finished (no surgery end time) and not registered. */
+function monActive(){
+  return state.animals.filter(a=>{
+    if(a.registered || a.surgEnd) return false;
+    const d = premedTickDef(a), t = d && a.ticks && a.ticks[d.key];
+    const tk = k => !!(a.ticks && a.ticks[k] && a.ticks[k].done);
+    return !!(t && t.done) || (a.vitals||[]).length > 0 || tk('ivc') || tk('intubation');
+  });
+}
 function monMinsSince(a){
   const v = (a.vitals||[]).filter(x=>/^\d{1,2}:\d{2}/.test(x.time||'')).slice(-1)[0];
   if(!v) return null;
@@ -2680,8 +2689,8 @@ function renderMonBar(){
   const bar = document.getElementById('monBar'); if(!bar) return;
   const act = monActive();
   document.body.style.paddingBottom = act.length ? '58px' : '';
-  if(!act.length){ bar.classList.add('hidden'); bar.innerHTML = ''; return; }
-  bar.classList.remove('hidden');
+  if(!act.length){ bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = 'flex';
   bar.innerHTML = act.map(a=>{
     const m = monMinsSince(a), open = state.openId === a.id && !document.getElementById('examModal').classList.contains('hidden');
     const col = m == null ? '#8a5a00' : m >= 10 ? '#b3261e' : m >= 5 ? '#c77d00' : 'var(--teal-dark)';
