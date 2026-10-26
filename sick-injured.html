@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-26.1';
+const APP_VERSION = '2026-10-26.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1093,52 +1093,64 @@ function matchPathway(text){
 function parseNoteSections(text){
   text = text || '';
   const dateMatch = text.match(/^\s*Date\s*:\s*(.+)$/im);
-  /* Headers are matched loosely (the full compound wording OR just the
-     first word) since real notes don't reliably use the full "Treatment /
-     Fees:" / "Pathway / Plan / Waivers:" phrasing — a note that just says
-     "Plan:" was previously invisible to this matcher, so everything from
-     "Assessment:" onward (including the plan text and the vet's sign-off
-     initials) was swallowing into the Assessment section instead of being
-     cut off at the right boundary. */
+  /* Headers are matched loosely (the full compound wording OR just the first word) since real notes don't
+     reliably use the full "Treatment / Fees:" / "Pathway / Plan / Waivers:" wording.
+     2026-10-26: each header used to be taken from its FIRST occurrence ANYWHERE in the note. A word like
+     "Medications:" or "treatment:" inside the History pushed the Treatment boundary to before the Assessment, so
+     the real "Treatment / Fees:" label and the medication text ended up inside Assessment (as extra "problems").
+     Now the headers are found in the note's own order (Reason, Exam, Assessment, Treatment, Plan): each one must
+     come AFTER the previous one, and a match at the START OF A LINE beats a mention mid-sentence. */
   const headerDefs = [
-    {key:'reasonHistory', re:/Reason(\s*\/\s*History)?\s*:/i},
-    {key:'examination', re:/Exam(ination)?\s*:/i},
-    {key:'assessment', re:/Assessment\s*:/i},
-    // Must come before 'treatment' below — "Current Medication:" also
-    // contains the word "Medication", so without its own, more specific
-    // header this label was never recognised as a boundary at all: its
-    // text (including the literal word "Current") just ran on into
-    // whichever section preceded it in the note (often History, if it's
-    // written right after Reason/History — her "the word current is left
-    // in the history section" report), and never reached the animal's own
-    // Current medication field either (her "doesn't transfer over well"
-    // report) since nothing ever captured it as its own section.
-    {key:'currentMed', re:/Current\s*(Medications?|Meds?)\s*:/i},
-    // Negative lookbehind so this doesn't also match the "Medication" inside
-    // "Current Medication:" above — without it, that phrase matched BOTH
-    // headers at two adjacent positions, splitting itself into a near-empty
-    // currentMed slice and knocking the real Treatment section's boundary
-    // sideways into the middle of that phrase instead of its own label.
-    {key:'treatment', re:/(?<!current\s)(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/i},
-    {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/i}
+    {key:'reasonHistory', re:/(Reason(\s*\/\s*History)?|History)\s*:/gi},
+    {key:'examination', re:/Exam(ination)?\s*:/gi},
+    {key:'assessment', re:/Assessment\s*:/gi},
+    {key:'treatment', re:/(?<!current\s)(Treatment|Medications?)(\s*\/\s*Fees)?\s*:/gi},
+    {key:'pathway', re:/(Pathway(\s*\/\s*Plan)?(\s*\/\s*Waivers)?|Plan)\s*:/gi}
   ];
+  const currentMedRe = /Current\s*(Medications?|Meds?)\s*:/gi;
+  const atLineStart = idx => /^[ \t>*•\-–—]*$/.test(text.slice(text.lastIndexOf('\n', idx-1)+1, idx));
+  const allMatches = re => { const out = []; let m; re.lastIndex = 0; while((m = re.exec(text))){ out.push({start:m.index, end:m.index+m[0].length, line:atLineStart(m.index)}); if(m[0].length===0) re.lastIndex++; } return out; };
   const found = [];
+  let cursor = 0;
+  const skipped = [];
   headerDefs.forEach(h=>{
-    const m = h.re.exec(text);
-    if(m) found.push({key:h.key, start:m.index, end:m.index+m[0].length});
+    const cands = allMatches(h.re), after = cands.filter(c=>c.start>=cursor);
+    const pick = after.find(c=>c.line) || after[0];
+    if(pick){ found.push({key:h.key, start:pick.start, end:pick.end}); cursor = pick.end; }
+    else skipped.push(h);
   });
+  // A header that is not in the usual order (e.g. Treatment written above Assessment): accept a line-start match
+  // that does not overlap one already chosen.
+  skipped.forEach(h=>{
+    const pick = allMatches(h.re).find(c=>c.line && !found.some(f=>c.start>=f.start && c.start<f.end));
+    if(pick) found.push({key:h.key, start:pick.start, end:pick.end});
+  });
+  // "Current Medication:" is its own section wherever it sits (it also contains the word "Medication").
+  { const cands = allMatches(currentMedRe), pick = cands.find(c=>c.line) || cands[0];
+    if(pick && !found.some(f=>pick.start>=f.start && pick.start<f.end)) found.push({key:'currentMed', start:pick.start, end:pick.end}); }
   found.sort((a,b)=>a.start-b.start);
   const sections = {};
   found.forEach((f,i)=>{
     const end = (i+1<found.length) ? found[i+1].start : text.length;
     sections[f.key] = text.slice(f.end, end).trim();
   });
-  /* If "Reason / History:" wasn't found with that exact wording, whatever
-     text precedes the first header that WAS found is still almost always
-     the history/reason content in this note format — capture it rather
-     than silently losing it (this is the "some histories aren't being
-     picked up" case). If no headers matched at all, treat the whole note
-     as history. */
+  /* Safety net: if a later section's own label is still sitting at the start of a line inside Assessment (the
+     Treatment header was missing or odd), cut Assessment there and give the rest to Treatment / Plan. */
+  if(sections.assessment){
+    const lines = sections.assessment.split('\n');
+    const lab = /^\s*(?:(Treatment|Medications?)(?:\s*\/\s*Fees)?|(Pathway(?:\s*\/\s*Plan)?(?:\s*\/\s*Waivers)?|Plan))\s*:\s*(.*)$/i;
+    const i = lines.findIndex(l=>lab.test(l));
+    if(i !== -1){
+      const m = lab.exec(lines[i]), rest = [m[3], ...lines.slice(i+1)].filter(x=>x && x.trim()).join('\n').trim();
+      sections.assessment = lines.slice(0, i).join('\n').trim();
+      const k = m[1] ? 'treatment' : 'pathway';
+      if(!sections[k]) sections[k] = rest;
+      else sections[k] = [rest, sections[k]].filter(Boolean).join('\n');
+    }
+  }
+  /* If "Reason / History:" wasn't found with that exact wording, whatever text precedes the first header that WAS
+     found is still almost always the history/reason content — capture it rather than silently losing it. If no
+     headers matched at all, treat the whole note as history. */
   if(!sections.reasonHistory){
     const leadingEnd = found.length ? found[0].start : text.length;
     let leading = text.slice(0, leadingEnd);
@@ -1155,39 +1167,46 @@ function parseNoteSections(text){
     pathway: sections.pathway || ''
   };
 }
+/* ---------- Assessment: previous note -> problem list ----------
+   The tool writes the Assessment as a NUMBERED list, one problem per number:
+       1. FURI — DDx: FHV-1 vs FCV vs Chlamydophila vs Mycoplasma vs others.
+       2. Ocular discharge bilaterally — DDx: conjunctivitis vs secondary to FURI vs others.
+   Coming back in, the NUMBERS are what decide where one problem ends and the next begins: every line that is not
+   numbered belongs to the problem above it (so a wrapped line, a new paragraph or a long "vs x vs y vs z" chain can
+   never turn into a problem of its own). Notes with no numbers at all (older notes, notes typed by hand) fall back to
+   "one problem per line", joining lines that clearly carry on. */
+const ASSESS_NUM_RE = /^\(?(\d{1,2})[.)]\s+/;          // "1. " / "2) " / "(3) " — needs a space, so "2.5 kg" is not a number
+const ASSESS_NOTES_RE = /^\s*(additional\s+(assessment\s+)?notes?)\s*:/i;
+const ASSESS_HEADER_RE = /^\s*(?:Assessment|Treatment|Medications?)(?:\s*\/\s*Fees)?\s*:?\s*$|^\s*(?:Pathway|Plan)(?:\s*\/\s*Plan)?(?:\s*\/\s*Waivers)?\s*:?\s*$/i;
 function splitAssessmentLines(text){
-  const rawLines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean);
-  /* One problem per line is the convention, but Excel's cell-text wrap can
-     still break a single problem's sentence across two lines mid-word
-     (e.g. "...post major" / "dental site healing well." landing on
-     consecutive lines). Only treat a line as an unfinished, wrapped
-     sentence — and rejoin it with the next line — when BOTH: the line
-     doesn't end in terminal punctuation, AND the next line starts
-     lowercase (wrapped text resumes mid-clause, it doesn't start a new
-     capitalised sentence). Terse-but-complete lines like "Suspected URTI"
-     or "Mild SS noted" don't end in punctuation either, but the next line
-     starting with a capital confirms they're already a whole statement —
-     without that second check this used to swallow separate problems
-     into one. */
+  let rawLines = (text||'').split('\n').map(l=>l.trim()).filter(Boolean).filter(l=>!ASSESS_HEADER_RE.test(l));
+  // "Additional notes: ..." (the free-text box under the list) and anything after it is not a problem
+  const ni = rawLines.findIndex(l=>ASSESS_NOTES_RE.test(l));
+  if(ni !== -1) rawLines = rawLines.slice(0, ni);
+  const numbered = rawLines.some(l=>ASSESS_NUM_RE.test(l));
   const merged = [];
-  rawLines.forEach(line=>{
-    const prev = merged.length ? merged[merged.length-1] : null;
-    const prevIncomplete = prev!=null && !/[.!?:;]$/.test(prev);
-    const continuesLowercase = /^[a-z]/.test(line);
-    /* 2026-10-26: a problem's DDx often wraps onto the next line(s) ("... — resolved —" / "DDx: FHV-1 vs feline
-       calicivirus vs" / "Chlamydophila felis vs ..."), and each wrapped piece used to become its own problem.
-       A line also continues the one before when that one ends mid-thought (a dangling dash, colon after DDx, or
-       "vs"/"or"), or when it is itself the DDx. */
-    const prevDangling = prev!=null && (/[—–-]$/.test(prev) || /\bDDx\s*:?$/i.test(prev) || /\b(vs|v|or|and|with|secondary to)$/i.test(prev));
-    if(prev!=null && (prevDangling || /^DDx\b/i.test(line) || (prevIncomplete && continuesLowercase))){
-      merged[merged.length-1] = prev + ' ' + line;
-    } else {
-      merged.push(line);
-    }
-  });
-  return merged.map(l=>
-    l.replace(/^\(?\d+[.)]\)?\.?\s*/, '').replace(/^[-•]\s*/, '').trim()
-  ).filter(Boolean);
+  if(numbered){
+    rawLines.forEach(line=>{
+      if(ASSESS_NUM_RE.test(line) || !merged.length) merged.push(line.replace(ASSESS_NUM_RE, ''));
+      else merged[merged.length-1] += ' ' + line;
+    });
+  } else {
+    rawLines.forEach(line=>{
+      const prev = merged.length ? merged[merged.length-1] : null;
+      const prevIncomplete = prev!=null && !/[.!?:;]$/.test(prev);
+      const continuesLowercase = /^[a-z]/.test(line);
+      /* A problem's DDx often wraps onto the next line(s) ("... — resolved —" / "DDx: FHV-1 vs feline calicivirus vs" /
+         "Chlamydophila felis vs ..."). A line continues the one before when that one ends mid-thought (a dangling dash,
+         "DDx:" or "vs"/"or"), when it is itself the DDx, or when it carries on in lower case after an unfinished line. */
+      const prevDangling = prev!=null && (/[—–-]$/.test(prev) || /\bDDx\s*:?$/i.test(prev) || /\b(vs|v|or|and|with|secondary to)$/i.test(prev));
+      if(prev!=null && (prevDangling || /^(DDx|differentials?)\b/i.test(line) || (prevIncomplete && continuesLowercase))){
+        merged[merged.length-1] = prev + ' ' + line;
+      } else {
+        merged.push(line.replace(/^[-•]\s*/, ''));
+      }
+    });
+  }
+  return merged.map(l=>l.trim()).filter(Boolean);
 }
 /* Vet sign-off initials (e.g. "ADL") appear as a short standalone token,
    usually the very last line of the note, after the Plan text — drop them
@@ -1236,19 +1255,29 @@ const MEDICATION_KEYWORDS = [
 ];
 const MEDICATION_RE = new RegExp('\\b(' + MEDICATION_KEYWORDS.join('|') + ')\\b', 'i');
 function isMedicationLine(text){ return MEDICATION_RE.test(text||''); }
-/* "problem — DDx: a vs b" -> {text:'problem', ddx:'a vs b'} so the differentials sit in the DDx field of the
-   problem (as typed in this tool), not as a condition of their own. */
+/* "problem — DDx: a vs b" (or "problem: ddx a vs b") -> {text:'problem', ddx:'a vs b'} so the differentials sit in the
+   DDx field of the problem, not as a condition of their own. A trailing "— resolved this visit" (written by this tool
+   when a problem was marked Resolved) is reported as resolved so it is not carried into the next visit. */
 function problemFromLine(line){
-  const m = /^(.*?)[\s—–-]*\bDDx\s*:?\s*(.*)$/i.exec(line);
-  if(!m) return {text: line, ddx: ''};
-  const text = m[1].replace(/[\s—–-]+$/, '').trim(), ddx = m[2].trim();
-  return text ? {text, ddx} : {text: line, ddx: ''};   // a line that is ONLY a DDx stays as it is
+  let l = String(line||'').trim(), resolved = false;
+  const rm = /\s*[—–-]\s*resolved this visit\.?\s*$/i.exec(l);
+  if(rm){ resolved = true; l = l.slice(0, rm.index).trim(); }
+  const m = /^(.*?)[\s:—–-]*\b(?:DDx|differentials?)\b\s*:?\s*(.*)$/i.exec(l);
+  if(!m) return {text: l, ddx: '', resolved};
+  const text = m[1].replace(/[\s:—–-]+$/, '').trim(), ddx = m[2].trim();
+  return text ? {text, ddx, resolved} : {text: l, ddx: '', resolved};   // a line that is ONLY a DDx stays as it is
 }
 function splitAssessmentAndMeds(assessmentText){
   const lines = splitAssessmentLines(assessmentText);
   const assessmentLines = [], medLines = [];
-  lines.forEach(l=> (isMedicationLine(l) ? medLines : assessmentLines).push(l));
-  return {assessmentLines, medLines};
+  let resolvedDropped = 0;
+  lines.forEach(l=>{
+    const p = problemFromLine(l);
+    if(p.resolved){ resolvedDropped++; return; }          // resolved at the last visit: no longer a problem (the full old note stays under Previous consult)
+    // only the problem itself decides this — a drug named inside the DDx must not pull the whole problem out of Assessment
+    (isMedicationLine(p.text) ? medLines : assessmentLines).push(l);
+  });
+  return {assessmentLines, medLines, resolvedDropped};
 }
 
 /* ---------- init top bar ---------- */
@@ -2551,11 +2580,11 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Assessment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Carried forward from the last note. Conditions that can resolve are flagged — mark Ongoing or Resolved.</p>
     <div id="assessList">`;
-  a.assessment.forEach(p=>{
+  a.assessment.forEach((p,i)=>{
     const undecided = p.matched && p.resolved===null;
     h += `<div class="ddx-problem" data-probid="${esc(p.id)}" style="${undecided?'border:2px solid var(--amber);':''}">
       <div class="ddx-problem-head">
-        <b><span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
+        <b>${i+1}. <span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
         <span class="ddx-problem-actions">
           <button type="button" class="btn small secondary" data-editassess="${esc(p.id)}">Edit</button>
           <button type="button" class="btn small rust" data-delassess="${esc(p.id)}">Remove</button>
@@ -2854,20 +2883,16 @@ function assembleNote(a){
   const assessLines = [];
   if(!a.assessment.length){
     assessLines.push('-');
-  } else if(a.assessment.length===1){
-    const p = a.assessment[0];
-    const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
-    assessLines.push(p.resolved===true ? `${line} — resolved this visit` : line);
   } else {
-    // Her fix: number each condition (1. 2. 3. ...) when there's more than
-    // one, so a pasted/printed note reads as clearly separate problems
-    // instead of running together as one block of text.
+    // Every problem is numbered (1. 2. 3. ...), even when there is only one: the numbers are what the next visit's
+    // import uses to keep each problem and its DDx together (see splitAssessmentLines).
     a.assessment.forEach((p,i)=>{
       const line = p.ddx ? `${p.text} — DDx: ${p.ddx}` : p.text;
       assessLines.push(`${i+1}. ${line}${p.resolved===true ? ' — resolved this visit' : ''}`);
     });
   }
-  if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push(reflowFreeText(a.assessmentNotes.trim()));
+  // labelled, so the next import knows it is a free note and not another problem
+  if(a.assessmentNotes && a.assessmentNotes.trim()) assessLines.push('Additional notes: ' + reflowFreeText(a.assessmentNotes.trim()));
   L.push(assessLines.join('\n'));
   L.push('');
   L.push('Treatment / Fees:');
