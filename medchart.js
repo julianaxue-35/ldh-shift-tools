@@ -119,11 +119,14 @@
     return null;
   }
 
+  // "ongoing" with no number of days is charted for 14 days (the length of the chart)
+  var ONGOING_DAYS = 14;
   function detectDays(text) {
     var m = text.match(/(?:\bfor\b|\bx\b|\u00d7|\bover\b)\s*(\d+)\s*days?\b/i);
     if (m) return parseInt(m[1], 10);
     var w = text.match(/(?:\bfor\b|\bx\b|\u00d7|\bover\b)\s*(\d+)\s*weeks?\b/i);
-    return w ? parseInt(w[1], 10) * 7 : null;
+    if (w) return parseInt(w[1], 10) * 7;
+    return /\bongoing\b|\bon-going\b/i.test(text) ? ONGOING_DAYS : null;
   }
 
   // Matches "250mg", "1200mcg", or a compound concentration like
@@ -304,6 +307,8 @@
       // Meloxicam is ALWAYS once daily at LDH: whatever the line says, it is charted once daily
       var meloxWarn = '';
       if (drug && drug.key === 'meloxicam' && species !== 'rabbit') { if (freq === 'BID') meloxWarn = 'Meloxicam is once daily only: set to once daily'; freq = 'SID'; }
+      // Fluoxetine is ALWAYS once daily too (no rabbit exception)
+      if (drug && drug.key === 'fluoxetine') { if (freq === 'BID') meloxWarn = 'Fluoxetine is once daily only: set to once daily'; freq = 'SID'; }
       var route = detectRoute(line, drug);
       var days = detectDays(line);
       var doseText = detectDoseText(parts.tail) || detectDoseText(line);
@@ -955,11 +960,12 @@
 
   // Meloxicam is once daily only: whatever reached the chart (typed, edited, or a draft changed by hand), it is saved once daily
   function isMeloxicam(m) { return m.drugKey === 'meloxicam' || /\bmeloxicam\b|\bmetacam\b/i.test(m.drugLabel || ''); }
+  function isFluoxetine(m) { return m.drugKey === 'fluoxetine' || /\bfluoxetine\b|\bprozac\b/i.test(m.drugLabel || ''); }
   // (rabbits are the one exception: the Surgery tool gives them oral meloxicam twice daily on purpose)
   function enforceMeloxicamOnceDaily(chart) {
-    if (chart.species === 'rabbit') return;
     (chart.meds || []).forEach(function (m) {
-      if (!isMeloxicam(m) || m.freq === 'SID') return;
+      if (chart.species === 'rabbit' && !isFluoxetine(m)) return;
+      if (!(isMeloxicam(m) || isFluoxetine(m)) || m.freq === 'SID') return;
       m.freq = 'SID';
       if (m.labelEdited && m.labelText) m.labelText = m.labelText.replace(/twice\s+daily|\bBID\b/gi, 'once daily');
       else m.labelText = buildLabelSentence(m, chart.createdAt, chart.startOption);
