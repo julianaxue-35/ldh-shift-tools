@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-26.6';
+const APP_VERSION = '2026-10-27.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2216,8 +2216,8 @@ function chartDraftHtml(a, draft, planText){
     </div>`;
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-    <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small" id="saveChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart</button>
+    <button type="button" class="btn small" id="saveSendChartBtn" style="background:var(--teal,#1f7a4d);color:#fff">Save chart &amp; send to nurse</button>
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
   </div></div>`;
   return h;
