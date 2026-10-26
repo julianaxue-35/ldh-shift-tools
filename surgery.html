@@ -280,6 +280,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <button type="button" data-tab="faq">FAQ</button>
   </div>
 </header>
+<div id="aaRedBar" class="hidden" role="alert" style="position:sticky;top:0;z-index:50;background:#b3261e;color:#fff;padding:10px 14px;font-size:14px;font-weight:600"></div>
 <div id="smBanner" role="alert" style="display:none;position:sticky;top:0;z-index:50;background:#b3261e;color:#fff;padding:10px 14px;font-weight:700;font-size:14px;text-align:center"></div>
 
 <div class="wrap tab-panel" id="tabShift">
@@ -337,6 +338,17 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <h2 style="margin:0">Completed (<span id="completedCount">0</span> registered to Word &amp; Excel)</h2>
       <button class="btn small secondary" id="clearCompletedTabBtn">Clear exported</button>
     </div>
+    <div class="card" id="aaShareCard" style="margin:10px 0">
+      <label style="display:flex;gap:10px;align-items:center;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="aaShareToggle" style="width:20px;height:20px">
+        Share this shift with Admission AA
+      </label>
+      <p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;line-height:1.5">While this is on, each animal you register is sent to the Admission AA to enter in ShelterMate. Finish the notes <b>before</b> you register. Off = nothing is sent. When the Admission AA has entered it, the animal shows <b>Entered in ShelterMate</b> here by itself; anything they have not entered still needs you to tick it off.</p>
+      <p id="aaShareSummary" style="font-size:13px;margin:8px 0 0"></p>
+      <div id="aaShareList"></div>
+      <div class="row-actions hidden" id="aaResendRow"><button class="btn small" id="aaResendAll">Resend all</button></div>
+      <div class="row-actions" style="margin-top:8px"><button class="btn small secondary" id="aaCheckBtn">Check what the AA has entered</button></div>
+    </div>
     <input class="plain" id="completedSearchBox" type="search" placeholder="Search by ID…" style="width:100%;margin:10px 0">
     <div id="completedList"></div>
   </div>
@@ -379,7 +391,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 
     <details class="faq-item">
       <summary>Is there a &ldquo;Send to Admission AA&rdquo; option in Surgery?</summary>
-      <div class="a">No. Surgery notes do not go to the Admission AA from this tool. At the end of the day, export the notes and send them to the surgery nurses (see <b>End of day</b> below), and tick each one <b>Entered on ShelterMate</b> once it is in. The <b>Share this shift with Admission AA</b> switch (with the Sent / Entered badges) is in <b>Sick &amp; Injured</b> and <b>Processing</b>.</div>
+      <div class="a">Yes. On the <b>Completed</b> tab, turn on <b>Share this shift with Admission AA</b>. Each animal you register is then sent to the Admission AA (note plus a Word file) to enter in ShelterMate. Finish the notes <b>before</b> you press Register. Each completed animal shows <b>Sent to AA</b>, then <b>Entered in ShelterMate</b> once the Admission AA has done it. If the notes change after sending they are marked <b>NOT SENT</b> with a Resend button. Anything the Admission AA has not entered by the end of the day still shows the red <b>Entered on ShelterMate</b> reminder, so the surgery nurse can enter it and tick it off.</div>
     </details>
     <details class="faq-item">
       <summary>What syncs, and how do I know it has?</summary>
@@ -530,6 +542,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 </div>
 
 <!-- EXAM MODAL -->
+<div id="monBar" class="hidden" role="tablist" aria-label="Animals under anaesthetic" style="position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--card);border-top:2px solid var(--teal-dark);box-shadow:0 -2px 10px rgba(0,0,0,.18);padding:6px 8px;display:flex;gap:6px;overflow-x:auto"></div>
 <div id="examModal" class="hidden" style="position:fixed;inset:0;background:var(--paper);overflow-y:auto;z-index:100">
   <div class="wrap" style="padding-top:0">
     <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);flex-wrap:wrap">
@@ -630,7 +643,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-26.1';
+const APP_VERSION = '2026-10-27.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -760,12 +773,19 @@ function formatRecheckDate(dateStr){
    saw. An animal with no stamp yet (new today, or the vet had not typed initials) uses whoever is signed in. */
 function stampAuthor(a){
   if(!a.vetBy){ let v = ''; try{ v = (localStorage.getItem(LS_INIT)||'').trim(); }catch(e){} a.vetBy = v; }   // loaded from last night: the saved initials are still the previous vet's
-  if(a.nurseBy == null) a.nurseBy = '-';   // '-' = nurse unknown (they are not saved between days)
+  if(a.nurseBy == null){   // '-' = nurse unknown (they are not saved between days)
+    let n = ''; try{ const o = JSON.parse(localStorage.getItem('ldh_surgery_nurseinit_v1')||'null'); if(o && o.v && o.d === shareTodayKey()) n = o.v; }catch(e){}
+    a.nurseBy = n || '-';   // a new animal gets today's nurse straight away
+  }
 }
 function vetOf(a){ return (a && a.vetBy) || vetInitEl.value; }
 function nurseOf(a){ return !a || !a.nurseBy ? nurseInitEl.value : (a.nurseBy === '-' ? '' : a.nurseBy); }
 function stampNewAuthors(list){
-  (list||[]).forEach(a=>{ if(!a.vetBy && vetInitEl.value.trim()) a.vetBy = vetInitEl.value.trim(); if(!a.nurseBy && nurseInitEl.value.trim()) a.nurseBy = nurseInitEl.value.trim(); });
+  /* '-' (nurse unknown when the animal was first loaded) is upgraded to today's nurse only while the list is TODAY's, so the
+     start-of-day nurse initials reach animals loaded/imported before they were typed, but never yesterday's animals. */
+  let today = false; try{ today = localStorage.getItem(LS_SHIFT_DATE) === todayStr() || !localStorage.getItem(LS_SHIFT_DATE); }catch(e){}
+  const n = nurseInitEl.value.trim();
+  (list||[]).forEach(a=>{ if(!a.vetBy && vetInitEl.value.trim()) a.vetBy = vetInitEl.value.trim(); if(n && (!a.nurseBy || (a.nurseBy === '-' && today))) a.nurseBy = n; });
 }
 function normalizeAnimal(a){
   stampAuthor(a);
@@ -796,7 +816,7 @@ function normalizeAnimal(a){
     vaccGiven:false, fivDone:false, fivResult:'', dogPremedRate:'',
     meloxOral:false, meloxTiming:'AM',
     microchipNum:'9560000', ivcGauge:'22G', etTubeSize:'', alfaxPreMl:'', alfaxIntraMl:'',
-    rehomingPathway:'', notSuitableReason:'', paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
+    rehomingPathway:'', notSuitableReason:'', holdReason:'', aaPriority:false, paperworkBy:'', vetChatNeeded:'', indemnitiesList:'',
     pathway:'',
     noteEdited:null, registered:false,
     bhSentAt:null, bhSig:null, bhErr:''   // Send to Behaviour: when a send was confirmed, fingerprint of the note sent, last refusal
@@ -813,6 +833,7 @@ function normalizeAnimal(a){
   if(!a.ticks || typeof a.ticks!=='object') a.ticks = {};
   if(!a.hcNotExaminedFields || typeof a.hcNotExaminedFields!=='object') a.hcNotExaminedFields = {};
   if(!Array.isArray(a.vitals)) a.vitals = [];
+  if(!Array.isArray(a.preMeds)) a.preMeds = [];   // extra pre-op medications / premed top-ups: [{id, drug, time}]
   if(!Array.isArray(a.intraMeds)) a.intraMeds = [];   // other medications given during surgery: [{id, drug, time}]
   if(!Array.isArray(a.postopVitals)) a.postopVitals = [];
   if(!Array.isArray(a.customTicks)) a.customTicks = [];
@@ -1647,11 +1668,15 @@ function etSizesFor(a){ return a.species==='cat' ? ET_SIZES_CAT : a.species==='d
 function ivcOptionsFor(a){
   const opts = [['22G','22G (blue)'],['24G','24G (yellow)']];
   if(isRabbit(a)) return [['25G','25G']].concat(opts);
+  if(a.species==='cat') return opts.concat([['25G','25G (orange)']]);   // kittens
   return a.species==='dog' ? [['20G','20G (pink)']].concat(opts) : opts;
 }
 // Booking-sheet "Tasks" shorthand -> structured needs + extra checks
 function parseTasks(text){
-  const t = (text||'').toLowerCase();
+  // "recheck ortho", "re-check abdo", "check ortho" are read the same as "R/C ortho" (wound recheck keeps its own rule)
+  const t = (text||'').toLowerCase()
+    .replace(/(wound\s*)?\bre-?check\s+/g, (m,w)=> w ? m : 'r/c ')
+    .replace(/\bcheck\s+(?=ortho|abdo)/g, 'r/c ');
   const needs = {flea:false, worm:false, vacc:false, fiv:false, chip:false, hc:false, bloods:false};
   const extras = [];
   if(/\bm\/c\b|microchip/.test(t)) needs.chip = true;
@@ -1676,6 +1701,13 @@ function parseTasks(text){
   // the moment it hit a digit since the word-chain only ever allowed letters).
   (t.match(/r\/c\s+[a-z0-9]+(?:[\/\s][a-z0-9]+)*/g)||[]).forEach(m=>{
     const area = m.replace(/^r\/c\s+/,'');
+    const parts = area.split(/[\/\s]+/);
+    if(parts.some(x=>x==='ortho' || x==='abdo')){   // "abdo/ortho/neuro": each area gets its own recheck
+      if(parts.includes('ortho') && !extras.includes('Recheck — orthopaedic / MSK exam')) extras.push('Recheck — orthopaedic / MSK exam');
+      if(parts.includes('abdo') && !extras.includes('Recheck — abdominal palpation')) extras.push('Recheck — abdominal palpation');
+      parts.filter(x=>x!=='ortho' && x!=='abdo').forEach(x=>extras.push('Recheck — '+x));
+      return;
+    }
     if(area==='ortho' || area==='abdo') return;
     extras.push('Recheck — '+area);
   });
@@ -2026,6 +2058,23 @@ function customTickHtml(ct){
     <button type="button" data-delcustomtick="${ct.id}" style="position:absolute;top:4px;right:4px;border:none;background:none;color:var(--rust);font-weight:700;cursor:pointer;font-size:15px;line-height:1;padding:2px 6px">&times;</button>
   </div>`;
 }
+function premedTopupName(a){
+  const route = isPremix(a) ? premixRoute(a) : a.premedType==='mmm' ? mmmRoute(a) : a.premedType==='standard' && a.species==='dog' ? (a.dogPremedRoute||'') : (a.premedType==='standard' && !isRabbit(a)) ? 'IM' : '';
+  let n = isPremix(a) || (a.premedType==='standard' && a.species==='dog') ? 'Medetomidine + methadone premix'
+    : a.premedType==='mmm' ? 'Methadone + midazolam + medetomidine'
+    : a.premedType==='standard' && isRabbit(a) ? 'Medetomidine + ketamine + buprenorphine'
+    : a.premedType==='standard' ? 'ZMD' : ((a.premedOther||'').trim() || 'Premed');
+  return 'Premed top-up: ' + n + (route ? ' ' + route : '');
+}
+function formatBp(raw){
+  const t = String(raw||'').match(/\d+/g) || [];
+  if(!t.length) return '';
+  const sep = /\D$/.test(raw);
+  if(t.length === 1) return sep ? t[0]+'/' : t[0];
+  const sd = t[0]+'/'+t[1];
+  if(t.length === 2) return sep ? sd+' (' : sd;
+  return sd+' ('+t.slice(2).join('')+')';   // digits typed after the bracket closed stay in the MAP
+}
 function vitalsRowHtml(v){
   const spo2Mode = v.spo2Mode || (v.spo2 && v.spo2!=='>98%' ? 'other' : 'default');
   return `<tr data-vitalid="${v.id}">
@@ -2043,7 +2092,7 @@ function vitalsRowHtml(v){
     <td data-label="O2 L/min"><input type="text" class="plain" data-vfield="o2" data-vid="${v.id}" value="${esc(v.o2)}" style="width:60px" placeholder="4"></td>
     <td data-label="Temp °C"><input type="text" class="plain" data-vfield="temp" data-vid="${v.id}" value="${esc(v.temp)}" style="width:56px"></td>
     <td data-label="ETCO2"><input type="text" class="plain" data-vfield="etco2" data-vid="${v.id}" value="${esc(v.etco2)}" style="width:56px"></td>
-    <td data-label="BP"><input type="text" class="plain" data-vfield="bp" data-vid="${v.id}" value="${esc(v.bp)}" placeholder="sys/dia MAP" style="width:100px"></td>
+    <td data-label="BP"><input type="text" class="plain" data-vfield="bp" data-vid="${v.id}" value="${esc(v.bp)}" placeholder="110 70 85" style="width:100px"></td>
     <td data-label=""><button type="button" class="btn small rust" data-delvital="${v.id}" aria-label="Remove reading" title="Remove reading">×</button></td>
   </tr>`;
 }
@@ -2271,8 +2320,8 @@ function downloadBookingTemplate(){
     ['  HC / FULL PE','Health check (full physical exam) under GA needed'],
     ['  bloods','Blood test needed before premed (chem 17 + CBC, + TT4 for cats)'],
     ['  flea / worm','Flea treatment / worming needed'],
-    ['  R/C ortho','Recheck orthopaedic / MSK exam needed'],
-    ['  R/C abdo','Recheck abdominal palpation needed'],
+    ['  R/C ortho / check ortho / recheck ortho','Recheck orthopaedic / MSK exam needed'],
+    ['  R/C abdo / check abdo / recheck abdo','Recheck abdominal palpation needed'],
     ['  wound recheck','Wound recheck needed'],
     ['  any tx','Flea, worming and vaccination all needed'],
     ['  HAS IP','Already has an interested party / adopter lined up'],
@@ -2562,7 +2611,9 @@ function onMedBannerHtml(a, compact){
     ${compact ? '' : `<div style="font-size:11px;font-weight:400;text-transform:none;margin-top:2px">${charted.length ? 'Includes medication from this animal\'s registered chart. ' : ''}Change the details on the Shift list.</div>`}</div>`;
 }
 /* ---------- Entered on ShelterMate (2026-10-22): a completed note is not finished until it is in ShelterMate ---------- */
-function smPending(){ return state.animals.filter(a=> a.registered && !a.smEntered); }
+// Entered = ticked by hand OR confirmed by the Admission AA (their tick shows up through the read-back below).
+const smDone = a => !!(a.smEntered || a.aaEnteredAt);
+function smPending(){ return state.animals.filter(a=> a.registered && !smDone(a)); }
 function renderSmBanner(){
   const el = document.getElementById('smBanner'); if(!el) return;
   const p = smPending();
@@ -2574,7 +2625,7 @@ function renderSmBanner(){
   document.getElementById('smGoBtn').addEventListener('click', ()=> showTab('completed'));
 }
 function smWarnText(list){
-  const p = (list||state.animals).filter(a=> a.registered && !a.smEntered);
+  const p = (list||state.animals).filter(a=> a.registered && !smDone(a));
   return p.length ? `\n\n\u26A0 ${p.length} of these ${p.length===1?'has':'have'} NOT been entered on ShelterMate yet (${p.map(a=>a.animalId||'(no ID)').join(', ')}). Enter ${p.length===1?'it':'them'} first.` : '';
 }
 function groupedListHtml(animals, opts){
@@ -2602,7 +2653,7 @@ function groupedListHtml(animals, opts){
         </div>
         <div>
           <span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
-          ${opts.sm && a.registered ? (a.smEntered ? `<button class="btn small secondary" data-smundo="${a.id}" title="Tap to undo">\u2713 On ShelterMate</button>` : `<button class="btn small" data-smdone="${a.id}" style="background:#b3261e;color:#fff">Entered on ShelterMate</button>`) : ''}
+          ${opts.sm && a.registered ? aaBadgeHtml(a) + (a.smEntered ? `<button class="btn small secondary" data-smundo="${a.id}" title="Tap to undo">\u2713 On ShelterMate</button>` : a.aaEnteredAt ? '' : `<button class="btn small" data-smdone="${a.id}" style="background:#b3261e;color:#fff">Entered on ShelterMate</button>`) : ''}
           ${opts.allowNext && !a.registered ? `<button class="btn small ${a.nextUp?'':'secondary'}" data-nextup="${a.id}">${a.nextUp?'✓ Next — tap to unmark':'Mark next'}</button>` : ''}
           ${BehaviourSend.buttonHtml(a, bhSigText(a))}
           <button class="btn small secondary" data-open="${a.id}">Exam</button>
@@ -2618,6 +2669,145 @@ function groupedListHtml(animals, opts){
 const bhNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
 // The fingerprint ignores the Date/Vet/Nurse line and closing initials, so a nurse change or midnight is not an "edit".
 const bhSigText = a => AAShare.normalize(bhNoteOf(a), [vetInitEl.value, nurseInitEl.value, vetOf(a), nurseOf(a)]);
+/* ---------- Share with Admission AA (2026-10-27): same as Processing / Sick & Injured ---------- */
+/* ---------- Anaesthetic monitoring tabs (2026-10-27) ----------
+   A bar along the bottom with one tab for each animal that has had its premed and is not yet finished (no surgery end time,
+   not registered). Tap a tab to jump straight to that animal's vital signs; tap the open animal's tab again to minimise back
+   to the list. Each tab shows the minutes since the last recorded reading (amber at 5, red at 10). */
+function monActive(){ return state.animals.filter(a=> !a.registered && !a.surgEnd && a.ticks && (()=>{ const d = premedTickDef(a); const t = d && a.ticks[d.key]; return t && t.done; })()); }
+function monMinsSince(a){
+  const v = (a.vitals||[]).filter(x=>/^\d{1,2}:\d{2}/.test(x.time||'')).slice(-1)[0];
+  if(!v) return null;
+  const [h,m] = v.time.split(':').map(Number), now = new Date(), t = new Date(); t.setHours(h, m, 0, 0);
+  let d = Math.round((now - t) / 60000); if(d < 0) d += 1440;
+  return d;
+}
+function renderMonBar(){
+  const bar = document.getElementById('monBar'); if(!bar) return;
+  const act = monActive();
+  document.body.style.paddingBottom = act.length ? '58px' : '';
+  if(!act.length){ bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+  bar.classList.remove('hidden');
+  bar.innerHTML = act.map(a=>{
+    const m = monMinsSince(a), open = state.openId === a.id && !document.getElementById('examModal').classList.contains('hidden');
+    const col = m == null ? '#8a5a00' : m >= 10 ? '#b3261e' : m >= 5 ? '#c77d00' : 'var(--teal-dark)';
+    return `<button type="button" class="btn small ${open ? '' : 'secondary'}" data-montab="${esc(a.id)}" role="tab" aria-selected="${open}" style="flex:0 0 auto;white-space:nowrap;border:2px solid ${col};${open ? '' : 'background:var(--card);'}">
+      <b>${esc(a.animalId||'(no ID)')}</b> <span style="color:${open ? '#fff' : col};font-weight:700">${m == null ? 'no readings' : m + ' min'}</span></button>`;
+  }).join('');
+}
+document.getElementById('monBar').addEventListener('click', e=>{
+  const b = e.target.closest('[data-montab]'); if(!b) return;
+  const id = b.dataset.montab, visible = !document.getElementById('examModal').classList.contains('hidden');
+  if(visible && state.openId === id){ document.getElementById('closeExamBtn').click(); return; }   // minimise
+  openExam(id);
+  const sec = document.getElementById('sec-intra'); if(sec) sec.open = true;
+  setTimeout(()=>{ const t = document.querySelector('#examBody table.vitals'); if(t) t.scrollIntoView({block:'center'}); }, 60);
+});
+setInterval(renderMonBar, 20000);
+const AA_TOOL = 'surgery', AA_KIND = 'surgery_note';
+// The fingerprint ignores the Date/Vet/Nurse line and closing initials, so a nurse change or midnight is not an "edit".
+// The Paperwork-by line is filled in by the Admission AA's initials afterwards, so it is not an edit; a priority tick is.
+const aaSigText = a => (a.aaPriority ? '[PRIORITY]\n' : '') + AAShare.normalize(bhNoteOf(a).replace(/^Paperwork by:.*$/m, ''), [vetInitEl.value, nurseInitEl.value, vetOf(a), nurseOf(a)]);
+const aaSending = new Set();
+function aaFileToB64(file){
+  return new Promise((res, rej)=>{ const r = new FileReader(); r.onload = ()=>res(String(r.result).split(',')[1] || ''); r.onerror = ()=>rej(r.error); r.readAsDataURL(file); });
+}
+async function aaSendAnimal(a){
+  if(aaSending.has(a.id)) return;
+  const idNow = String(a.animalId || '').trim();
+  if(a.aaSentId && idNow && a.aaSentId.toUpperCase() !== idNow.toUpperCase()){
+    if(!confirm(`Notes for ${a.aaSentId} were already sent to the Admission AA. Sending under ${idNow} adds a NEW card, and the old ${a.aaSentId} card stays until the Admission AA removes it.\n\nSend as ${idNow}?`)) return;
+  }
+  aaSending.add(a.id);
+  renderAaShare();
+  try{
+    const noteText = bhNoteOf(a);
+    const sigNow = AAShare.sig(aaSigText(a));
+    let docxB64 = '';
+    try{ const f = await buildWordFile({only:[a]}); if(f) docxB64 = await aaFileToB64(f); }catch(e){ docxB64 = ''; }
+    const body = AAShare.buildBody({kind:AA_KIND, animal:a, noteText, docxB64, sentBy:vetOf(a), priority:!!a.aaPriority, dueMins:60});
+    if(!body) return;
+    if(await AAShare.send(body)){ a.aaSentAt = new Date().toISOString(); a.aaSig = sigNow; a.aaSentId = idNow; a.aaErr = ''; a.aaEnteredAt = ''; saveShift(); }
+    else { a.aaErr = AAShare.lastError(); }
+  } finally { aaSending.delete(a.id); renderAaShare(); renderShiftList(); }
+}
+function aaAfterRegister(a){ if(AAShare.isOn(AA_TOOL) && a && a.registered) aaSendAnimal(a); }
+function aaSendPending(){ AAShare.needsSend(state.animals, aaSigText).forEach(aaSendAnimal); }
+// Undoing a registration or deleting an animal cannot unsend its card, so say so.
+function aaWarnRetract(a){
+  if(a && a.aaSentAt) alert(`Notes for ${a.animalId || 'this animal'} were already sent to the Admission AA. That card stays on their page: tell them to ignore or remove it.`);
+}
+function aaBadgeHtml(a){
+  const label = AAShare.badge(a, a && a.registered ? aaSigText(a) : '');
+  if(!label || (!AAShare.isOn(AA_TOOL) && !a.aaSentAt)) return '';
+  const good = label === 'Entered in ShelterMate', bad = label === 'NOT SENT' || label === 'No ID';
+  const txt = good ? 'Entered in ShelterMate ✓' : label === 'Sent to AA' ? 'Sent to AA ✓' : label;
+  return `<span class="badge aa-badge" style="${good ? 'background:var(--teal-soft);color:var(--teal-dark)' : bad ? 'background:var(--rust-soft);color:var(--rust)' : 'background:var(--amber-soft);color:#8a5a00'}">${esc(txt)}</span>` +
+    (bad && label === 'NOT SENT' ? ` <button class="btn small aa-resend-btn" data-aaresend="${esc(a.id)}">Resend</button>` : '');
+}
+function renderAaShare(){
+  if(AAShare.isOn(AA_TOOL) && !state.animals.length) AAShare.setOn(AA_TOOL, false);   // an empty list means the shift is over
+  const on = AAShare.isOn(AA_TOOL);
+  const toggle = document.getElementById('aaShareToggle');
+  if(toggle) toggle.checked = on;
+  const bar = document.getElementById('aaRedBar'), list = document.getElementById('aaShareList');
+  const sum = document.getElementById('aaShareSummary'), row = document.getElementById('aaResendRow');
+  if(!bar || !list) return;
+  if(!on){ bar.classList.add('hidden'); list.innerHTML = ''; sum.textContent = ''; row.classList.add('hidden'); return; }
+  const s = AAShare.summary(state.animals, aaSigText);
+  const entered = state.animals.filter(a=>a.registered && AAShare.status(a, aaSigText(a)) === 'sent' && a.aaEnteredAt).length;
+  sum.textContent = `${s.sent} sent` + (s.unsent ? ` · ${s.unsent} not sent` : '') + (entered ? ` · ${entered} entered in ShelterMate` : '');
+  list.innerHTML = state.animals.filter(a=>a.registered).map(a=>({a, st:AAShare.status(a, aaSigText(a))})).filter(x=>x.st !== 'sent').map(({a, st})=>{
+    const label = st === 'noid' ? "no ID, can't send" : st === 'stale' ? 'changed since sent' : ('NOT SENT' + (a.aaErr ? ' — ' + a.aaErr : ''));
+    const busy = aaSending.has(a.id);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line)">
+      <span><b>${esc(a.animalId || '(no ID)')}</b> — ${esc(label)}</span>
+      ${st === 'noid' ? '' : `<button class="btn small aa-resend" data-id="${esc(a.id)}"${busy ? ' disabled' : ''}>${busy ? 'Sending…' : 'Resend'}</button>`}
+    </div>`;
+  }).join('');
+  row.classList.toggle('hidden', !AAShare.needsSend(state.animals, aaSigText).length);
+  if(s.unsent){ bar.textContent = `${s.unsent} note${s.unsent>1?'s':''} not sent to the Admission AA — open Completed to resend.`; bar.classList.remove('hidden'); }
+  else bar.classList.add('hidden');
+}
+function aaGuard(action){
+  if(!AAShare.isOn(AA_TOOL)) return true;
+  const s = AAShare.summary(state.animals, aaSigText);
+  if(!s.unsent) return true;
+  return confirm(`${s.unsent} note(s) have NOT been sent to the Admission AA. ${action} anyway?\n\nCancel to go back and press Resend.`);
+}
+let aaCheckedAt = '';
+async function aaCheckEntered(manual){
+  const sentNotes = state.animals.filter(a=>a.aaSentAt && String(a.aaSentId || a.animalId || '').trim());
+  const pairs = sentNotes.map(a=>({kind:AA_KIND, animal_id:a.aaSentId || a.animalId}));
+  if(!pairs.length){ if(manual) alert('Nothing has been sent to the Admission AA yet.'); return false; }
+  const pending = await AAShare.check(pairs);
+  if(!pending){ if(manual) alert("Couldn't reach the dashboard just now, so nothing has been changed. Try again when you have a connection."); return false; }
+  const now = new Date().toISOString();
+  const n = AAShare.applyCheck(sentNotes, AA_KIND, pending, now, a=>a.aaSentId || a.animalId);
+  aaCheckedAt = now;
+  if(n){ saveShift(); if(state.openId){ const oa = state.animals.find(x=>x.id===state.openId); if(oa) refreshNote(oa); } }
+  renderShiftList(); renderAaShare();
+  return true;
+}
+document.getElementById('aaShareToggle').addEventListener('change', (e)=>{
+  AAShare.setOn(AA_TOOL, e.target.checked);
+  if(e.target.checked) aaSendPending();
+  renderAaShare();
+});
+document.getElementById('aaShareList').addEventListener('click', (e)=>{
+  const b = e.target.closest('.aa-resend'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.id); if(a) aaSendAnimal(a);
+});
+document.addEventListener('click', (e)=>{
+  const b = e.target.closest('[data-aaresend]'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.aaresend); if(a) aaSendAnimal(a);
+});
+document.getElementById('aaResendAll').addEventListener('click', aaSendPending);
+document.getElementById('aaCheckBtn').addEventListener('click', ()=>aaCheckEntered(true));
+// look again when the page is opened and whenever it comes back to the front (the AA ticks things off all day)
+setTimeout(()=>{ if(state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); }, 1500);
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible' && state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); });
+setInterval(()=>{ if(document.visibilityState === 'visible' && state.animals.some(a=>a.aaSentAt)) aaCheckEntered(false); }, 5*60*1000);
 function bindListButtons(){
   [['data-onmed','onMed'],['data-onmedlast','onMedLast']].forEach(([attr, field])=>{
     document.querySelectorAll('['+attr+']').forEach(el=>{
@@ -2643,6 +2833,7 @@ function bindListButtons(){
   }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
+      aaWarnRetract(state.animals.find(a=>a.id===b.dataset.del));
       removeFromDashboard(state.animals.find(a=>a.id===b.dataset.del), 'surgery');
       state.animals = state.animals.filter(a=>a.id!==b.dataset.del);
       saveShift(); renderShiftList();
@@ -2701,6 +2892,8 @@ function renderShiftList(){
     document.getElementById('completedList').innerHTML = '<p style="font-size:13px;color:var(--ink-soft)">No animals added yet.</p>';
     bindListButtons();
     renderSmBanner();
+    renderAaShare();
+    renderMonBar();
     renderBackupList();
     return;
   }
@@ -2719,6 +2912,8 @@ function renderShiftList(){
     : (completedMatches.length ? groupedListHtml(completedMatches, {sm:true}) : '<p style="font-size:13px;color:var(--ink-soft)">No animal matches that ID.</p>');
   bindListButtons();
   renderSmBanner();
+  renderAaShare();
+  renderMonBar();
   renderBackupList();
 }
 function renderBackupList(){
@@ -2758,6 +2953,7 @@ document.getElementById('examSearchBox').addEventListener('input', renderShiftLi
 document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
   const registeredCount = state.animals.filter(a=>a.registered).length;
   if(!registeredCount){ alert('Nothing registered yet to clear.'); return; }
+  if(!aaGuard('Clear')) return;
   if(confirm(`Remove all ${registeredCount} registered animal(s) from the list?${smWarnText()} Only do this once you've actually exported/emailed them — animals still pending in the Shift List are untouched. A backup is kept automatically first, so this can be undone from the Export tab.`)){
     maybeBackupShift(true);
     state.animals = state.animals.filter(a=>!a.registered);
@@ -2766,6 +2962,7 @@ document.getElementById('clearRegisteredBtn').addEventListener('click', ()=>{
 });
 document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!state.animals.length){ alert('The list is already empty.'); return; }
+  if(!aaGuard('Clear')) return;
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list?${smWarnText()} This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
     state.animals = [];
@@ -2989,6 +3186,7 @@ function openExam(id){
   document.getElementById('editToggleBtn').textContent = 'Edit';
   document.getElementById('examModal').classList.remove('hidden');
   document.getElementById('emg-fab').style.display = 'inline-flex';
+  renderMonBar();
 }
 document.getElementById('closeExamBtn').addEventListener('click', ()=>{
   document.getElementById('examModal').classList.add('hidden');
@@ -3327,6 +3525,16 @@ function examFormHtml(a){
         ${a.dogPremedRate==='custom' ? `<div style="margin-top:8px"><label style="font-size:12px">Volume given (mL)</label><br><input class="plain" id="fld_dogPremedMl" type="number" step="0.01" value="${esc(a.dogPremedMl||'')}" style="width:100%"></div>` : (given!=null ? `<p style="font-size:12.5px;margin-top:8px"><b>${given} mL</b> ${esc(a.dogPremedRoute||'')} (${esc(a.dogPremedRate)} mL/kg × ${esc(a.weight)}kg)</p>` : '')}
       </div>`;
     })() : ''}
+    <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><div class="lbl" style="margin-bottom:4px">Other pre-op medications / premed top-up</div>
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Anything given before surgery that is not the premed above. <b>Premed top-up</b> adds a line already named after the premed used — add the amount given and the time. Use Repeat dose for a further top-up.</p>
+    ${a.preMeds.map(m=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <input class="plain" data-pmfield="drug" data-pmid="${esc(m.id)}" value="${esc(m.drug||'')}" placeholder="e.g. Cefazolin 22mg/kg (0.4mL) IV" style="flex:1 1 220px;min-width:180px">
+      <input class="plain" type="time" data-pmfield="time" data-pmid="${esc(m.id)}" value="${esc(m.time||'')}" style="width:110px" aria-label="Time given">
+      <button type="button" class="btn small secondary" data-pmrepeat="${esc(m.id)}" title="Add another dose of the same medication, timed now">Repeat dose</button>
+      <button type="button" class="btn small rust" data-pmdel="${esc(m.id)}" aria-label="Remove medication">&times;</button>
+    </div>`).join('')}
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn small secondary" id="addPreMedBtn">+ Add medication</button>
+    <button type="button" class="btn small secondary" id="addPremedTopupBtn">+ Premed top-up</button></div></div>
   </div>`;
 
   if(isRabbit(a)){
@@ -3605,7 +3813,9 @@ function examFormHtml(a){
     <div class="opts">
       <button type="button" class="opt-btn ${a.rehomingPathway==='suitable'?'selected':''}" data-rehoming="suitable">Suitable for rehoming</button>
       <button type="button" class="opt-btn ${a.rehomingPathway==='not-suitable'?'selected abn':''}" data-rehoming="not-suitable">Not suitable for rehoming</button>
+      <button type="button" class="opt-btn ${a.rehomingPathway==='hold'?'selected abn':''}" data-rehoming="hold">Hold intervention</button>
     </div>
+    ${a.rehomingPathway==='hold' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason (optional)</label><br><input class="plain" id="fld_holdReason" value="${esc(a.holdReason||'')}" style="width:100%"></div>` : ''}
     ${a.rehomingPathway==='not-suitable' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason</label><br><input class="plain" id="fld_notSuitableReason" value="${esc(a.notSuitableReason||'')}" style="width:100%"></div>` : ''}
   </div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Paperwork by (usually the surgery nurse on the day)</label><br><input class="plain" id="fld_paperworkBy" value="${esc(a.paperworkBy||'')}" placeholder="Surgery nurse initials" style="width:100%"></div>`;
@@ -3624,6 +3834,8 @@ function examFormHtml(a){
 
   h += `</div></details>`;
 
+  h += `<div class="pe-field"><label style="display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;color:${a.aaPriority?'var(--rust)':'inherit'}"><input type="checkbox" id="fld_aaPriority" ${a.aaPriority?'checked':''} style="width:20px;height:20px"> Add as a priority for the Admission AA (to be done within 30&ndash;60 minutes)</label>
+    <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Only matters when <b>Share this shift with Admission AA</b> is on (Completed tab): the note then shows at the top of the Admission AA&rsquo;s Surgery notes, marked priority.</p></div>`;
   h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>`;
   return h;
 }
@@ -3755,7 +3967,7 @@ function bindExamForm(a){
   bindChange('fld_isoNotes','isoNotes'); bindChange('fld_surgNotes','surgNotes'); bindChange('fld_surgComment','surgComment');
   bindChange('fld_buprenorphineRoute','buprenorphineRoute');
   bindChange('fld_recoveryNotes','recoveryNotes');
-  bindChange('fld_notSuitableReason','notSuitableReason'); bindChange('fld_paperworkBy','paperworkBy');
+  bindChange('fld_notSuitableReason','notSuitableReason'); bindChange('fld_holdReason','holdReason'); bindChange('fld_paperworkBy','paperworkBy');
   body.querySelectorAll('[data-waiversreq]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       a.waiversRequired = btn.dataset.waiversreq;
@@ -4051,6 +4263,40 @@ function bindExamForm(a){
     a.surgNotes = buildTemplate(a); saveShift(); openExam(a.id);
   });
 
+  const addPreMedBtn = document.getElementById('addPreMedBtn');
+  if(addPreMedBtn) addPreMedBtn.addEventListener('click', ()=>{
+    a.preMeds.push({id: uid(), drug:'', time: nowTime()});
+    saveShift(); openExam(a.id);
+  });
+  const addPremedTopupBtn = document.getElementById('addPremedTopupBtn');
+  if(addPremedTopupBtn) addPremedTopupBtn.addEventListener('click', ()=>{
+    a.preMeds.push({id: uid(), drug: premedTopupName(a)+' — ', time: nowTime()});
+    saveShift(); openExam(a.id);
+  });
+  body.querySelectorAll('[data-pmrepeat]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const src = a.preMeds.find(x=>x.id===btn.dataset.pmrepeat);
+      if(!src) return;
+      a.preMeds.splice(a.preMeds.indexOf(src)+1, 0, {id: uid(), drug: src.drug, time: nowTime()});
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-pmdel]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      a.preMeds = a.preMeds.filter(x=>x.id!==btn.dataset.pmdel);
+      saveShift(); openExam(a.id);
+    });
+  });
+  body.querySelectorAll('[data-pmfield]').forEach(el=>{
+    const upd = ()=>{
+      const m = a.preMeds.find(x=>x.id===el.dataset.pmid);
+      if(!m) return;
+      m[el.dataset.pmfield] = el.value;
+      refreshNote(a);
+    };
+    el.addEventListener('input', upd);
+    el.addEventListener('change', ()=>{ upd(); saveShift(); });
+  });
   const addIntraMedBtn = document.getElementById('addIntraMedBtn');
   if(addIntraMedBtn) addIntraMedBtn.addEventListener('click', ()=>{
     a.intraMeds.push({id: uid(), drug:'', time: nowTime()});
@@ -4082,7 +4328,8 @@ function bindExamForm(a){
   });
   const addVitalsBtn = document.getElementById('addVitalsBtn');
   if(addVitalsBtn) addVitalsBtn.addEventListener('click', ()=>{
-    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', iso:'0', o2:'4', temp:'', etco2:'', bp:''});
+    const prev = a.vitals[a.vitals.length-1];   // iso % and O2 L/min carry over from the previous reading
+    a.vitals.push({id: uid(), time: nowTime(), hr:'', rr:'', spo2:'>98%', spo2Mode:'default', iso: prev ? prev.iso : '0', o2: prev ? prev.o2 : '4', temp:'', etco2:'', bp:''});
     saveShift(); openExam(a.id);
   });
   body.querySelectorAll('[data-delvital]').forEach(btn=>{
@@ -4091,8 +4338,17 @@ function bindExamForm(a){
       saveShift(); openExam(a.id);
     });
   });
+  /* BP is typed as digits only (110 70 85): the slash and the bracketed MAP are added as you go -> 110/70 (85) */
+  body.querySelectorAll('[data-vfield="bp"]').forEach(el=>{
+    el.addEventListener('input', e=>{
+      if(e.inputType && e.inputType.indexOf('delete') === 0) return;   // let backspace work
+      const f = formatBp(el.value);
+      if(f !== el.value){ el.value = f; try{ el.setSelectionRange(f.length, f.length); }catch(x){} }
+    });
+  });
   body.querySelectorAll('[data-vfield]').forEach(el=>{
     el.addEventListener('change', ()=>{
+      if(el.dataset.vfield === 'bp') el.value = formatBp(el.value).replace(/[\/ (]+$/, '');
       const v = a.vitals.find(x=>x.id===el.dataset.vid);
       if(!v) return;
       if(el.dataset.vfield === 'spo2mode'){
@@ -4133,6 +4389,8 @@ function bindExamForm(a){
     });
   });
 
+  const priChk = document.getElementById('fld_aaPriority');
+  if(priChk) priChk.addEventListener('change', ()=>{ a.aaPriority = priChk.checked; saveShift(); if(a.registered) renderAaShare(); });
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', ()=>{
     if(!a.registered){
@@ -4144,7 +4402,8 @@ function bindExamForm(a){
     a.registered = !a.registered;
     if(a.registered) a.nextUp = false;   // done — no longer "next"
     saveShift();
-    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); }
+    if(!a.registered) aaWarnRetract(a);
+    if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); aaAfterRegister(a); }
     syncSurgeryLog(a);
     openExam(a.id);
     renderShiftList();
@@ -4186,6 +4445,7 @@ function assembleNote(a){
     L.push(`Other (vet-selected): ${a.premedOther && a.premedOther.trim() ? a.premedOther.trim() : '-'}`);
     { const pt = a.ticks['premed-other']; L.push(pt && pt.done ? `- Other premed given (${pt.time})` : '- Other premed: not marked given'); }
   }
+  (a.preMeds||[]).forEach(m=>{ if(m.drug && m.drug.trim()) L.push(`- ${m.drug.trim()}${m.time ? ' ('+m.time+')' : ''}`); });
   L.push('');
   L.push('Pre-op:');
   let anyPreop = false;
@@ -4329,12 +4589,13 @@ function assembleNote(a){
   L.push('Pathway (CHOOSE ONE):');
   if(a.rehomingPathway==='suitable') L.push('- Suitable for rehoming');
   else if(a.rehomingPathway==='not-suitable') L.push(`- Not suitable for rehoming (Reason: ${a.notSuitableReason||''})`);
+  else if(a.rehomingPathway==='hold') L.push(`- Hold intervention${a.holdReason ? ' (Reason: '+a.holdReason+')' : ''}`);
   else L.push('-');
   L.push('');
   L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
   L.push(`Waivers: ${a.waiversSelected.length ? a.waiversSelected.join(', ') : '-'}`);
   L.push('');
-  L.push(`Paperwork by: ${a.paperworkBy||'-'}`);
+  L.push(`Paperwork by: ${a.paperworkBy||a.aaEnteredBy||'-'}`);
   L.push(`Vet chat needed? ${a.vetChatNeeded||'-'}`);
   if(a.pathway) L.push(`Pathway (admin status): ${a.pathway}`);
   if(a.planItems && a.planItems.length){
@@ -4468,12 +4729,13 @@ function wordParagraph(text, opts){
   return `<w:p><w:pPr>${spacing}</w:pPr><w:r>${rPrXml}<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p>`;
 }
 const WORD_PAGE_BREAK = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-async function buildWordFile(){
-  const toExport = sortedAnimals().filter(a=>a.registered);
+async function buildWordFile(opts){
+  const only = opts && opts.only;   // one-animal file for the Admission AA
+  const toExport = only ? only : sortedAnimals().filter(a=>a.registered);
   // Animals still sitting in the Shift List, never registered at all —
   // distinct from any registered-but-incomplete case. Matches the same
   // trailer list added to Processing/S&I's Word exports.
-  const pending = sortedAnimals().filter(a=>!a.registered);
+  const pending = only ? [] : sortedAnimals().filter(a=>!a.registered);
   if(!toExport.length && !pending.length) return null;
   let paras = wordParagraph(`Surgery Notes — ${todayStr()}`, {bold:true, size:32, after:200});
   toExport.forEach((a,i)=>{
@@ -4628,6 +4890,7 @@ function pathwaySummary(a){
   const parts = [];
   if(a.rehomingPathway==='suitable') parts.push('Suitable for rehoming');
   else if(a.rehomingPathway==='not-suitable') parts.push(`Not suitable (${a.notSuitableReason||'reason not given'})`);
+  else if(a.rehomingPathway==='hold') parts.push(`Hold intervention${a.holdReason ? ' ('+a.holdReason+')' : ''}`);
   if(a.pathway) parts.push(a.pathway);
   return parts.length ? parts.join(' | ') : '-';
 }
@@ -4688,7 +4951,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
    stations editing different parts of one animal don't overwrite each other. */
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
-const SHARE_LOCAL_ONLY_KEYS = ['examSectionsOpen','cloudScrubbed','chipTickRemote'];   // (2026-10-21: microchipNum now syncs between the stations; it still never goes to the dashboard)
+const SHARE_LOCAL_ONLY_KEYS = ['examSectionsOpen','cloudScrubbed','chipTickRemote','aaSentAt','aaSig','aaSentId','aaErr','aaEnteredAt','aaEnteredBy'];   // (2026-10-21: microchipNum now syncs between the stations; it still never goes to the dashboard)
 const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
 // Any station can enter or correct the number now (it syncs to the others), so number entry is never locked
 function chipEntryLocked(a){ return false; }
