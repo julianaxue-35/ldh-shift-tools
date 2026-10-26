@@ -35,7 +35,7 @@
     { key: 'buprenorphine', label: 'Buprenorphine', aliases: ['buprenorphine', 'bupredyne', 'buprenodale'], route: 'Transmucosal' },
     { key: 'fluoxetine', label: 'Fluoxetine', aliases: ['fluoxetine', 'prozac'], route: 'PO' },
     { key: 'trazodone', label: 'Trazodone', aliases: ['trazodone'], route: 'PO' },
-    { key: 'clonidine', label: 'Clonidine', aliases: ['clonidine'], route: 'PO' },
+    { key: 'clonidine', label: 'Clonidine', aliases: ['clonidine', 'catapres'], route: 'PO' },
     { key: 'pregabalin', label: 'Pregabalin', aliases: ['pregabalin', 'lyrica'], route: 'PO' },
     { key: 'gabapentin', label: 'Gabapentin', aliases: ['gabapentin', 'gaba'], route: 'PO' },
     { key: 'lactulose', label: 'Lactulose', aliases: ['lactulose'], route: 'PO' },
@@ -338,7 +338,8 @@
         s8: s8,
         matched: !!drug,
         warnings: warnings,
-        labelEdited: false
+        labelEdited: false,
+        nurseSend: false   // never ticked for her: she ticks the ones the nurse has to make up
       };
       row.daysParsed = row.days;   // so a typed review date is only trusted while Days is unchanged
       row.labelText = buildLabelSentence(row);
@@ -1092,9 +1093,14 @@
     return { mgPerKg: (concVal * volMl) / wNum, insertAt: volM.index + volM[0].length };
   }
 
-  function formatMgPerKg(n) {
-    return String(Math.round(n * 10) / 10);
+  function formatMgPerKg(n, decimals) {
+    var f = decimals === 3 ? 1000 : 10;
+    return String(Math.round(n * f) / f);
   }
+
+  // Clonidine doses are tiny and usually written in mcg ("100mcg"), so it alone is read in mcg as well as mg
+  // (converted to mg) and its mg/kg is shown to 3 decimal places; every other drug keeps 1 decimal.
+  var CLONIDINE_STRENGTH_RE = /(\d+(?:\.\d+)?)\s*(mcg|\u00b5g|ug|mg)\b(?!\s*\/\s*kg)(?!\s*(?:\/|per|:)\s*1?\s*m[lL]s?\b)/i;
 
   // Returns { mgPerKg, insertAt } for one instruction line, or null if it
   // can't be confidently computed (missing strength, mcg-based, a mg/mL
@@ -1107,6 +1113,8 @@
     var flatDrug = findDrug(line);
     if (flatDrug && FLAT_DOSE_DRUGS[flatDrug.key]) return null;
     var parts = splitInstruction(line);
+    var clonidine = !!(flatDrug && flatDrug.key === 'clonidine');
+    var decimals = clonidine ? 3 : 1;
 
     // Matched against the whole line, not just `parts.head` — a colon used
     // as the concentration's own separator (e.g. "200mg:1mL give 0.25ml...")
@@ -1124,17 +1132,22 @@
       if (!volM || !(concVal > 0)) return null;
       var volMl = parseFloat(volM[1]);
       if (!(volMl >= 0)) return null;
-      return { mgPerKg: (concVal * volMl) / wNum, insertAt: concM.index + concM[0].length };
+      return { mgPerKg: (concVal * volMl) / wNum, insertAt: concM.index + concM[0].length, decimals: decimals };
     }
 
     var m = STRENGTH_TOKEN_RE.exec(parts.head);
+    var mgVal;
+    if (clonidine) {
+      var cm = CLONIDINE_STRENGTH_RE.exec(parts.head);
+      if (cm) { m = cm; mgVal = parseFloat(cm[1]) / (/^mg$/i.test(cm[2]) ? 1 : 1000); }
+    }
     if (!m) return tryDefaultConcentration(line, wNum, species);
-    var mgVal = parseFloat(m[1]);
+    if (mgVal === undefined) mgVal = parseFloat(m[1]);
     if (!(mgVal > 0)) return null;
     var qtyM = QTY_TOKEN_RE.exec(parts.tail) || QTY_TOKEN_RE.exec(line);
     var qty = qtyM ? parseQtyToken(qtyM[1]) : 1;
     if (!(qty > 0)) qty = 1;
-    return { mgPerKg: (mgVal * qty) / wNum, insertAt: m.index + m[0].length };
+    return { mgPerKg: (mgVal * qty) / wNum, insertAt: m.index + m[0].length, decimals: decimals };
   }
 
   // Annotates every line of a multi-line Treatment/Plan block. Lines that
@@ -1149,7 +1162,7 @@
       var rest = line.slice(r.insertAt);
       var existing = EXISTING_ANNOTATION_RE.exec(rest);
       var replaceEnd = existing ? r.insertAt + existing[0].length : r.insertAt;
-      return line.slice(0, r.insertAt) + ' (' + formatMgPerKg(r.mgPerKg) + 'mg/kg)' + line.slice(replaceEnd);
+      return line.slice(0, r.insertAt) + ' (' + formatMgPerKg(r.mgPerKg, r.decimals) + 'mg/kg)' + line.slice(replaceEnd);
     }).join('\n');
   }
 

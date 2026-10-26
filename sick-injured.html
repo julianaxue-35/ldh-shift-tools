@@ -422,7 +422,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <details class="faq-item">
       <summary>Send the medication labels to the nurse</summary>
       <div class="a">
-        <p>Press <b>+ Register medication chart</b>. The chart preview opens with every medication on it, and <b>under each medication a tick: &ldquo;Send to nurse to make up&rdquo;</b>. Leave it ticked for medication the nurse has to make up a label for; <b>untick the ones that need nothing made up</b>. Then press <b>Save chart &amp; send to nurse</b> (or just <b>Save chart</b> if none of it goes to the nurse). The Welfare nurse gets one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
+        <p>Press <b>+ Register medication chart</b>. The chart preview opens with every medication on it, and <b>under each medication a tick: &ldquo;Send to nurse to make up&rdquo;</b>. <b>Tick the ones the nurse has to make up a label for</b>; nothing is ticked for you. Then press <b>Save chart &amp; send to nurse</b> (or just <b>Save chart</b> if none of it goes to the nurse). The Welfare nurse gets one &ldquo;Medication label to make&rdquo; task per ticked medication, with the animal ID, space and your initials.</p>
         <p>After saving, each medication keeps its tick, and a <b>Send to nurse</b> button appears under the chart so you can send again. If you change the chart later it says <b>Send the changed labels to nurse</b>; sending again updates the nurse&rsquo;s task instead of adding a new one. To add another medication, type it in the plan and press Register again. If it says NOT sent (no connection), press the button again.</p>
       </div>
     </details>
@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-26.3';
+const APP_VERSION = '2026-10-26.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -850,6 +850,7 @@ function normalizeAnimal(a){
   if(a.registered == null) a.registered = !!a.done;
   if(!Array.isArray(a.otherReminders)) a.otherReminders = [];
   if(a.species == null) a.species = '';
+  if(!a.species) a.species = speciesFromLocation(a.location);
   if(a.secondVisit == null) a.secondVisit = false;   // 2nd visit for the same animal (flagged again for a different problem)
   /* Root cause of "I fixed it but she still sees the old broken formatting":
      the reflow fix only ever ran at the moment text was newly imported or
@@ -1358,6 +1359,15 @@ function normaliseRoomToken(loc){
   return `${full}${m[2] ? ' '+m[2] : ''} / ${m[3]}`;
 }
 
+/* Species follows the room: cat rooms, adoption and isolation are cats; the pound is dogs.
+   Needed so the right species is reflected when medication is worked out. */
+function speciesFromLocation(loc){
+  const l = (loc||'').toLowerCase();
+  if(/\b(pound|dog|puppy|canine)\b/.test(l)) return 'dog';
+  if(/\b(cat|cats|feline|kitten|adoptions?|isolation|iso|fir)\b/.test(l)) return 'cat';
+  return '';
+}
+
 /* ---------- animal-ID matching (for merging recheck + flag entries) ----------
    IDs can be compound (e.g. "1174017 + 4016" for littermates flagged together),
    so split on "+" before comparing, ignoring case/punctuation on each piece. */
@@ -1460,7 +1470,7 @@ function addOrMergeFromFlag(r){
     if(state.animals.some(x=>idsOverlap(x.animalId, r.animalId) && x.history && x.history.includes(label.trim()))) return;   // this flag is already on the list
     const a2 = makeAnimal({animalId:r.animalId, location:done.location||r.location, weight:done.weight||'', noteText:'', otherReminders:[]});
     a2.history = label; a2.flagged = true; a2.secondVisit = true;
-    a2.species = done.species || r.species || ''; a2.sex = done.sex || a2.sex;
+    a2.species = done.species || r.species || speciesFromLocation(a2.location); a2.sex = done.sex || a2.sex;
     state.animals.push(a2);
     return;
   }
@@ -1468,12 +1478,12 @@ function addOrMergeFromFlag(r){
     const a = makeAnimal({animalId:r.animalId, location:r.location, weight:'', noteText:'', otherReminders:[]});
     a.history = label;
     a.flagged = true;
-    a.species = r.species || '';
+    a.species = r.species || speciesFromLocation(r.location);
     state.animals.push(a);
     return;
   }
   if(!existing.location && r.location) existing.location = r.location;
-  if(!existing.species && r.species) existing.species = r.species;
+  if(!existing.species) existing.species = r.species || speciesFromLocation(existing.location);
   if(!existing.history || !existing.history.includes(label.trim())){
     if(existing.history && !/^(Recheck history|AA Flag)/.test(existing.history.trim())){
       existing.history = `Recheck history${existing.lastConsultDate ? ' (from last consult, '+existing.lastConsultDate+')' : ''}:\n${existing.history}`;
@@ -1776,7 +1786,7 @@ function makeAnimal(r){
     location: r.location || '',
     weight: r.weight || '',
     sex: r.sex || '',
-    species: r.species || '',
+    species: r.species || speciesFromLocation(r.location),
     lastConsultDate: sections.date || '',
     /* Her ask: don't make her retype the history every consult — start
        today's Reason/History from the previous consult's own
@@ -2184,7 +2194,7 @@ function chartDraftHtml(a, draft, planText){
       </div>
       <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
         <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
-      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse to make up (untick if this one needs no label made up)</label></div>
+      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===true?'checked':''}> Send to nurse to make up (tick if this one needs a label made up)</label></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -2202,7 +2212,7 @@ function chartDraftHtml(a, draft, planText){
         <button type="button" class="btn small rust" data-delmedrow="${i}">Remove</button>
       </div>
       ${m.drugWarning ? `<div style="color:#a33;font-size:11.5px;font-weight:600;margin-top:6px">⚠ ${esc(m.drugWarning)}</div>` : ''}
-      ${m.warnings.length ? `<div style="color:#b5730a;font-size:11.5px;margin-top:4px">⚠ ${esc(m.warnings.join(' · '))}</div>` : ''}
+      <div data-warnrow="${i}" style="color:#b5730a;font-size:11.5px;margin-top:4px">${m.warnings.length ? '⚠ ' + esc(m.warnings.join(' · ')) : ''}</div>
     </div>`;
   });
   h += `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
@@ -2214,7 +2224,7 @@ function chartDraftHtml(a, draft, planText){
 }
 function blankMedRow(){
   return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
-    startSlot:'AM', startOption:'tomorrow', drugWarning:'', s8:false, matched:false, warnings:[]};
+    startSlot:'AM', startOption:'tomorrow', drugWarning:'', s8:false, matched:false, warnings:[], nurseSend:false};
 }
 function bindChartDraft(a, body){
   const draft = chartDrafts[a.id];
@@ -2236,6 +2246,12 @@ function bindChartDraft(a, body){
       else if(el.type==='checkbox') draft[i][field] = el.checked;
       else draft[i][field] = el.value;
       { const rc = body.querySelector('[data-recheck="'+i+'"]'); if(rc) rc.textContent = 'Recheck ' + (MedChart.recheckDisplay(draft[i]) || '\u2014'); }
+      // typing the number of days settles the "Duration unclear" warning
+      if(field==='days' && parseInt(draft[i].days,10) > 0 && draft[i].warnings){
+        draft[i].warnings = draft[i].warnings.filter(w=>!/^Duration unclear/.test(w));
+        const we = body.querySelector('[data-warnrow="'+i+'"]');
+        if(we) we.textContent = draft[i].warnings.length ? '\u26a0 ' + draft[i].warnings.join(' \u00b7 ') : '';
+      }
       if(field==='labelText'){ draft[i].labelEdited = true; }
       else if(!draft[i].labelEdited){
         draft[i].labelText = MedChart.buildLabelSentence(draft[i]);
@@ -2641,6 +2657,18 @@ function bindExamForm(a){
     if(!el) return;
     el.addEventListener('change', ()=>{
       a[k]=el.value; refreshNote(a);
+      if(k==='weight'){
+        // weight is often filled in after the medication text, so redo the mg/kg on what is already typed
+        a.treatment = MedChart.annotateMgPerKg(a.treatment||'', a.weight, a.species);
+        a.currentMed = MedChart.annotateMgPerKg(a.currentMed||'', a.weight, a.species);
+        const tEl = document.getElementById('fld_treatment'); if(tEl) tEl.value = a.treatment;
+        const cEl = document.getElementById('fld_currentMed'); if(cEl) cEl.value = a.currentMed;
+        refreshNote(a);
+      }
+      if(k==='location'){
+        const sp = speciesFromLocation(a.location);
+        if(sp && a.species !== sp){ a.species = sp; const spEl = document.getElementById('fld_species'); if(spEl) spEl.value = sp; renderShiftList(); }
+      }
       if(k==='animalId' || k==='location'){
         // keep the dashboard in step; another visit of the same animal on the list may still own the old case
         DashSync.rekey(a, 'sick_injured', {

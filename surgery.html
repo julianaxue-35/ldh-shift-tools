@@ -637,7 +637,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.4';
+const APP_VERSION = '2026-10-27.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3022,7 +3022,7 @@ function chartDraftHtml(a, draft, planText){
       </div>
       <div style="margin-top:8px"><label style="font-size:11px">Label wording — sent to the nurses, fills itself in from the fields below (edit it only if it's wrong)</label>
         <input type="text" class="plain" data-mfield="labelText" data-mi="${i}" value="${esc(m.labelEdited && m.labelText ? m.labelText : MedChart.buildLabelSentence(m))}" style="width:100%"></div>
-      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===false?'':'checked'}> Send to nurse to make up (untick if this one needs no label made up)</label></div>
+      <div style="margin-top:6px"><label style="font-size:12px"><input type="checkbox" data-mfield="nurseSend" data-mi="${i}" ${m.nurseSend===true?'checked':''}> Send to nurse to make up (tick if this one needs a label made up)</label></div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;align-items:flex-end">
         <div><label style="font-size:11px">Frequency</label><br>
           <label style="font-size:12px;margin-right:8px"><input type="radio" name="freq_${i}" data-mfield="freq" data-mi="${i}" value="SID" ${m.freq==='SID'?'checked':''}> SID</label>
@@ -3051,7 +3051,7 @@ function chartDraftHtml(a, draft, planText){
 }
 function blankMedRow(){
   return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
-    startSlot:'AM', startOption:'tomorrow', drugWarning:'', s8:false, matched:false, warnings:[]};
+    startSlot:'AM', startOption:'tomorrow', drugWarning:'', s8:false, matched:false, warnings:[], nurseSend:false};
 }
 function bindChartDraft(a, body){
   const draft = chartDrafts[a.id];
