@@ -299,14 +299,6 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </div>
   </div>
 
-  <div class="card" id="intakeCard">
-    <h2>Add animals to today's surgery list</h2>
-    <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Use the booking sheet below to add the whole day's list at once, or add a single animal by hand.</p>
-    <div class="row-actions">
-      <button class="btn" id="manualAddBtn">+ Add animal manually</button>
-    </div>
-  </div>
-
   <div class="card" id="bookingCard">
     <h2>Add from booking sheet</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Download the template below, fill in a row per animal from the day's booking list, then upload it here — ID/Type/Species/Location/Age/Procedure/Tasks/Notes all come across. Tasks and Notes land in the Assist section's comment box for you to action; SCP is auto-detected and flags the care warning.</p>
@@ -314,6 +306,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <input type="file" id="bookingXlsxInput" accept=".xlsx,.xls">
     <div class="row-actions">
       <button class="btn secondary" id="parseBookingBtn">Parse booking sheet</button>
+      <button class="btn" id="manualAddBtn">+ Add one manually</button>
     </div>
     <div id="parsedBookingWrap"></div>
   </div>
@@ -643,7 +636,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.1';
+const APP_VERSION = '2026-10-27.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
