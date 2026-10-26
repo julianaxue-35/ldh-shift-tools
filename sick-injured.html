@@ -697,7 +697,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-26.2';
+const APP_VERSION = '2026-10-26.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2580,11 +2580,11 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Assessment</div>
     <p style="font-size:11.5px;color:var(--ink-soft);margin-bottom:8px">Carried forward from the last note. Conditions that can resolve are flagged — mark Ongoing or Resolved.</p>
     <div id="assessList">`;
-  a.assessment.forEach(p=>{
+  a.assessment.forEach((p,i)=>{
     const undecided = p.matched && p.resolved===null;
     h += `<div class="ddx-problem" data-probid="${esc(p.id)}" style="${undecided?'border:2px solid var(--amber);':''}">
       <div class="ddx-problem-head">
-        <b><span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
+        <b>${i+1}. <span id="probview_${esc(p.id)}" class="${p.resolved===true?'strike':''}">${esc(p.text)}</span></b>
         <span class="ddx-problem-actions">
           <button type="button" class="btn small secondary" data-editassess="${esc(p.id)}">Edit</button>
           <button type="button" class="btn small rust" data-delassess="${esc(p.id)}">Remove</button>
