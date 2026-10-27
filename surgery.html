@@ -288,6 +288,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
   <div class="card" id="shareCard">
     <h2>Share this shift (multi-station)</h2>
     <p style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">Off by default. Turn on so Prep, Surgery and Recovery devices see the same animals live. The microchip number is shared too, so every station sees the number in the notes (it is never sent to the dashboard). Sign in with the surgery-stations login.</p>
+    <p id="shareDayNote" class="hidden" style="font-size:12.5px;background:#fff3d6;color:#8a5000;border-radius:8px;padding:8px 10px;margin:0 0 8px"></p>
     <div id="shareOffWrap">
       <input class="plain" id="shareEmail" type="email" autocomplete="username" placeholder="Surgery stations email" style="width:100%;margin-bottom:6px">
       <input class="plain" id="sharePass" type="password" autocomplete="current-password" placeholder="Password" style="width:100%;margin-bottom:6px">
@@ -637,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.7';
+const APP_VERSION = '2026-10-27.8';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -716,6 +717,59 @@ const LS_SHIFT = 'ldh_surgery_shift_v1';
 const LS_SHIFT_DATE = LS_SHIFT + '_date'; // the day this shift list was started — flags a list left over from a previous day
 const LS_BACKUP = LS_SHIFT + '_backups';
 const LS_BACKUP_META = LS_SHIFT + '_backup_meta';
+/* ---------- One active tab (2026-10-27) ----------
+   Two tabs on the same device each keep their own copy of the list in memory and each save the WHOLE list over the other
+   (and, with sharing on, an out-of-date tab can push its older copy to every station). So only one tab may be used at a time:
+   a second tab is blocked with a message, and "Use this tab instead" hands over (the other tab then pauses). */
+const LS_TAB = 'ldh_surgery_active_tab_v1', TAB_ID = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+let tabBlocked = false, tabBeat = null;
+function tabLockRead(){ try{ return JSON.parse(localStorage.getItem(LS_TAB) || 'null'); }catch(e){ return null; } }
+function tabLockClaim(){ try{ localStorage.setItem(LS_TAB, JSON.stringify({id:TAB_ID, ts:Date.now()})); }catch(e){} }
+function tabOtherActive(){ const l = tabLockRead(); return (l && l.id !== TAB_ID && l.id !== 'takeover' && Date.now() - l.ts < 7000) ? l : null; }
+function tabShowBlock(){
+  if(!document.body){ document.addEventListener('DOMContentLoaded', tabShowBlock); return; }
+  if(document.getElementById('tabBlock')) return;
+  const d = document.createElement('div'); d.id = 'tabBlock';
+  d.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(20,24,40,.82);display:flex;align-items:center;justify-content:center;padding:20px;font-family:system-ui,-apple-system,Roboto,Arial,sans-serif';
+  d.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:440px;padding:24px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)">'
+    + '<h2 style="margin:0 0 8px;font-size:20px">Surgery is open in another tab</h2>'
+    + '<p style="font-size:14px;line-height:1.5;margin:0 0 16px">To protect the shared list, only <b>one</b> Surgery tab can be used at a time on this device. This tab is paused so it can’t overwrite your animals.</p>'
+    + '<button id="tabTakeBtn" style="background:#1f7a4d;color:#fff;border:none;border-radius:10px;padding:12px 22px;font-size:15px;font-weight:700;cursor:pointer">Use this tab instead</button>'
+    + '<p style="font-size:12px;color:#667;margin:12px 0 0">The other tab will pause. Your list is saved on this device.</p></div>';
+  document.body.appendChild(d);
+  document.getElementById('tabTakeBtn').addEventListener('click', ()=>{
+    try{ localStorage.setItem(LS_TAB, JSON.stringify({id:'takeover', ts:Date.now()})); }catch(e){}
+    location.reload();   // reload so this tab starts from the saved list, not from an out-of-date copy
+  });
+}
+function tabBlock(){
+  if(tabBlocked) return; tabBlocked = true; clearInterval(tabBeat); tabShowBlock();
+  // when the other tab is closed (or has gone quiet) this one picks up again from the saved list
+  setInterval(()=>{ const l = tabLockRead(); if(!l || (l.id !== 'takeover' && l.id !== TAB_ID && Date.now() - l.ts >= 7000)) location.reload(); }, 2000);
+}
+(function tabInit(){
+  if(tabOtherActive()) tabBlock(); else tabLockClaim();
+  tabBeat = setInterval(()=>{
+    if(tabBlocked) return;
+    const l = tabOtherActive();
+    if(l && String(l.id) < TAB_ID){ tabBlock(); return; }   // both opened at once: the lower id keeps going
+    tabLockClaim();
+  }, 2000);
+  window.addEventListener('storage', (e)=>{
+    if(e.key !== LS_TAB || tabBlocked) return;
+    const l = tabLockRead();
+    if(l && l.id === 'takeover') tabBlock();
+  });
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState !== 'visible' || tabBlocked) return;
+    const l = tabLockRead();
+    if(l && l.id !== TAB_ID && l.id !== 'takeover'){
+      if(Date.now() - l.ts < 7000) tabBlock();
+      else location.reload();   // another tab ran while this one slept: start again from the saved list
+    } else tabLockClaim();
+  });
+  window.addEventListener('pagehide', ()=>{ const l = tabLockRead(); if(l && l.id === TAB_ID){ try{ localStorage.removeItem(LS_TAB); }catch(e){} } });
+})();
 const BACKUP_MIN_INTERVAL_MS = 3 * 60 * 1000; // don't snapshot more than once per 3min
 const BACKUP_MAX_COUNT = 6;
 
@@ -781,6 +835,20 @@ function stampNewAuthors(list){
   const n = nurseInitEl.value.trim();
   (list||[]).forEach(a=>{ if(!a.vetBy && vetInitEl.value.trim()) a.vetBy = vetInitEl.value.trim(); if(n && (!a.nurseBy || (a.nurseBy === '-' && today))) a.nurseBy = n; });
 }
+/* The list's start day as YYYY-MM-DD, for animals saved before they were stamped with the day they were added. */
+function listDayIso(){
+  try{
+    const m = /(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{4})/.exec(localStorage.getItem(LS_SHIFT_DATE) || '');
+    const mo = m ? ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase()) : -1;
+    return mo < 0 ? '' : m[3] + '-' + String(mo + 1).padStart(2, '0') + '-' + String(m[1]).padStart(2, '0');
+  }catch(e){ return ''; }
+}
+function dayTagHtml(a){
+  if(!a || !a.addedDay || a.addedDay >= shareDate()) return '';
+  let on = false; try{ on = share.on; }catch(e){}
+  const d = new Date(a.addedDay + 'T00:00:00').toLocaleDateString('en-AU', {day:'numeric', month:'short'});
+  return ' <span class="badge" style="background:#fff3d6;color:#8a5000" title="Animals from an earlier day stay on this device until entered or cleared">From ' + d + (on ? ' \u00B7 not shared' : '') + '</span>';
+}
 function normalizeAnimal(a){
   stampAuthor(a);
   const defaults = {
@@ -816,6 +884,7 @@ function normalizeAnimal(a){
     bhSentAt:null, bhSig:null, bhErr:''   // Send to Behaviour: when a send was confirmed, fingerprint of the note sent, last refusal
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
+  if(!a.addedDay) a.addedDay = listDayIso() || shareDate();   // the day this animal joined the list: only today's animals are shared
   // age is years only now — older records saved in months are converted so nothing is lost
   if(a.ageUnit!=='years'){
     const n = parseFloat(a.age);
@@ -977,6 +1046,7 @@ var shareReady = false; // set true once the sharing module (bottom of script) h
 // vet carried on believing their work was safe. Drop the old backups first to make room; if it is still full, say so (once).
 let shiftFullWarned = false;
 function persistShift(){
+  if(tabBlocked) return false;   // a paused tab never writes
   const json = JSON.stringify(state.animals);
   try{ localStorage.setItem(LS_SHIFT, json); return true; }
   catch(e){
@@ -2640,7 +2710,7 @@ function groupedListHtml(animals, opts){
       <div class="animal-card" style="${a.nextUp?'border:2px solid var(--amber)':''}">
         <div class="info">
           ${a.nextUp ? '<div style="color:var(--amber);font-weight:700;font-size:11.5px;margin-bottom:2px">⭐ NEXT UP</div>' : ''}
-          <b>${esc(a.animalId||'(no ID)')}</b>
+          <b>${esc(a.animalId||'(no ID)')}</b>${dayTagHtml(a)}
           <div class="sub">${surgTypeFullLabel(a)} · ${listWeightHtml(a)}</div>
           ${postopMedsLine(a)}
           ${dueTreatmentsLine(a)}
@@ -4957,7 +5027,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
 const SHARE_LOCAL_ONLY_KEYS = ['examSectionsOpen','cloudScrubbed','chipTickRemote','aaSentAt','aaSig','aaSentId','aaErr','aaEnteredAt','aaEnteredBy'];   // (2026-10-21: microchipNum now syncs between the stations; it still never goes to the dashboard)
-const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
+const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, scrubbed:new Set(), skipped:0, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
 // Any station can enter or correct the number now (it syncs to the others), so number entry is never locked
 function chipEntryLocked(a){ return false; }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
@@ -4988,6 +5058,13 @@ function shareNoteRemovals(){
   Object.keys(share.base).forEach(id=>{ if(!live.has(id) && !share.deleted.has(id)){ share.deleted.add(id); changed = true; } });
   share.deleted.forEach(id=>{ if(live.has(id)){ share.deleted.delete(id); share.delConfirmed.delete(id); changed = true; } });   // restored from a backup
   if(changed) shareDeletedSave();
+}
+// Only animals added today are shared; earlier days stay on the device. A cloud row that is a fragment (blanked after an export,
+// then edited from another station) must never be applied: it would strip the animal's ID, location and notes.
+function shareEligible(a){ return a.addedDay === share.sessionDate; }
+function shareLooksPartial(remote, base){
+  if(!('animalId' in remote)) return true;
+  return !!(base && Object.keys(remote).length < Object.keys(base).length * 0.6);
 }
 function shareIsObj(v){ return v && typeof v==='object' && !Array.isArray(v); }
 function shareClone(v){ return JSON.parse(JSON.stringify(v)); }
@@ -5059,7 +5136,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 async function sharePush(){
-  if(!share.on || !share.client) return;
+  if(tabBlocked || !share.on || !share.client) return;
   if(share.pushing){ share.dirty = true; return; }
   share.pushing = true; share.dirty = false;
   try{
@@ -5079,7 +5156,7 @@ async function sharePush(){
        animal is tried on its own and the status names how many (and which) did not go. */
     const failed = []; let upErr = null;
     for(const a of state.animals){
-      if(a.cloudScrubbed) continue;
+      if(a.cloudScrubbed || share.scrubbed.has(a.id) || !shareEligible(a)) continue;   // blanked after an export, or from an earlier day: stays local
       const cur = stripForSync(a), base = share.base[a.id];
       const patch = base ? shareDiff(base, cur) : cur;
       if(patch===undefined) continue;
@@ -5108,7 +5185,8 @@ async function sharePush(){
   }
 }
 async function sharePull(){
-  if(!share.on || !share.client) return;
+  if(tabBlocked || !share.on || !share.client) return;
+  share.skipped = 0;
   try{
     const { data, error } = await share.client.from('surgery_shift').select('id,data').eq('shift_date', share.sessionDate);
     if(error) throw error;
@@ -5116,7 +5194,9 @@ async function sharePull(){
     (data||[]).forEach(row=>{
       const remote = row.data;
       if(share.deleted.has(row.id)) return;   // deleted on THIS device — never pull it back (cloud delete may still be pending)
-      if(!remote || !Object.keys(remote).length) return; // scrubbed after export
+      if(!remote || !Object.keys(remote).length){ share.scrubbed.add(row.id); return; } // scrubbed after export: never write into it again
+      if(shareLooksPartial(remote, share.base[row.id])){ share.skipped++; try{ console.warn('Ignored an incomplete shared record', row.id); }catch(e){} return; }
+      share.scrubbed.delete(row.id);
       const local = state.animals.find(x=>x.id===row.id);
       if(!local){
         const n = normalizeAnimal(Object.assign(shareClone(remote), { id: row.id }));
@@ -5142,7 +5222,7 @@ async function sharePull(){
       if(adopted && state.openId){ const oa = state.animals.find(x=>x.id===state.openId); if(oa && document.getElementById('noteDisplay')) refreshNote(oa); }
     }
     if(changed.size){
-      localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+      if(!tabBlocked) localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
       renderShiftList();
       if(state.openId && changed.has(state.openId) && !document.getElementById('examModal').classList.contains('hidden')){
         const ae = document.activeElement;
@@ -5154,14 +5234,14 @@ async function sharePull(){
         }
       }
     }
-    shareSetStatus('Sharing on ✓ · synced ' + nowTime(), true);
+    shareSetStatus(share.skipped ? 'Sharing on — ignored ' + share.skipped + ' incomplete shared record(s) to protect your list' : 'Sharing on ✓ · synced ' + nowTime(), !share.skipped);
   }catch(e){
     shareSetStatus('Sharing on — could not read: ' + ((e && (e.message||e.code)) || 'unknown') + ' (will retry)', false);
   }
 }
 // After an export, blank the clinical data in the cloud row (dashboard keeps only procedure type + done for its counts).
 async function shareScrubExported(){
-  if(!share.on || !share.client) return;
+  if(tabBlocked || !share.on || !share.client) return;
   for(const a of state.animals.filter(x=>x.registered && !x.cloudScrubbed)){
     try{
       const { error } = await share.client.from('surgery_shift').update({ data: {} }).eq('id', a.id);
@@ -5169,7 +5249,7 @@ async function shareScrubExported(){
       a.cloudScrubbed = true; delete share.base[a.id];
     }catch(e){ /* stays in cloud until the 24h purge; retried on next export */ }
   }
-  localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
+  if(!tabBlocked) localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
 }
 function loadSupabaseLib(){
   return new Promise((res, rej)=>{
@@ -5180,11 +5260,13 @@ function loadSupabaseLib(){
     document.head.appendChild(s);
   });
 }
+function shareDayNote(msg){ const el = document.getElementById('shareDayNote'); if(el){ el.textContent = msg; el.classList.remove('hidden'); } }
 function shareShowUi(on){
   document.getElementById('shareOffWrap').classList.toggle('hidden', on);
   document.getElementById('shareOnWrap').classList.toggle('hidden', !on);
 }
 async function shareStart(email, password){
+  if(tabBlocked) return false;
   await loadSupabaseLib();
   if(!share.client) share.client = window.supabase.createClient(SHARE_URL, SYNC_APIKEY);
   let { data:{ session } } = await share.client.auth.getSession();
@@ -5205,8 +5287,8 @@ async function shareStart(email, password){
   // warnings this tool already shows elsewhere for the exact same reason.
   share.sessionDate = shareDate();
   share.initialsPending = !!(vetInitEl.value.trim() || nurseInitEl.value.trim());   // turning sharing on sends this device's initials too
-  share.deleted = shareDeletedLoad(); share.delConfirmed = new Set();
-  try{ localStorage.setItem(LS_SHARE_ON, '1'); }catch(e){}
+  share.deleted = shareDeletedLoad(); share.delConfirmed = new Set(); share.scrubbed = new Set();
+  try{ localStorage.setItem(LS_SHARE_ON, share.sessionDate); }catch(e){}   // the day sharing was switched on
   shareShowUi(true); shareSetStatus('Sharing on — connecting…', true);
   // retention: clear anything older than 24h (the server also purges on a schedule)
   share.client.from('surgery_shift').delete().lt('updated_at', new Date(Date.now()-24*3600*1000).toISOString()).then(()=>{}, ()=>{});
@@ -5222,7 +5304,7 @@ async function shareStop(){
   share.on = false;
   clearInterval(share.pollTimer); clearTimeout(share.pushTimer); clearTimeout(share.pullTimer);
   try{ if(share.channel && share.client) share.client.removeChannel(share.channel); }catch(e){}
-  share.channel = null; share.base = {}; share.deleted = new Set(); share.delConfirmed = new Set();
+  share.channel = null; share.base = {}; share.deleted = new Set(); share.delConfirmed = new Set(); share.scrubbed = new Set();
   try{ if(share.client) await share.client.auth.signOut(); }catch(e){}
   try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
   shareShowUi(false);
@@ -5244,7 +5326,16 @@ document.getElementById('shareOffBtn').addEventListener('click', ()=>{
 shareReady = true;
 // resume after a reload if it was on and a saved session still exists
 try{
-  if(localStorage.getItem(LS_SHARE_ON)) shareStart().then(ok=>{ if(!ok) shareShowUi(false); }).catch(()=>{ shareShowUi(false); });
+  {
+    const on = localStorage.getItem(LS_SHARE_ON);
+    // sharing lasts for the day it was switched on; a new day starts with it off (older animals stay on the device)
+    const sameDay = on === shareDate() || (on === '1' && localStorage.getItem(LS_SHIFT_DATE) === todayStr());
+    if(on && !sameDay){
+      try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
+      shareDayNote('Sharing was switched off because it is a new day. Turn it on again to share today\u2019s list. Animals from earlier days stay on this device.');
+    } else if(on) shareStart().then(ok=>{ if(!ok) shareShowUi(false); }).catch(()=>{ shareShowUi(false); });
+  }
+  setInterval(()=>{ if(share.on && shareDate() !== share.sessionDate){ shareStop().then(()=>{ shareDayNote('Sharing was switched off at midnight. Turn it on again to share today\u2019s list. Animals from earlier days stay on this device.'); renderShiftList(); }); } }, 60000);
 }catch(e){}
 
 /* ---------- new-version banner ----------
