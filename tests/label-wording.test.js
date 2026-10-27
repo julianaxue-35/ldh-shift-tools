@@ -34,7 +34,7 @@ const L = 'meloxicam, give 1 tablet orally with food for 5 days, stop if see vom
   await page.fill('[data-mfield="labelText"]', L + ' (with a meal)');
   t.ok((await page.inputValue('[data-mfield="drugLabel"]')) === 'Meloxicam 1.5mg/ml', 'changing the label wording does not change the drug');
   // 3. the nurses get her wording
-  const sent = await page.evaluate(() => { const c = { id: 'lw', animalId: 'LW-1', location: 'Pound 1', vetInCharge: 'JX', createdAt: new Date().toISOString(), startOption: 'tomorrow', meds: [Object.assign(MedChart.parseMedPlan('meloxicam 0.1ml PO once daily for 3 days')[0], { labelEdited: true, labelText: 'Meloxicam, give 0.1 mL by mouth with food for 3 days, review on 25/10' })] }; return MedChart.nurseLabels(c).map(x => x.text); });
+  const sent = await page.evaluate(() => { const c = { id: 'lw', animalId: 'LW-1', location: 'Pound 1', vetInCharge: 'JX', createdAt: new Date().toISOString(), startOption: 'tomorrow', meds: [Object.assign(MedChart.parseMedPlan('meloxicam 0.1ml PO once daily for 3 days')[0], { nurseSend: true, labelEdited: true, labelText: 'Meloxicam, give 0.1 mL by mouth with food for 3 days, review on 25/10' })] }; return MedChart.nurseLabels(c).map(x => x.text); });
   t.ok(sent[0] === 'Meloxicam, give 0.1 mL by mouth with food for 3 days, review on 25/10', 'the label sent to the nurses is the label wording as she wrote it: ' + sent[0]);
   // 4. the note keeps her line
   const note = await page.evaluate((l) => { const chart = { id: 'n', createdAt: new Date().toISOString(), startOption: 'tomorrow', meds: MedChart.parseMedPlan(l) }; return MedChart.putLabelsInNote(l, chart); }, L);

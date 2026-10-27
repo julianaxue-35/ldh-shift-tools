@@ -19,9 +19,10 @@ const t = require('./check')('nurse-label-button');
   const page = await ctx.newPage(); const errors = []; page.on('pageerror', e => errors.push(e.message)); const alerts = []; page.on('dialog', d => { alerts.push(d.message()); d.accept(); });
   await page.goto('file://' + path.resolve(__dirname, '../medication-charts.html')); await page.waitForTimeout(400);
   await page.evaluate(() => {
-    const meds = MedChart.parseMedPlan('meloxicam 1 tablet po once daily for 5 days review 26/10\ngabapentin 0.25ml po bid for 4 days');
+    const tick = ms => ms.map(m => Object.assign(m, { nurseSend: true }));   // ticks are off by default: these are the medications the vet ticked to send
+    const meds = tick(MedChart.parseMedPlan('meloxicam 1 tablet po once daily for 5 days review 26/10\ngabapentin 0.25ml po bid for 4 days'));
     MedChart.saveCharts([{ id: 'c1', sourceAnimalId: 'x', sourceTool: 'surgery', createdAt: new Date().toISOString(), animalId: 'LBL-1', species: 'dog', weight: '10', location: 'Pound 1 / 4', vetInCharge: 'JX', problemList: '', startOption: 'tomorrow', meds },
-      { id: 'c2', sourceAnimalId: 'y', sourceTool: 'surgery', createdAt: new Date().toISOString(), animalId: '', species: 'dog', weight: '10', location: 'Pound 2', vetInCharge: 'JX', problemList: '', startOption: 'tomorrow', meds: MedChart.parseMedPlan('gabapentin 0.25ml po bid for 4 days') }]);
+      { id: 'c2', sourceAnimalId: 'y', sourceTool: 'surgery', createdAt: new Date().toISOString(), animalId: '', species: 'dog', weight: '10', location: 'Pound 2', vetInCharge: 'JX', problemList: '', startOption: 'tomorrow', meds: tick(MedChart.parseMedPlan('gabapentin 0.25ml po bid for 4 days')) }]);
   });
   await page.reload(); await page.waitForSelector('[data-chartid="c1"]');
   t.ok(await page.locator('[data-chartid="c1"] .nl-send').count() === 1 && /Send label to the Welfare nurse/.test(await page.textContent('[data-chartid="c1"] .nl-send')), 'each chart has a "Send label to the Welfare nurse" button');
