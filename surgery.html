@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.13';
+const APP_VERSION = '2026-10-28.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -677,7 +677,8 @@ function syncCompletionToDashboard(a, shift, note) {
    the dashboard stores one row per record id, so repeats change nothing. */
 function syncSurgeryLog(a) {
   if (!a || !a.id) return;
-  const body = a.registered
+  const isTest = /^\s*TEST[\s_-]*\d+\s*$/i.test(String(a.animalId || ''));   // TEST1, TEST 2 ... are practice animals: never counted in the stats
+  const body = a.registered && !isTest
     ? { source_id: String(a.id), species: a.species || '', surg_type: a.surgType || '', surg_type2: a.surgType2 || '', registered: true }
     : { source_id: String(a.id), registered: false };
   if (a.registered && !body.surg_type) return;
