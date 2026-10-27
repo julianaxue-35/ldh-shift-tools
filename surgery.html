@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.8';
+const APP_VERSION = '2026-10-27.9';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -4476,6 +4476,9 @@ function bindExamForm(a){
     }
     a.registered = !a.registered;
     if(a.registered) a.nextUp = false;   // done — no longer "next"
+    // Undoing a registration to edit it: share this animal again. After an export its shared copy was blanked and marked
+    // "exported"; clearing that and the last-synced copy makes the next sync send the whole, up-to-date animal to the other stations.
+    if(!a.registered){ a.cloudScrubbed = false; try{ share.scrubbed.delete(a.id); delete share.base[a.id]; share.deleted.delete(a.id); }catch(e){} }
     saveShift();
     if(!a.registered) aaWarnRetract(a);
     if(a.registered){ alert('Saved to register.'); syncCompletionToDashboard(a, 'surgery'); aaAfterRegister(a); }

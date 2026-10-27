@@ -57,6 +57,17 @@ const seedInit = () => { if (!localStorage.getItem('__seeded')) { localStorage.s
   t.ok(/From 26 Oct/.test(await g.textContent('#animalList')), 'the older animal stays on the list, tagged "From 26 Oct"');
   const fresh = await g.evaluate(() => { share.sessionDate = shareDate(); return [shareEligible({ addedDay: '2026-10-26' }), shareEligible({ addedDay: shareDate() })]; });
   t.ok(fresh[0] === false && fresh[1] === true, 'only today\'s animals are eligible to be shared: ' + fresh);
+
+  // ---- undo a registration after an export: the animal shares again ----
+  await g.close(); await new Promise(r => setTimeout(r, 300));
+  const u = await open();
+  await u.evaluate(() => {
+    const a = normalizeAnimal({ id: 'u1', animalId: 'FICT-U', species: 'cat', weight: '4', registered: true, cloudScrubbed: true }); a.addedDay = shareDate();
+    state.animals.push(a); saveShift(); share.scrubbed.add('u1'); share.base['u1'] = { animalId: 'FICT-U' }; openExam('u1');
+  });
+  await u.evaluate(() => document.getElementById('markDoneBtn').click()); await u.waitForTimeout(300);
+  const re = await u.evaluate(() => { const a = state.animals.find(x => x.id === 'u1'); return { reg: a.registered, scrubbed: !!a.cloudScrubbed, marked: share.scrubbed.has('u1'), base: 'u1' in share.base }; });
+  t.ok(re.reg === false && re.scrubbed === false && re.marked === false && re.base === false, 'undoing a registration clears the "exported" mark and the last-synced copy, so the whole animal is sent again: ' + JSON.stringify(re));
   t.ok(errs.length === 0, 'no page errors: ' + errs.join('; '));
   await browser.close(); t.done();
 })();
