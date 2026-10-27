@@ -498,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.3';
+const APP_VERSION = '2026-10-27.4';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1174,6 +1174,15 @@ function saveShift(){
   }
   maybeBackupShift(false);
 }
+/* Typing is saved AS YOU TYPE (2026-10-27). A field used to save only when it lost focus, so anything that interrupted the
+   page first (the browser reloading or discarding the tab while the vet looked at another app, a second tab, a refresh) lost
+   every word typed since the last click away. Now a short pause after typing saves it, and it is also saved the moment the
+   page is hidden or closed. */
+let saveSoonTimer = null;
+function saveShiftSoon(){ clearTimeout(saveSoonTimer); saveSoonTimer = setTimeout(()=>{ saveSoonTimer = null; saveShift(); }, 700); }
+function flushPendingSave(){ if(saveSoonTimer){ clearTimeout(saveSoonTimer); saveSoonTimer = null; saveShift(); } }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') flushPendingSave(); });
+window.addEventListener('pagehide', flushPendingSave);
 // Gate for the export/share buttons — offers to clear a shift list still
 // holding animals from a previous day before exporting, so someone picking
 // up the tool the next morning doesn't accidentally send/attach yesterday's
@@ -2473,12 +2482,17 @@ function openExam(id){
   }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
+  if(!document.getElementById('examBody').dataset.autosave){ document.getElementById('examBody').dataset.autosave = '1'; document.getElementById('examBody').addEventListener('input', saveShiftSoon, true); }
   MedChart.refreshNursePanels();
   refreshNote(a);
   refreshChartStatus();
   document.getElementById('noteDisplay').classList.remove('hidden');
   document.getElementById('noteEditArea').classList.add('hidden');
   document.getElementById('editToggleBtn').textContent = 'Edit';
+  if(a.noteEditDraft != null){   // an unsaved hand edit of the note: bring it back
+    const ed = document.getElementById('noteEditArea'); ed.value = a.noteEditDraft;
+    ed.classList.remove('hidden'); document.getElementById('noteDisplay').classList.add('hidden'); document.getElementById('editToggleBtn').textContent = 'Save';
+  }
   document.getElementById('examModal').classList.remove('hidden');
 }
 document.getElementById('closeExamBtn').addEventListener('click', ()=>{
@@ -2925,6 +2939,7 @@ function bindExamForm(a){
     });
   });
   const notExamPlanEl = document.getElementById('fld_notExaminedPlan');
+  if(notExamPlanEl) notExamPlanEl.addEventListener('input', ()=>{ a.notExaminedPlan = notExamPlanEl.value; });
   if(notExamPlanEl) notExamPlanEl.addEventListener('change', ()=>{
     /* same passive mg/kg annotation as the Plan box on an examined animal (weight + strength already on record) */
     a.notExaminedPlan = MedChart.annotateRecheck(MedChart.annotateMgPerKg(notExamPlanEl.value, a.weight, a.species)); notExamPlanEl.value = a.notExaminedPlan; refreshNote(a); saveShift();
@@ -2942,6 +2957,7 @@ function bindExamForm(a){
   if(behaviourEl) behaviourEl.addEventListener('change', ()=>{
     a.behaviour = behaviourEl.value; refreshNote(a); saveShift();
   });
+  if(behaviourEl) behaviourEl.addEventListener('input', ()=>{ a.behaviour = behaviourEl.value; });   // held as typed, so the autosave has it
   const handlingEl = document.getElementById('fld_handling');
   if(handlingEl) handlingEl.addEventListener('change', ()=>{
     a.handling = handlingEl.value;
@@ -3274,10 +3290,12 @@ function bindExamForm(a){
   if(assessNotesEl) assessNotesEl.addEventListener('change', ()=>{
     a.assessmentNotes = assessNotesEl.value; refreshNote(a); saveShift();
   });
+  if(assessNotesEl) assessNotesEl.addEventListener('input', ()=>{ a.assessmentNotes = assessNotesEl.value; });
   const urogenitalNotesEl = document.getElementById('fld_urogenitalNotes');
   if(urogenitalNotesEl) urogenitalNotesEl.addEventListener('change', ()=>{
     a.urogenitalNotes = urogenitalNotesEl.value; refreshNote(a); saveShift();
   });
+  if(urogenitalNotesEl) urogenitalNotesEl.addEventListener('input', ()=>{ a.urogenitalNotes = urogenitalNotesEl.value; });
 
   body.querySelectorAll('[data-curmed]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -3287,6 +3305,7 @@ function bindExamForm(a){
     });
   });
   const curMedDetailEl = document.getElementById('fld_curmeddetail');
+  if(curMedDetailEl) curMedDetailEl.addEventListener('input', ()=>{ a.currentMedDetail = curMedDetailEl.value; });
   if(curMedDetailEl) curMedDetailEl.addEventListener('change', ()=>{
     // Auto mg/kg from a strength/concentration + weight already on record —
     // e.g. "Gabapentin 200mg/mL: give 0.3ml" at 3kg becomes "...200mg/mL
@@ -3583,8 +3602,14 @@ function syncFrozenNoteFields(a){
 function refreshNote(a){
   const noteText = a.noteEdited!==null ? a.noteEdited : assembleNote(a);
   document.getElementById('noteDisplay').textContent = noteText;
-  document.getElementById('noteEditArea').value = noteText;
+  const edit = document.getElementById('noteEditArea');
+  if(edit.classList.contains('hidden')) edit.value = noteText;   // never overwrite the box while it is being hand-edited
 }
+// whatever is typed in the hand-edit box is kept as a draft (saved as you type) until Save is pressed
+document.getElementById('noteEditArea').addEventListener('input', ()=>{
+  const a = state.animals.find(x=>x.id===state.openId); if(!a) return;
+  a.noteEditDraft = document.getElementById('noteEditArea').value; saveShiftSoon();
+});
 
 document.getElementById('editToggleBtn').addEventListener('click', ()=>{
   const a = state.animals.find(x=>x.id===state.openId);
@@ -3593,8 +3618,9 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
   const btn = document.getElementById('editToggleBtn');
   if(edit.classList.contains('hidden')){
     disp.classList.add('hidden'); edit.classList.remove('hidden'); btn.textContent = 'Save';
+    if(a.noteEditDraft != null) edit.value = a.noteEditDraft;
   } else {
-    a.noteEdited = edit.value;
+    a.noteEdited = edit.value; delete a.noteEditDraft;
     disp.textContent = edit.value;
     disp.classList.remove('hidden'); edit.classList.add('hidden'); btn.textContent = 'Edit';
     saveShift();
@@ -3604,7 +3630,7 @@ document.getElementById('editToggleBtn').addEventListener('click', ()=>{
 document.getElementById('refreshNoteBtn').addEventListener('click', ()=>{
   const a = state.animals.find(x=>x.id===state.openId);
   if(!a) return;
-  a.noteEdited = null;
+  a.noteEdited = null; delete a.noteEditDraft;
   document.getElementById('noteDisplay').classList.remove('hidden');
   document.getElementById('noteEditArea').classList.add('hidden');
   document.getElementById('editToggleBtn').textContent = 'Edit';

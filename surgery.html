@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.10';
+const APP_VERSION = '2026-10-27.11';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1074,6 +1074,15 @@ function saveShift(){
   maybeBackupShift(false);
   if(shareReady){ shareNoteRemovals(); shareSchedulePush(); }
 }
+/* Typing is saved AS YOU TYPE (2026-10-27). A field used to save only when it lost focus, so anything that interrupted the
+   page first (the browser reloading or discarding the tab while the vet looked at another app, a second tab, a refresh) lost
+   every word typed since the last click away. Now a short pause after typing saves it, and it is also saved the moment the
+   page is hidden or closed. */
+let saveSoonTimer = null;
+function saveShiftSoon(){ clearTimeout(saveSoonTimer); saveSoonTimer = setTimeout(()=>{ saveSoonTimer = null; saveShift(); }, 700); }
+function flushPendingSave(){ if(saveSoonTimer){ clearTimeout(saveSoonTimer); saveSoonTimer = null; saveShift(); } }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'hidden') flushPendingSave(); });
+window.addEventListener('pagehide', flushPendingSave);
 // Gate for the export/share buttons — offers to clear a shift list still
 // holding animals from a previous day before exporting, so someone picking
 // up the tool the next morning doesn't accidentally send/attach yesterday's
@@ -3057,7 +3066,10 @@ checkStaleShiftOnLoad();
 
 window.addEventListener('storage', (e)=>{
   if(e.key !== LS_SHIFT) return;
+  // The animal being typed into keeps its in-memory copy (the newest; the open form is wired to that very object).
+  const live = state.openId ? state.animals.find(a=>a.id===state.openId) : null;
   state.animals = loadShift();
+  if(live){ const i = state.animals.findIndex(a=>a.id===live.id); if(i >= 0){ state.animals[i] = live; saveShiftSoon(); } }
   if(state.openId){
     const stillExists = state.animals.find(a=>a.id===state.openId);
     if(!stillExists){
@@ -3254,6 +3266,7 @@ function openExam(id){
   }
   document.getElementById('examBody').innerHTML = examFormHtml(a);
   bindExamForm(a);
+  if(!document.getElementById('examBody').dataset.autosave){ document.getElementById('examBody').dataset.autosave = '1'; document.getElementById('examBody').addEventListener('input', saveShiftSoon, true); }
   MedChart.refreshNursePanels();
   refreshNote(a);
   document.getElementById('noteDisplay').classList.remove('hidden');
@@ -3933,6 +3946,8 @@ function bindExamForm(a){
     const el = document.getElementById(id);
     if(!el) return;
     el.addEventListener('change', ()=>{ a[key] = el.value; saveShift(); refreshNote(a); });
+    // typed text is held (and saved by the autosave) as it is typed, not only when the box is left
+    if(/^(INPUT|TEXTAREA)$/.test(el.tagName) && el.type !== 'checkbox' && el.type !== 'radio') el.addEventListener('input', ()=>{ a[key] = el.value; });
   }
   bindChange('fld_animalId','animalId');
   const locEl = document.getElementById('fld_location');
@@ -4031,9 +4046,12 @@ function bindExamForm(a){
     });
   });
   const hcDentalDescEl = document.getElementById('hcDentalDesc');
-  if(hcDentalDescEl) hcDentalDescEl.addEventListener('change', ()=>{
-    a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
-  });
+  if(hcDentalDescEl){
+    hcDentalDescEl.addEventListener('change', ()=>{
+      a.hcDental.desc = hcDentalDescEl.value; saveShift(); refreshNote(a);
+    });
+    hcDentalDescEl.addEventListener('input', ()=>{ a.hcDental.desc = hcDentalDescEl.value; });
+  }
   bindChange('fld_microchipNum','microchipNum');
   bindChange('fld_ivcGauge','ivcGauge'); bindChange('fld_etTubeSize','etTubeSize'); bindChange('fld_alfaxPreMl','alfaxPreMl'); bindChange('fld_alfaxIntraMl','alfaxIntraMl'); bindChange('fld_atipMl','atipMl');
   { const dbox = document.getElementById('dentalToolBox');
