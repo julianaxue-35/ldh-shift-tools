@@ -146,8 +146,15 @@
   }
 
   function detectDoseText(text) {
-    var m = text.match(/(\d+(\.\d+)?\s*(tablets?|tabs?|capsules?|caps?|ml|drops?|notch(es)?))/i);
-    if (m) return m[1];
+    // A bare "T" is a tablet ("2T" = 2 tablets); a fraction ("1/2T", "1 1/2 tablets") is read whole, not just its denominator.
+    var m = text.match(/((?:\d+\s+)?\d+\/\d+|\d+(?:\.\d+)?)\s*(tablets?|tabs?|capsules?|caps?|ml|drops?|notch(?:es)?|T\b)/i);
+    if (m) {
+      if (/^t$/i.test(m[2])) {
+        var qty = parseQtyToken(m[1]);
+        return m[1].replace(/\s+/g, ' ') + ' tablet' + (qty != null && qty <= 1 ? '' : 's');
+      }
+      return m[0];
+    }
     // Fallback for a dose given as a bare strength (e.g. "give 2mg" or
     // "2mg/kg") rather than a tablet/mL amount — still belongs under
     // Dosing, never folded into the drug name.
@@ -1036,7 +1043,8 @@
   // ones it contains, or e.g. "1 1/2" would be cut down to just "1", or
   // "one and a half" would never be tried because "half" alone matched
   // first partway through the phrase.
-  var QTY_TOKEN_RE = /((?:one|two|three|four|five|six|seven|eight|nine|ten)\s+and\s+(?:an?\s+)?(?:half|quarter|three[\s-]?quarters?)|\d+(?:\.\d+)?\s*\+\s*\d+\/\d+|\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|quarter|three[\s-]?quarters?)\s*(?:of\s+)?(?:an?\s+)?(?:tablets?|tabs?|capsules?|caps?)\b/i;
+  var QTY_TOKEN_RE = /((?:one|two|three|four|five|six|seven|eight|nine|ten)\s+and\s+(?:an?\s+)?(?:half|quarter|three[\s-]?quarters?)|\d+(?:\.\d+)?\s*\+\s*\d+\/\d+|\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|half|quarter|three[\s-]?quarters?)\s*(?:of\s+)?(?:an?\s+)?(?:tablets?|tabs?|capsules?|caps?|T)\b/i;
+  // 'T' on its own is a tablet ("noroclav 500mg: 2T PO BID" = 2 tablets). \b keeps it from catching the start of "TID" or another word.
   var QTY_WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
   function fractionWordValue(w) {
     if (w === 'half') return 0.5;
