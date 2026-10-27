@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-27.11';
+const APP_VERSION = '2026-10-27.13';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -4439,6 +4439,23 @@ function bindExamForm(a){
       if(f !== el.value){ el.value = f; try{ el.setSelectionRange(f.length, f.length); }catch(x){} }
     });
   });
+  // a reading typed into a box is held in the record as it is typed (the autosave then saves it), not only once the box is left
+  body.querySelectorAll('[data-vfield]').forEach(el=>{
+    if(el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    el.addEventListener('input', ()=>{
+      const f = el.dataset.vfield; if(f === 'spo2mode') return;
+      const v = a.vitals.find(x=>x.id===el.dataset.vid); if(!v) return;
+      if(f === 'spo2' && v.spo2Mode !== 'other') return;
+      v[f] = el.value;
+    });
+  });
+  body.querySelectorAll('[data-pvfield]').forEach(el=>{
+    if(el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA') return;
+    el.addEventListener('input', ()=>{
+      const v = a.postopVitals.find(x=>x.id===el.dataset.pvid); if(!v) return;
+      v[el.dataset.pvfield] = el.value;
+    });
+  });
   body.querySelectorAll('[data-vfield]').forEach(el=>{
     el.addEventListener('change', ()=>{
       if(el.dataset.vfield === 'bp') el.value = formatBp(el.value).replace(/[\/ (]+$/, '');
@@ -5087,6 +5104,23 @@ function shareLooksPartial(remote, base){
   if(!('animalId' in remote)) return true;
   return !!(base && Object.keys(remote).length < Object.keys(base).length * 0.6);
 }
+/* Monitoring readings and medication rows are lists of {id, ...}. A cloud copy of the animal used to REPLACE the whole list, so a reading
+   added on one station could vanish when another station had changed the same list. Merge by id instead: rows added on either side are
+   kept, a row removed on one side stays removed, and a row changed here since the last sync keeps this station's version. */
+const SHARE_ROW_LISTS = ['vitals', 'postopVitals', 'preMeds', 'intraMeds'];
+function shareMergeRows(base, local, remote){
+  const same = (x, y)=> JSON.stringify(x) === JSON.stringify(y);
+  const B = new Map((base||[]).filter(r=>r && r.id).map(r=>[r.id, r])), L = new Map((local||[]).filter(r=>r && r.id).map(r=>[r.id, r]));
+  const out = [], seen = new Set();
+  (remote||[]).forEach(r=>{
+    if(!r || !r.id) return; seen.add(r.id);
+    const l = L.get(r.id), b = B.get(r.id);
+    if(!l){ if(!b || !same(b, r)) out.push(r); }                  // added remotely, or removed here but changed there: keep
+    else out.push(b && !same(l, b) ? l : r);                      // changed here since the last sync: ours; otherwise theirs
+  });
+  (local||[]).forEach(l=>{ if(l && l.id && !seen.has(l.id) && !B.has(l.id)) out.push(l); });   // added here, not synced yet
+  return out;
+}
 function shareIsObj(v){ return v && typeof v==='object' && !Array.isArray(v); }
 function shareClone(v){ return JSON.parse(JSON.stringify(v)); }
 function shareDate(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -5181,6 +5215,20 @@ async function sharePush(){
       const cur = stripForSync(a), base = share.base[a.id];
       const patch = base ? shareDiff(base, cur) : cur;
       if(patch===undefined) continue;
+      /* A reading list that changed here is merged with the cloud's copy BEFORE it is sent (the cloud keeps whatever list it is
+         given), so a reading another station added a moment ago is never overwritten by this station's push. */
+      const changedLists = SHARE_ROW_LISTS.filter(k => Array.isArray(patch[k]));
+      if(changedLists.length){
+        try{
+          const cr = await share.client.from('surgery_shift').select('data').eq('id', a.id);
+          const cloudData = cr && cr.data && cr.data[0] && cr.data[0].data;
+          if(cloudData && typeof cloudData === 'object') changedLists.forEach(k=>{
+            if(!Array.isArray(cloudData[k])) return;
+            const merged = shareMergeRows(base && base[k], cur[k], cloudData[k]);
+            a[k] = shareClone(merged); cur[k] = merged; patch[k] = merged;
+          });
+        }catch(e){ /* could not read the cloud copy: send ours as it is (the next pull merges again) */ }
+      }
       try{
         const { error } = await share.client.rpc('merge_surgery_animal', {
           p_id: a.id, p_shift_date: share.sessionDate, p_patch: patch,
@@ -5226,6 +5274,7 @@ async function sharePull(){
       } else if(!local.cloudScrubbed){
         const patch = shareDiff(share.base[row.id] || {}, remote);
         if(patch!==undefined){
+          SHARE_ROW_LISTS.forEach(k=>{ if(Array.isArray(patch[k])) patch[k] = shareMergeRows((share.base[row.id]||{})[k], local[k], remote[k]); });
           const wasChipped = !!(local.ticks.microchip && local.ticks.microchip.done);
           shareApply(local, patch); normalizeAnimal(local); changed.add(row.id);
           if(!wasChipped && local.ticks.microchip && local.ticks.microchip.done) local.chipTickRemote = true;
