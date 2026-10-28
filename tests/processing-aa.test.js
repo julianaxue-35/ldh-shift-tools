@@ -138,5 +138,32 @@ async function start(animals, { online = true, shared = false, refuse = '' } = {
     await s.page.waitForTimeout(500);
     t.ok(/too long/i.test(await s.page.textContent('#aaShareList')), 'a refusal shows its reason next to NOT SENT');
   } finally { await s.browser.close(); }
+  /* Earlier-day leftovers are not swept across by the switch or Resend all. */
+  s = await start([animal('old', 'T-OLD', { registered: true, addedDay: '01 Jan 2026' }), animal('new', 'T-NEW2', { registered: true })]);
+  try {
+    s.dialogs.length = 0;
+    await s.page.check('#aaShareToggle');
+    await s.page.waitForTimeout(700);
+    t.ok(s.dialogs.some(d => /earlier day/.test(d) && /T-OLD/.test(d)), 'switching Share on asks about notes from an earlier day: ' + s.dialogs.join(' | ').slice(0, 160));
+  } finally { await s.browser.close(); }
+
+  const stale = [animal('old', 'T-OLD', { registered: true, addedDay: '01 Jan 2026' }), animal('new', 'T-NEW2', { registered: true })];
+  s = await start(stale);
+  try {
+    await s.page.evaluate(() => { window.confirm = () => false; });
+    await s.page.check('#aaShareToggle');
+    await s.page.waitForTimeout(700);
+    t.ok(s.sent.length === 1 && s.sent[0].animal_id === 'T-NEW2', 'Cancel sends today\'s only: ' + s.sent.map(x => x.animal_id));
+    t.ok(/T-OLD/.test(await s.page.textContent('#aaShareList')), 'the earlier-day note stays listed as NOT SENT');
+  } finally { await s.browser.close(); }
+
+  s = await start(stale);
+  try {
+    await s.page.evaluate(() => { window.confirm = () => true; });
+    await s.page.check('#aaShareToggle');
+    await s.page.waitForTimeout(700);
+    t.ok(s.sent.length === 2, 'OK sends the earlier-day note too: ' + s.sent.map(x => x.animal_id));
+  } finally { await s.browser.close(); }
+
   t.done();
 })();
