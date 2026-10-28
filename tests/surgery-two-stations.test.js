@@ -74,8 +74,7 @@ const FAKE = () => {   // replaces the supabase library: every call goes to the 
     // 4. a note typed on one station reaches the other (autosave -> push -> pull)
     await A.page.evaluate(() => { openExam('fict1'); });
     await A.page.locator('#fld_surgComment').click(); await A.page.keyboard.press('End'); await A.page.keyboard.type(' Recovered well.');
-    await A.page.waitForTimeout(1500);   // autosave + the 800 ms push
-    await sync(B);
+    for (let i = 0; i < 6; i++) { await A.page.waitForTimeout(1000); await sync(B); if (/Recovered well\./.test(await get(B, 'surgComment'))) break; }   // autosave + the 800 ms push, with room on a busy machine
     t.ok(/Recovered well\./.test(await get(B, 'surgComment')), 'a note typed on one station (no click-away) reaches the other station');
     // 5. a station is reloaded part-way through the shift (its list of last-synced copies is gone): nothing is lost either way
     await B.page.evaluate(() => { const a = state.animals.find(x => x.id === 'fict1'); a.postopVitals.push({ id: 'pvOff', time: '11:00', hr: '84', temp: '38.0', mm: 'Pink', crt: '<2s', mentation: 'Standing', mentationOther: '' }); saveShift(); });

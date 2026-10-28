@@ -50,17 +50,19 @@
       '<p style="font-size:12px;margin:0 0 10px;opacity:.8">The whole note goes with it so the team can read it. It is deleted from the database when Behaviour ticks Done.</p>' +
       '<label style="font-size:12px">Why? (required)</label><textarea class="bh-reason" rows="3" style="width:100%;box-sizing:border-box;margin:2px 0 8px"></textarea>' +
       '<label style="font-size:12px">Time frame</label><select class="bh-window" style="width:100%;margin:2px 0 8px"><option value="30_60m">30\u201360 minutes</option><option value="today" selected>Within today</option><option value="48h">Within 48 hours</option></select>' +
-      '<label style="font-size:12px">Your initials (required)</label><input class="bh-init" maxlength="4" style="width:80px;margin:2px 0 8px;text-transform:uppercase">' +
+      '<div class="bh-who" style="font-size:12px;margin:2px 0 8px"></div>' +
       '<div class="bh-msg" style="color:#a33;font-size:12px;min-height:16px"></div>' +
       '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px"><button class="btn secondary bh-cancel">Cancel</button><button class="btn bh-go">Send</button></div></div>';
     doc.body.appendChild(wrap);
     var q = function (c) { return wrap.querySelector(c); };
-    q('.bh-init').value = String((o.initials && o.initials()) || '').toUpperCase().slice(0, 4);
+    // No second initials box: it uses the initials already entered at the top of the tool (Vet initials).
+    var who = function () { var v = String((o.initials && o.initials()) || '').trim(); return /^[A-Za-z]{1,4}$/.test(v) ? v.toUpperCase() : ''; };
+    q('.bh-who').innerHTML = who() ? 'Sending as <b>' + esc(who()) + '</b> (your initials from the top of the page)' : '<span style="color:#a33">Enter your initials at the top of the page first.</span>';
     q('.bh-cancel').onclick = function () { wrap.remove(); };
     q('.bh-go').onclick = function () {
-      var reason = q('.bh-reason').value.trim(), by = q('.bh-init').value.trim();
+      var reason = q('.bh-reason').value.trim(), by = who();
       if (!reason) { q('.bh-msg').textContent = 'Say why you are sending it.'; return; }
-      if (!/^[A-Za-z]{1,4}$/.test(by)) { q('.bh-msg').textContent = 'Enter your initials (1 to 4 letters).'; return; }
+      if (!by) { q('.bh-msg').textContent = 'Enter your initials at the top of the page first (1 to 4 letters).'; return; }
       var go = q('.bh-go'); go.disabled = true; go.textContent = 'Sending\u2026';
       var noteText = o.noteText();
       var body = buildBody({ animal: a, noteText: noteText, reason: reason, window: q('.bh-window').value, sentBy: by });

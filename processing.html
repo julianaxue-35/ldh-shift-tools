@@ -428,10 +428,10 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <details class="faq-item">
       <summary>Send an animal to the Behaviour team (with my note)</summary>
       <div class="a">
-        <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
+        <p>If you are worried about an animal's behaviour, open the animal and press <b>Send to Behaviour</b>, which sits next to <b>Register to Word &amp; Excel</b>. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
         <ol>
           <li>Make sure the animal has its <b>ID</b> (the button is greyed out until it does). Finish or edit the note first if you can: what you send is the note as it is right now.</li>
-          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours) and enter your <b>initials</b> (required).</li>
+          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours). Your initials are taken from the top of the page, so make sure they are filled in.</li>
           <li>Wait for <b>Sent to Behaviour &#10003;</b>. If it says <b>NOT SENT</b> (no signal, or the dashboard refused it), press the button again to resend. Nothing is sent in the background.</li>
         </ol>
         <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending the same day updates the same card on the Behaviour page (a resend after midnight, or under a different ID, makes a new card). If someone else resends the same animal the same day, their note replaces yours and the card says it was re-sent.</p>
@@ -498,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.1';
+const APP_VERSION = '2026-10-28.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1516,7 +1516,7 @@ function examFormHtml28(a){
       <option value="">-</option>
       ${PATHWAY_OPTIONS_28.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button> <span class="bh-wrap">${BehaviourSend.buttonHtml(a, aaSigText(a))}</span></div>${aaRegisterHint(a)}`;
   return h;
 }
 function bindExamForm28(a){
@@ -2085,7 +2085,6 @@ function groupedListHtml(animals){
       </div>
       <div>
         ${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
-        ${BehaviourSend.buttonHtml(a, aaSigText(a))}
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -2096,12 +2095,16 @@ function groupedListHtml(animals){
     </div>`;
   }).join('');
 }
+// Send to Behaviour sits beside Register to Word & Excel on the animal's own page (moved off the Shift List).
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.bh-send'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
+  const wrap = b.closest('.bh-wrap');
+  const redraw = ()=>{ if(wrap) wrap.innerHTML = BehaviourSend.buttonHtml(a, aaSigText(a)); };
+  BehaviourSend.open(a, {noteText:()=>aaNoteOf(a), sigText:()=>aaSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); redraw(); }});
+});
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
-  document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
-    const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
-    BehaviourSend.open(a, {noteText:()=>aaNoteOf(a), sigText:()=>aaSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
-  }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       aaWarnRetract(state.animals.find(a=>a.id===b.dataset.del));
@@ -2576,7 +2579,7 @@ function examFormHtml(a){
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>
     </div>`;
     if(chartDrafts[a.id]) h += chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]);
-    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
+    h += `<div class="row-actions" style="margin-top:10px"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button> <span class="bh-wrap">${BehaviourSend.buttonHtml(a, aaSigText(a))}</span></div>${aaRegisterHint(a)}`;
     return h;
   }
   h += `<div style="margin-top:8px"><label style="font-size:12px">Approx age${!a.approxAge?' — <span style="color:var(--amber)">please estimate</span>':''}</label><br><input class="plain" id="fld_approxAge" value="${esc(a.approxAge||'')}" style="width:100%${!a.approxAge?';border-color:var(--amber)':''}" placeholder="e.g. 2 (years) or Young Adult"></div>
@@ -2863,7 +2866,7 @@ function examFormHtml(a){
       <input class="plain" id="fld_nurse2" style="width:100%" value="${esc(nurseInitEl.value)}" placeholder="Nurse initials" disabled>
     </div></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint(a)}`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button> <span class="bh-wrap">${BehaviourSend.buttonHtml(a, aaSigText(a))}</span></div>${aaRegisterHint(a)}`;
 
   return h;
 }
@@ -2936,6 +2939,8 @@ function bindExamForm(a){
       clone.microchip = ''; // each animal's chip is unique, never copy this
       clone.registered = false;
       clone.noteEdited = null;
+      clone.addedDay = todayStr(); clone.dashSynced = false; clone.doneElsewhere = false;
+      clone.bhSentAt = null; clone.bhSig = null; clone.bhErr = '';   // a copy has not been sent to Behaviour either
       clones.push(clone);
     }
     const idx = state.animals.findIndex(x=>x.id===a.id);
