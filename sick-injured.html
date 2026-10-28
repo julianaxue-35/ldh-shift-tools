@@ -432,13 +432,20 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
         <p>The initials of the vet who saw the animal. Each animal keeps the vet initials it was started under, so if you take over the next day and press Send on notes that were not sent overnight, they go with the <b>first vet&rsquo;s</b> initials, not yours. Animals you add today carry yours.</p>
       </div>
     </details>
+    <details>
+      <summary>Several littermates with the same problem: Duplicate for littermates</summary>
+      <div class="a">
+        <p>Open the animal and press <b>Duplicate for littermates&hellip;</b> (under Weight). Say how many, and the whole entry (history, examination, assessment, treatment and plan) is copied to that many new animals on the Shift List. Each copy starts with a <b>blank Animal ID and weight</b>: open each one and fill them in. Typing the weight redoes the mg/kg on the medications.</p>
+        <p>Copies are not registered, flagged or sent to the Admission AA or Behaviour until you do it for each one.</p>
+      </div>
+    </details>
     <details class="faq-item">
       <summary>Send an animal to the Behaviour team (with my note)</summary>
       <div class="a">
-        <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
+        <p>If you are worried about an animal's behaviour, open the animal and press <b>Send to Behaviour</b>, which sits next to <b>Register to Word &amp; Excel</b>. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
         <ol>
           <li>Make sure the animal has its <b>ID</b> (the button is greyed out until it does). Finish or edit the note first if you can: what you send is the note as it is right now.</li>
-          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours) and enter your <b>initials</b> (required).</li>
+          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours). Your initials are taken from the top of the page, so make sure they are filled in.</li>
           <li>Wait for <b>Sent to Behaviour &#10003;</b>. If it says <b>NOT SENT</b> (no signal, or the dashboard refused it), press the button again to resend. Nothing is sent in the background.</li>
         </ol>
         <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending the same day updates the same card on the Behaviour page (a resend after midnight, or under a different ID, makes a new card). If someone else resends the same animal the same day, their note replaces yours and the card says it was re-sent.</p>
@@ -706,7 +713,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.1';
+const APP_VERSION = '2026-10-28.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1889,7 +1896,6 @@ function groupedListHtml(animals){
       <div>
         ${a.ppeRequired==='YES' ? '<span class="badge" style="background:var(--rust-soft);color:var(--rust);margin-right:4px">PPE</span>' : ''}
         ${a.secondVisit ? '<span class="badge" style="background:var(--amber-soft,#fdf0d5);color:#8a5a00;margin-right:4px" title="Second visit for this animal today — its own note">2nd visit</span>' : ''}${aaBadgeHtml(a)}<span class="badge ${a.registered?'done':''}">${a.registered?'Registered':'Open'}</span>
-        ${BehaviourSend.buttonHtml(a, aaSigText(a))}
         <button class="btn small secondary" data-open="${a.id}">Exam</button>
         <button class="btn small rust" data-del="${a.id}">Remove</button>
       </div>
@@ -1902,12 +1908,16 @@ function groupedListHtml(animals){
 }
 // Animals created from parsed rows: remember the case the dashboard now holds (so a later edit of the ID or location
 // moves it instead of leaving an orphan), or note that the animal was deliberately kept off the dashboard.
+// Send to Behaviour sits beside Register to Word & Excel on the animal's own page (moved off the Shift List).
+document.addEventListener('click', e=>{
+  const b = e.target.closest('.bh-send'); if(!b) return;
+  const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
+  const wrap = b.closest('.bh-wrap');
+  const redraw = ()=>{ if(wrap) wrap.innerHTML = BehaviourSend.buttonHtml(a, aaSigText(a)); };
+  BehaviourSend.open(a, {noteText:()=>aaNoteOf(a), sigText:()=>aaSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); redraw(); }});
+});
 function bindListButtons(){
   document.querySelectorAll('[data-open]').forEach(b=> b.addEventListener('click', ()=> openExam(b.dataset.open)));
-  document.querySelectorAll('.bh-send').forEach(b=> b.addEventListener('click', ()=>{
-    const a = state.animals.find(x=>x.id === b.dataset.bh); if(!a) return;
-    BehaviourSend.open(a, {noteText:()=>aaNoteOf(a), sigText:()=>aaSigText(a), initials:()=>vetInitEl.value, onDone:()=>{ saveShift(); renderShiftList(); }});
-  }));
   document.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', ()=>{
     if(confirm('Remove this animal from the shift list? (Its case is also removed from the dashboard.)')){
       const gone = state.animals.find(a=>a.id===b.dataset.del);
@@ -2569,6 +2579,7 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Species</label><br>${speciesSelectHtml(a)}</div>
   </div>`;
   }
+  h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>`;
 
   if(a.lastConsultDate){
     h += `<div style="font-size:12px;color:var(--ink-soft);margin-top:10px">Last consult: ${esc(a.lastConsultDate)}</div>`;
@@ -2673,12 +2684,36 @@ function examFormHtml(a){
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select></div>`;
 
-  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button></div>${aaRegisterHint()}`;
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button> <span class="bh-wrap">${BehaviourSend.buttonHtml(a, aaSigText(a))}</span></div>${aaRegisterHint()}`;
   return h;
 }
 
 function bindExamForm(a){
   const body = document.getElementById('examBody');
+  const dupBtn = document.getElementById('duplicateBtn');
+  if(dupBtn) dupBtn.addEventListener('click', ()=>{
+    const raw = prompt('How many littermates to copy this whole entry to? Each copy needs its own Animal ID and weight.', '1');
+    if(raw===null) return;
+    const n = parseInt(raw, 10);
+    if(isNaN(n) || n<1 || n>20){ alert('Enter a number between 1 and 20.'); return; }
+    const clones = [];
+    for(let i=0;i<n;i++){
+      const clone = JSON.parse(JSON.stringify(a));
+      clone.id = uid();
+      clone.animalId = '';   // filled in per copy: never duplicate IDs
+      clone.weight = '';     // each littermate is weighed; the mg/kg on the medications is redone when the weight goes in
+      clone.registered = false; clone.noteEdited = null;
+      clone.flagged = false; clone.secondVisit = false; clone.doneElsewhere = false; clone.dashSynced = false;
+      clone.addedDay = todayStr();
+      clone.aaSentAt = null; clone.aaSig = null; clone.aaSentId = null; clone.aaErr = ''; clone.aaEnteredAt = '';   // a copy has not been sent
+      clone.bhSentAt = null; clone.bhSig = null; clone.bhErr = '';
+      clones.push(clone);
+    }
+    const idx = state.animals.findIndex(x=>x.id===a.id);
+    state.animals.splice(idx+1, 0, ...clones);
+    saveShift(); renderShiftList();
+    alert(`Added ${n} cop${n===1?'y':'ies'} to the Shift List. Open each one and fill in its Animal ID and weight.`);
+  });
   if(a.template==='28day') bind28DayExamForm(a);
   const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', sex:'fld_sex', plan:'fld_plan'};
   const speciesEl = document.getElementById('fld_species');

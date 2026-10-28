@@ -521,7 +521,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
         <p>If you are worried about an animal's behaviour, press <b>Send to Behaviour</b> on its card. It sends the animal straight to the Behaviour page on the dashboard with your <b>whole current note</b> attached, so the team can read it before they assess.</p>
         <ol>
           <li>Make sure the animal has its <b>ID</b> (the button is greyed out until it does). Finish or edit the note first if you can: what you send is the note as it is right now.</li>
-          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours) and enter your <b>initials</b> (required).</li>
+          <li>Press <b>Send to Behaviour</b>. Say <b>why</b> (required), choose a <b>time frame</b> (30&ndash;60 minutes, within today, within 48 hours). Your initials are taken from the top of the page, so make sure they are filled in.</li>
           <li>Wait for <b>Sent to Behaviour &#10003;</b>. If it says <b>NOT SENT</b> (no signal, or the dashboard refused it), press the button again to resend. Nothing is sent in the background.</li>
         </ol>
         <p><b>Edited the note afterwards?</b> The button changes to <i>Edited &mdash; resend to Behaviour</i>. Resending the same day updates the same card on the Behaviour page (a resend after midnight, or under a different ID, makes a new card). If someone else resends the same animal the same day, their note replaces yours and the card says it was re-sent.</p>
@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.1';
+const APP_VERSION = '2026-10-28.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
