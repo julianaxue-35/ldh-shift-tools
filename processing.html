@@ -498,7 +498,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.3';
+const APP_VERSION = '2026-10-29.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1511,7 +1511,7 @@ function examFormHtml28(a){
     </div></div>`;
   h += `<div class="pe-field"><div class="lbl">Plan</div>
     <textarea class="free-input" id="fld_plan28">${esc(a.plan28||'')}</textarea></div>`;
-  h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>
+  h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>${a.status||a.subStatus?`<div style="font-size:12px;color:var(--ink-soft);margin-bottom:4px">Current ShelterMate status: <b>${esc(a.status||'-')}</b> / substatus <b>${esc(a.subStatus||'-')}</b></div>`:''}
     <select class="plain" id="fld_pathway28" style="width:100%">
       <option value="">-</option>
       ${PATHWAY_OPTIONS_28.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
@@ -1809,6 +1809,12 @@ function subStatusColIdx(colMap){
 function isFelineSpectrumAssessment(v){
   return /feline\s*spectrum\s*assessment/i.test(String(v||''));
 }
+// "Status" / "Sub Status" columns of the In Care Inventory — captured so staff can see them on the exam screen.
+function statusColIdx(colMap){ return colMap['status']!=null ? colMap['status'] : -1; }
+function statusBannerHtml(a){
+  if(!a.status && !a.subStatus) return '';
+  return `<div class="status-line" style="margin-top:8px;font-size:13px;display:flex;gap:16px;flex-wrap:wrap"><span><b>Status:</b> ${esc(a.status||'-')}</span><span><b>Substatus:</b> ${esc(a.subStatus||'-')}</span></div>`;
+}
 function parseInCareInventory(aoa){
   const rows = [];
   const excludedFsa = [];
@@ -1856,7 +1862,9 @@ function parseInCareInventory(aoa){
       dueDate: fmtExcelDate(row[colMap['due date out']]),
       species: speciesFromLocation(location) || currentSpecies || '',
       ageYears,
-      sex: matchSexCode(row[colMap['sex']])
+      sex: matchSexCode(row[colMap['sex']]),
+      status: statusColIdx(colMap)!==-1 ? String(row[statusColIdx(colMap)] ?? '').trim() : '',
+      subStatus: subStatusIdx!==-1 ? String(row[subStatusIdx] ?? '').trim() : ''
     });
   });
   return {rows, excludedFsa};
@@ -1989,6 +1997,8 @@ function makeAnimal(r){
     location: r.location||'',
     weight: r.weight||'',
     dueDate: r.dueDate||'',
+    status: r.status||'',
+    subStatus: r.subStatus||'',
     species: r.species||'cat',
     sex: r.sex||'',
     importedSex: r.sex||'', // what the import/booking said — used to note a change after the physical exam
@@ -2533,6 +2543,7 @@ function examFormHtml(a){
         <option value="exotic" ${a.species==='exotic'?'selected':''}>Exotic</option>
       </select></div>
   </div>
+  ${statusBannerHtml(a)}
   <div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>`;
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Current medication</div>
     <div class="opts">
@@ -2737,7 +2748,7 @@ function examFormHtml(a){
   }
   h += `</div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Pathway</div>
+  h += `<div class="pe-field"><div class="lbl">Pathway</div>${a.status||a.subStatus?`<div style="font-size:12px;color:var(--ink-soft);margin-bottom:4px">Current ShelterMate status: <b>${esc(a.status||'-')}</b> / substatus <b>${esc(a.subStatus||'-')}</b></div>`:''}
     <select class="plain" id="fld_pathway" style="width:100%">
       <option value="">-</option>
       <option ${a.pathway.startsWith('Medically GS, Ok')?'selected':''}>Medically GS, Ok for GS or IP</option>

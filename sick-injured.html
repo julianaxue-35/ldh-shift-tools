@@ -713,7 +713,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.3';
+const APP_VERSION = '2026-10-29.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1431,6 +1431,8 @@ function addOrMergeFromRecheck(r){
   if(!existing){ state.animals.push(makeAnimal(r)); return; }
   if(!existing.location && r.location) existing.location = r.location;
   if(!existing.weight && r.weight) existing.weight = r.weight;
+  if(r.status) existing.status = r.status;
+  if(r.subStatus) existing.subStatus = r.subStatus;
   const sections = parseNoteSections(r.noteText || '');
   if(r.noteText && r.noteText.trim()){
     const label = `Previous consult${sections.date ? ' ('+sections.date+')' : ''}:\n${r.noteText.trim()}`;
@@ -1538,7 +1540,7 @@ function parseVetReminderReport(aoa){
     }
   }
   if(headerRowIdx===-1 || colMap['animal id']==null) return [];
-  const idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'];
+  const stIdx = colMap['status'], subIdx = (colMap['sub status']!=null?colMap['sub status']:(colMap['sub-status']!=null?colMap['sub-status']:colMap['substatus'])), idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'];
   const byId = {};
   for(let i=headerRowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
@@ -1546,9 +1548,11 @@ function parseVetReminderReport(aoa){
     if(idVal==null || idVal==='') continue;
     const idStr = String(idVal);
     const noteText = (noteIdx!=null && row[noteIdx]!=null) ? String(row[noteIdx]) : '';
-    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', notes:[]};
+    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', status:'', subStatus:'', notes:[]};
     if(!byId[idStr].location && locIdx!=null && row[locIdx]) byId[idStr].location = normaliseRoomToken(row[locIdx]);
     if(!byId[idStr].weight && wIdx!=null && row[wIdx]) byId[idStr].weight = String(row[wIdx]);
+    if(!byId[idStr].status && stIdx!=null && row[stIdx]) byId[idStr].status = String(row[stIdx]).trim();
+    if(!byId[idStr].subStatus && subIdx!=null && row[subIdx]) byId[idStr].subStatus = String(row[subIdx]).trim();
     if(noteText && !byId[idStr].notes.includes(noteText)) byId[idStr].notes.push(noteText);
   }
   /* An Animal ID can genuinely appear on more than one row with distinct
@@ -1560,7 +1564,7 @@ function parseVetReminderReport(aoa){
   const results = [];
   Object.values(byId).forEach(rec=>{
     rec.notes.forEach(noteText=>{
-      results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, noteText, otherReminders:[]});
+      results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, status:rec.status, subStatus:rec.subStatus, noteText, otherReminders:[]});
     });
   });
   return results;
@@ -1812,6 +1816,8 @@ function makeAnimal(r){
     animalId: r.animalId || '',
     location: r.location || '',
     weight: r.weight || '',
+    status: r.status || '',
+    subStatus: r.subStatus || '',
     sex: r.sex || '',
     species: r.species || speciesFromLocation(r.location),
     lastConsultDate: sections.date || '',
@@ -2579,6 +2585,9 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Species</label><br>${speciesSelectHtml(a)}</div>
   </div>`;
   }
+  if(a.status || a.subStatus){
+    h += `<div class="two-col" style="margin-top:8px;font-size:13px"><div><b>Status:</b> ${esc(a.status||'-')}</div><div><b>Substatus:</b> ${esc(a.subStatus||'-')}</div></div>`;
+  }
   h += `<div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>`;
 
   if(a.lastConsultDate){
@@ -2678,7 +2687,7 @@ function examFormHtml(a){
   h += `<div class="pe-field"><div class="lbl">Plan</div>
     <textarea class="free-input" id="fld_plan">${esc(a.plan||'')}</textarea></div>`;
 
-  h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>
+  h += `<div class="pe-field"><div class="lbl">Pathway — for admin to update status</div>${a.status||a.subStatus?`<div style="font-size:12px;color:var(--ink-soft);margin-bottom:4px">Current ShelterMate status: <b>${esc(a.status||'-')}</b> / substatus <b>${esc(a.subStatus||'-')}</b></div>`:''}
     <select class="plain" id="fld_pathway" style="width:100%">
       <option value="">-</option>
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
