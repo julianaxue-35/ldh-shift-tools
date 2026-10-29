@@ -248,7 +248,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-10-22.1';
+const APP_VERSION = '2026-10-29.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
@@ -264,6 +264,12 @@ function pruneCharts() {
   Object.keys(CHARTS).forEach(k => { if (!CHARTS[k] || !CHARTS[k].updated || new Date(CHARTS[k].updated).getTime() < cut) delete CHARTS[k]; });
 }
 function saveCharts() { try { localStorage.setItem(LS_CHARTS, JSON.stringify(CHARTS)); } catch (e) { /* storage full or blocked */ } }
+// A chart saved on another station arrives through the Surgery tool's sharing and lands in storage: pick it up so a later save here never overwrites it with a stale copy.
+window.addEventListener('storage', e => {
+  if (e.key !== LS_CHARTS) return;
+  CHARTS = loadCharts();
+  if (cur && CHARTS[cur.key] && CHARTS[cur.key] !== cur) { cur = CHARTS[cur.key]; renderAll(); }
+});
 function shiftAnimals() {
   try { const l = JSON.parse(localStorage.getItem(LS_SHIFT) || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; }
 }
