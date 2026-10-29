@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-28.2';
+const APP_VERSION = '2026-10-29.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -853,7 +853,7 @@ function dayTagHtml(a){
 function normalizeAnimal(a){
   stampAuthor(a);
   const defaults = {
-    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
+    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', zmdSnapMl:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
@@ -1419,9 +1419,12 @@ function mmmD(a){
   const meth = ovNum(a.mmmMethOv)||d.meth, mida = ovNum(a.mmmMidaOv)||d.mida, medet = ovNum(a.mmmMedetOv)||d.medet;
   return { meth, mida, medet, atip:+(medet/2).toFixed(3) };
 }
+/* ZMD given = typed actual amount, else the amount locked in when the premed tick was
+   pressed (a.zmdSnapMl), else the calculation. The lock keeps the atipamezole at half
+   of what was really given even if the weight is edited later (e.g. post-spey). */
 function zmdGivenMl(a){
   const d = calcDoses(a.weight);
-  return d ? (ovNum(a.zmdMlOv)||d.zml) : null;
+  return d ? (ovNum(a.zmdMlOv)||ovNum(a.zmdSnapMl)||d.zml) : null;
 }
 function zmdAtipMl(a){ const g = zmdGivenMl(a); return g==null ? null : +(g/2).toFixed(2); }
 function premixGivenMl(a){
@@ -1476,13 +1479,13 @@ function tickSub(a, key){
   const meloxSC = meloxSCDose(postWeight(a), a.species, a.meloxOral);
   const dp = calcDoses(postWeight(a)) || d;
   const map = {
-    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : (a.species==='dog' && a.premedType==='standard') ? dogPremedSub(a) : zmdGivenMl(a)+'mL IM'+(ovNum(a.zmdMlOv)?' (adjusted from calculated '+d.zml+'mL)':''),
+    zmd: isMmm(a) ? (mmmSummary(a)||'') : isPremix(a) ? (premixGivenMl(a)+'mL '+premixRoute(a)+(ovNum(a.premixMlOv)?' (adjusted from calculated '+premixDoses(a.weight).premix+'mL)':' (0.1mL/kg)')) : (a.species==='dog' && a.premedType==='standard') ? dogPremedSub(a) : zmdGivenMl(a)+'mL IM'+(zmdGivenMl(a)!==d.zml?' (adjusted from calculated '+d.zml+'mL)':''),
     'alfax-pre': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'alfax-intra': dogPropofol(a) ? propofolRange(d.weight)+'mL slow IV to effect (2–6mg/kg, 10mg/mL)' : d.alfLow+'–'+d.alfHigh+'mL slow IV',
     'bupi-ip': d.bupiLow+'–'+d.bupi+'mL intraoperatively (1–2mg/kg, 5mg/mL)',
     'lido-dental': 'max '+(+(d.weight*0.1).toFixed(2))+'mL total for the whole procedure (2mg/kg, 20mg/mL) — all sites combined',
     'it-block': (+(d.weight*0.2).toFixed(2))+'mL total (1mg/kg, 5mg/mL) = '+(+(d.weight*0.1).toFixed(2))+'mL each testicle',
-    atipamezole: isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : zmdAtipMl(a)+'mL IM (5mg/mL)',
+    atipamezole: ovNum(a.atipMl) ? ovNum(a.atipMl)+'mL IM (given)' : isPremix(a) ? 'reversal dose to be confirmed (given as 0.03mL — per kg not confirmed)' : isMmm(a) ? (mmmD(a).atip+'mL IM (5mg/mL, half the medetomidine volume)') : a.species==='dog' ? 'match medetomidine volume given (5mg/mL)' : zmdAtipMl(a)+'mL IM (5mg/mL)',
     'melox-sc': meloxSC+'mL SC (5mg/mL)'+(a.species==='cat' && a.meloxOral ? ' — reduced, oral planned' : ''),
     buprenorphine: dp.bupren+'mL (300mcg/mL)'
   };
@@ -3525,7 +3528,7 @@ function examFormHtml(a){
       (isDog && a.surgType==='castrate') ? {l:'Intra-testicular block', v:+(doses.weight*0.2).toFixed(2), n:'bupivacaine 5mg/mL · 1mg/kg total · '+(+(doses.weight*0.1).toFixed(2))+'mL each testicle'} : null,
       hasProcedure(a,'dental') ? {l:'Lignocaine (dental, MAX)', v:+(doses.weight*0.1).toFixed(2), n:'20mg/mL · max 2mg/kg total for whole procedure · ≈'+(+(doses.weight*0.1/6).toFixed(2))+'mL per site if 6 blocks'} : null,
       {l:'Meloxicam SC'+(usesPostWeight(a)?' (post-spey wt)':''), v:meloxSC, n: a.species==='cat' ? (a.meloxOral ? '5mg/mL · 0.1mg/kg (reduced — oral planned)' : '5mg/mL · 0.2mg/kg') : '5mg/mL · 0.2mg/kg'},
-      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:zmdAtipMl(a), n:ovNum(a.zmdMlOv) ? '5mg/mL · half the ZMD given ('+zmdGivenMl(a)+'mL)' : '5mg/mL · half ZMD volume'},
+      isPremix(a) ? null : isMmm(a) ? {l:'Atipamezole (IM)', v:mmmD(a).atip, n:'5mg/mL · half the medetomidine volume'} : isDog ? null : {l:'Atipamezole (IM)', v:zmdAtipMl(a), n:zmdGivenMl(a)!==doses.zml ? '5mg/mL · half the ZMD given ('+zmdGivenMl(a)+'mL)' : '5mg/mL · half ZMD volume'},
       {l:'Buprenorphine (PRN)'+(usesPostWeight(a)?' (post-spey wt)':''), v:dosesPost.bupren, n:'300mcg/mL · 0.02mg/kg'}
     ].filter(Boolean);
     if(isDog) h += `<div class="pe-field" style="margin-bottom:8px"><div class="lbl">Induction agent</div><div class="opts">
@@ -4221,6 +4224,10 @@ function bindExamForm(a){
       if(!a.ticks[key]) a.ticks[key] = {done:false, time:''};
       a.ticks[key].done = !a.ticks[key].done;
       a.ticks[key].time = a.ticks[key].done ? nowTime() : '';
+      if(key==='zmd'){
+        if(a.ticks[key].done){ const d0 = calcDoses(a.weight); a.zmdSnapMl = (a.species==='cat' && d0) ? d0.zml : ''; }
+        else a.zmdSnapMl = '';
+      }
       if(key==='microchip') a.chipTickRemote = false; // this device made the change, so it owns the number entry
       saveShift(); openExam(a.id);
     });
@@ -4554,7 +4561,7 @@ function assembleNote(a){
   } else if(a.premedType==='standard' && a.species==='dog'){
     L.push(`Medetomidine + methadone premix — ${dogPremedGivenMl(a)||'?'}mL ${a.dogPremedRoute}${a.dogPremedRate&&a.dogPremedRate!=='custom'?` (${a.dogPremedRate} mL/kg)`:''} (dose range 0.075-0.1mL/kg)`);
   } else if(a.premedType==='standard'){
-    L.push(doses ? (ovNum(a.zmdMlOv) ? `Standard ZMD — ${zmdGivenMl(a)}mL IM (Zoletil + Methadone + Medetomidine; adjusted from calculated ${doses.zml}mL)` : `Standard ZMD — ${doses.zml}mL IM (Zoletil + Methadone + Medetomidine, 0.045mL/kg)`) : 'Standard ZMD (enter weight to calculate dose)');
+    L.push(doses ? (zmdGivenMl(a)!==doses.zml ? `Standard ZMD — ${zmdGivenMl(a)}mL IM (Zoletil + Methadone + Medetomidine; adjusted from calculated ${doses.zml}mL)` : `Standard ZMD — ${doses.zml}mL IM (Zoletil + Methadone + Medetomidine, 0.045mL/kg)`) : 'Standard ZMD (enter weight to calculate dose)');
   } else {
     L.push(`Other (vet-selected): ${a.premedOther && a.premedOther.trim() ? a.premedOther.trim() : '-'}`);
     { const pt = a.ticks['premed-other']; L.push(pt && pt.done ? `- Other premed given (${pt.time})` : '- Other premed: not marked given'); }
