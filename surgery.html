@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-30.1';
+const APP_VERSION = '2026-10-30.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -4562,7 +4562,7 @@ function assembleNote(a){
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog' && !isRabbit(a)) L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
   L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
-  L.push(`Species: ${speciesName(a.species)||'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}`);
+  L.push(`Species: ${speciesName(a.species)||'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}${isReleaseLoc(a)?` | CPR: ${a.cpr==='YES'?'YES':a.cpr==='NO'?'NO':'not recorded'}`:''}`);
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
@@ -5044,7 +5044,7 @@ function buildExcelFile(){
   const completed = sortedAnimals().filter(a=>a.registered);
   const notCompleted = sortedAnimals().filter(a=>!a.registered);
 
-  const completedAoa = [['Animal ID','Species','Sex','Weight','Post-spey Weight','Flea Given','Worming Given','Vaccination Given','Post-op Meds','Plan','Pathway','S8 Sign-Out?']];
+  const completedAoa = [['Animal ID','Species','Sex','Weight','Post-spey Weight','Flea Given','Worming Given','Vaccination Given','Post-op Meds','Plan','Pathway','S8 Sign-Out?','CPR']];
   completed.forEach(a=>{
     const vaccT = a.ticks['vacc'];
     completedAoa.push([
@@ -5059,14 +5059,15 @@ function buildExcelFile(){
       postopMedRows(a).filter(r=>r.on).map(r=>r.name+': '+r.dose).join(' | ') || '-',
       planSummary(a),
       pathwaySummary(a),
-      a.premedType==='other' ? ('🟥 Non-standard premed' + (a.premedOther? (' — '+a.premedOther.trim()):'') + ' — sign out at ' + DDBOOK_URL) : '-'
+      a.premedType==='other' ? ('🟥 Non-standard premed' + (a.premedOther? (' — '+a.premedOther.trim()):'') + ' — sign out at ' + DDBOOK_URL) : '-',
+      isReleaseLoc(a) ? (a.cpr || 'not set') : ''
     ]);
   });
   const notCompletedAoa = [['Animal ID','Procedure','Species','Sex','Weight']];
   notCompleted.forEach(a=> notCompletedAoa.push([a.animalId, surgTypeLabel(a.surgType, a.species), speciesName(a.species)||'-', a.sex||'-', a.weight||'-']));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,14,12,14,16,50,35,30,45]), 'Completed');
+  XLSX.utils.book_append_sheet(wb, styledSheet(completedAoa, [12,10,14,10,14,12,14,16,50,35,30,45,8]), 'Completed');
   XLSX.utils.book_append_sheet(wb, styledSheet(notCompletedAoa, [12,22,10,14,10]), 'Not Completed');
   const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array', cellStyles:true});
   const blob = new Blob([wbout], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
