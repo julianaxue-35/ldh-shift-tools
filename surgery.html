@@ -638,7 +638,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-29.4';
+const APP_VERSION = '2026-10-30.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -853,7 +853,7 @@ function dayTagHtml(a){
 function normalizeAnimal(a){
   stampAuthor(a);
   const defaults = {
-    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', scp:false, zmdMlOv:'', zmdSnapMl:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
+    animalId:'', species:'', weight:'', postWeight:'', sex:'', age:'', ageUnit:'years', location:'', cpr:'', scp:false, zmdMlOv:'', zmdSnapMl:'', premixMlOv:'', mmmMethOv:'', mmmMidaOv:'', mmmMedetOv:'', rabMedOv:'', rabKetOv:'', rabBupOv:'', rabIncisors:'', rabIncisorsTxt:'', rabMolars:'', rabMolarsTxt:'',
     newMedChartText:'',
     fleaDueDate:'', wormDueDate:'', vaccDue:'', microchipDue:false,
     fleaGiven:false, wormGiven:false,
@@ -2385,8 +2385,8 @@ function parseSmExport(aoa){
    remember to tick it every time. */
 function downloadBookingTemplate(){
   const bookingsAoa = [
-    ['Shelter ID','Type','Species','Location','Age','Weight','Sex','Procedure','Tasks','Notes'],
-    ['1174362','Shelter','Cat','CR2-48','2y','3.2','F','Spey','TT, M/C, F3, FIV, HC, R/C ortho, R/C abdo','flagged for constipation 8/9']
+    ['Shelter ID','Type','Species','Location','Age','Weight','Sex','Procedure','Tasks','Notes','CPR'],
+    ['1174362','Shelter','Cat','CR2-48','2y','3.2','F','Spey','TT, M/C, F3, FIV, HC, R/C ortho, R/C abdo','flagged for constipation 8/9','']
   ];
   const legendAoa = [
     ['Column','What to type'],
@@ -2412,11 +2412,12 @@ function downloadBookingTemplate(){
     ['  any tx','Flea, worming and vaccination all needed'],
     ['  HAS IP','Already has an interested party / adopter lined up'],
     ['  SCP','Scared Cat Program — auto-flags the CARE warning in the tool'],
-    ['Notes','Anything else — clinical flags, ringworm status, etc.']
+    ['Notes','Anything else — clinical flags, ringworm status, etc.'],
+    ['CPR','Yes / No — only for animals going to Release (Location = Release); leave blank otherwise']
   ];
   const wb = XLSX.utils.book_new();
   const wsB = XLSX.utils.aoa_to_sheet(bookingsAoa);
-  wsB['!cols'] = [{wch:12},{wch:10},{wch:8},{wch:12},{wch:8},{wch:8},{wch:6},{wch:28},{wch:36},{wch:30}];
+  wsB['!cols'] = [{wch:12},{wch:10},{wch:8},{wch:12},{wch:8},{wch:8},{wch:6},{wch:28},{wch:36},{wch:30},{wch:6}];
   XLSX.utils.book_append_sheet(wb, wsB, 'Bookings');
   const wsL = XLSX.utils.aoa_to_sheet(legendAoa);
   wsL['!cols'] = [{wch:20},{wch:55}];
@@ -2427,9 +2428,9 @@ function downloadBookingTemplate(){
 document.getElementById('downloadBookingTemplateBtn').addEventListener('click', downloadBookingTemplate);
 
 function parseBookingSheet(aoa){
-  const found = findHeaderRowFuzzy(aoa, [/shelter.*id/, /type/, /species/, /location/, /age/, /procedure/, /task/, /note/, /weight|\bkg\b/, /^sex$|\bsex\b|gender/]);
+  const found = findHeaderRowFuzzy(aoa, [/shelter.*id/, /type/, /species/, /location/, /age/, /procedure/, /task/, /note/, /weight|\bkg\b/, /^sex$|\bsex\b|gender/, /^cpr\b|\bcpr\b/]);
   if(!found) return [];
-  const [idIdx, typeIdx, speciesIdx, locIdx, ageIdx, procIdx, taskIdx, noteIdx, weightIdx, sexIdx] = found.idxs;
+  const [idIdx, typeIdx, speciesIdx, locIdx, ageIdx, procIdx, taskIdx, noteIdx, weightIdx, sexIdx, cprIdx] = found.idxs;
   const results = [];
   for(let i=found.rowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
@@ -2447,6 +2448,7 @@ function parseBookingSheet(aoa){
       age: ageIdx!==-1 && row[ageIdx]!=null ? String(row[ageIdx]).trim() : '',
       surgType: procIdx!==-1 && row[procIdx]!=null ? String(row[procIdx]).trim() : '',
       tasks, notes,
+      cpr: cprIdx!==-1 && row[cprIdx]!=null ? matchCpr(row[cprIdx]) : '',
       scp: /\bscp\b/i.test(tasks) || /\bscp\b/i.test(notes)
     });
   }
@@ -2484,7 +2486,7 @@ function renderParsedBookingTable(rows){
   }
   let html = '<div class="warn">Check every field before adding. Tasks/Notes land in the Assist section comment box on each animal — tick the relevant boxes yourself once added.</div>';
   html += `<div class="row-actions"><button class="btn" id="confirmBookingAddBtnTop">Add these ${rows.length} to the shift</button></div>`;
-  html += '<table class="parsed"><tr><th>ID</th><th>Type</th><th>Species</th><th>Location</th><th>Age</th><th>Weight</th><th>Sex</th><th>Procedure</th><th>Tasks</th><th>Needs</th><th>Notes</th><th>SCP</th></tr>';
+  html += '<table class="parsed"><tr><th>ID</th><th>Type</th><th>Species</th><th>Location</th><th>Age</th><th>Weight</th><th>Sex</th><th>Procedure</th><th>Tasks</th><th>Needs</th><th>Notes</th><th>CPR</th><th>SCP</th></tr>';
   rows.forEach((r,i)=>{
     html += `<tr>
       <td data-label="ID"><input data-i="${i}" data-f="animalId" value="${esc(r.animalId)}"></td>
@@ -2498,6 +2500,7 @@ function renderParsedBookingTable(rows){
       <td data-label="Tasks"><input data-i="${i}" data-f="tasks" value="${esc(r.tasks)}"></td>
       <td data-label="Needs" data-needscell="${i}" style="font-size:11.5px">${esc(bookingNeedsText(r.tasks))}</td>
       <td data-label="Notes"><input data-i="${i}" data-f="notes" value="${esc(r.notes)}"></td>
+      <td data-label="CPR"><input data-i="${i}" data-f="cpr" value="${esc(r.cpr||'')}" placeholder="YES / NO" style="width:64px"></td>
       <td data-label="SCP">${r.scp ? '⚠️ SCP' : ''}</td>
     </tr>`;
   });
@@ -2531,6 +2534,7 @@ function renderParsedBookingTable(rows){
         a.ivcGauge = '25G';
       }
       a.scp = !!r.scp;
+      a.cpr = matchCpr(r.cpr);
       // Booking details go into the Comment box (which is NOT included in the medical note).
       const infoParts = [];
       if(r.type) infoParts.push(`Type: ${r.type}`);
@@ -3257,6 +3261,11 @@ window.addEventListener('message', e=>{                                         
   const f = document.getElementById('dentalFrame');
   if(f && e.source===f.contentWindow && e.data && typeof e.data.ldhDentalHeight==='number') f.style.height = Math.max(400, e.data.ldhDentalHeight+20)+'px';
 });
+/* CPR status (2026-10-30): animals going to RELEASE (location says "release") get a Yes/No for CPR, kept in the frozen bar with
+   the ID and weight. '' = not answered yet; the bar then says so, so it is not forgotten. */
+function isReleaseLoc(a){ return /\brelease\b/i.test(String((a && a.location) || '')); }
+function cprBarText(a){ return isReleaseLoc(a) ? ' — CPR: ' + (a.cpr==='YES' ? 'YES' : a.cpr==='NO' ? 'NO' : 'not set') : ''; }
+function matchCpr(v){ const t = String(v==null?'':v).trim().toLowerCase(); return /^(y|yes|cpr|true|1)$/.test(t) ? 'YES' : /^(n|no|dnr|false|0)$/.test(t) ? 'NO' : ''; }
 function openExam(id){
   const a = state.animals.find(x=>x.id===id);
   if(!a){
@@ -3269,7 +3278,7 @@ function openExam(id){
   showTab('exam');
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`;
   document.getElementById('examStickyId').textContent = (a.animalId||'(no ID)') +
-    (parseFloat(a.weight)>0 ? ' — ' + a.weight + ' kg' + (usesPostWeight(a) ? ' (post-op ' + a.postWeight + ' kg)' : '') : '');
+    (parseFloat(a.weight)>0 ? ' — ' + a.weight + ' kg' + (usesPostWeight(a) ? ' (post-op ' + a.postWeight + ' kg)' : '') : '') + cprBarText(a);
   document.getElementById('examStickyMed').innerHTML = onMedBannerHtml(a, true);   // frozen with the ID + weight
   {
     const total = state.animals.length;
@@ -3455,6 +3464,9 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Weight (kg)</label><br><input class="plain" id="fld_weight" type="number" step="0.1" value="${esc(a.weight||'')}" style="width:100%"></div>
   </div>`;
   h += `<div style="margin-top:8px"><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. CR1-7, CA1, P2, T"></div>`;
+  if(isReleaseLoc(a)) h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">CPR (release animal)</div>
+    <div class="opts"><button type="button" class="opt-btn ${a.cpr==='YES'?'selected':''}" data-cpr="YES">Yes</button><button type="button" class="opt-btn ${a.cpr==='NO'?'selected':''}" data-cpr="NO">No</button></div>
+  </div>`;
   if(a.species!=='dog' && !isRabbit(a)) h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">Scared Cat Program (SCP)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.scp?'selected abn':''}" id="scpToggle">SCP — handle with care</button></div>
   </div>`;
@@ -3964,7 +3976,7 @@ function bindExamForm(a){
   bindChange('fld_animalId','animalId');
   const locEl = document.getElementById('fld_location');
   if(locEl) locEl.addEventListener('change', ()=>{
-    const before = syncLoc(a);
+    const before = syncLoc(a), wasRelease = isReleaseLoc(a);
     a.location = locEl.value;
     if(syncLoc(a)!==before && a.animalId){
       const oldA = Object.assign({}, a, {location: before===NO_LOC ? '' : before});
@@ -3973,6 +3985,10 @@ function bindExamForm(a){
       if(a.registered) syncCompletionToDashboard(a, 'surgery');
     }
     saveShift(); refreshNote(a);
+    if(isReleaseLoc(a)!==wasRelease) openExam(a.id);   // shows / hides the CPR question and the bar text
+  });
+  body.querySelectorAll('[data-cpr]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ a.cpr = a.cpr===btn.dataset.cpr ? '' : btn.dataset.cpr; saveShift(); openExam(a.id); });
   });
   const scpBtn = document.getElementById('scpToggle');
   if(scpBtn) scpBtn.addEventListener('click', ()=>{ a.scp = !a.scp; saveShift(); openExam(a.id); });
