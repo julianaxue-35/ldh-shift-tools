@@ -96,6 +96,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       body: JSON.stringify({ status: { shift: 'processing', items: [] } })
     }).then(function (res) {
       if (res.status === 401) { fail('Incorrect code. Try again.'); return; }
+      if (res.status === 429) { fail('Too many wrong attempts from this network. Wait 15 minutes, then try again.'); return; }
       if (res.status !== 400 && !res.ok) { fail('Could not check the code right now. Try again shortly.'); return; }
       ls(OK_KEY, '1'); ls(SYNC_KEY, code); unlock();
     }).catch(function () {

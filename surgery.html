@@ -247,6 +247,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       body: JSON.stringify({ status: { shift: 'processing', items: [] } })
     }).then(function (res) {
       if (res.status === 401) { fail('Incorrect code. Try again.'); return; }
+      if (res.status === 429) { fail('Too many wrong attempts from this network. Wait 15 minutes, then try again.'); return; }
       if (res.status !== 400 && !res.ok) { fail('Could not check the code right now. Try again shortly.'); return; }
       ls(OK_KEY, '1'); ls(SYNC_KEY, code); unlock();
     }).catch(function () {
@@ -638,7 +639,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-30.2';
+const APP_VERSION = '2026-10-30.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
