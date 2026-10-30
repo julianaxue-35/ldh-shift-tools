@@ -714,7 +714,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-30.1';
+const APP_VERSION = '2026-10-30.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1523,6 +1523,28 @@ function addOrMergeFromFlag(r){
   existing.flagged = true;
 }
 
+/* Surgery Comments column (ShelterMate has no word limit there, unlike the Reminder field, which was cut to 500
+   words): she now keeps the whole running medical history in Surgery Comments, so when a row's Surgery Comments
+   holds a consult note (has a Reason / History or Assessment label) that is the note the History, Current
+   Medication, Assessment and Treatment sections are filled from. Rows without one fall back to the Reminder
+   column exactly as before, so animals she hasn't migrated yet still import. */
+const SC_CONSULT_RE = /Reason\s*(?:\/\s*History)?\s*:|(?:^|\n)\s*Assessment\s*:/i;
+const isConsultNote = t => SC_CONSULT_RE.test(t || '');
+/* If the cell holds several dated consults stapled together ("Date: d/m/yy" lines), parse the most recent one;
+   the complete text stays reviewable under Previous notes. One consult (or undateable blocks) = used as is. */
+function latestConsultBlock(text){
+  text = text || '';
+  const starts = []; const re = /^[ \t]*Date\s*:[ \t]*(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})/gim; let m;
+  while((m = re.exec(text))){
+    const y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    starts.push({at:m.index, t:Date.UTC(y, +m[2]-1, +m[1])});
+  }
+  if(starts.length < 2) return text;
+  let best = 0;
+  starts.forEach((b,i)=>{ if(b.t >= starts[best].t) best = i; });   // ties -> the later block in the cell
+  return text.slice(starts[best].at, best+1 < starts.length ? starts[best+1].at : text.length).trim();
+}
+
 /* Groups report rows by Animal ID. Each animal can appear on several rows
    (e.g. a full SOAP-style consult note plus a short standalone reminder,
    or the same note duplicated across two physical rows by the report's own
@@ -1541,7 +1563,7 @@ function parseVetReminderReport(aoa){
     }
   }
   if(headerRowIdx===-1 || colMap['animal id']==null) return [];
-  const stIdx = colMap['status'], subIdx = (colMap['sub status']!=null?colMap['sub status']:(colMap['sub-status']!=null?colMap['sub-status']:colMap['substatus'])), idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'];
+  const stIdx = colMap['status'], subIdx = (colMap['sub status']!=null?colMap['sub status']:(colMap['sub-status']!=null?colMap['sub-status']:colMap['substatus'])), idIdx = colMap['animal id'], locIdx = colMap['shelter / kennel'], wIdx = colMap['weight'], noteIdx = colMap['reminder'], scIdx = colMap['surgery comments'];
   const byId = {};
   for(let i=headerRowIdx+1;i<aoa.length;i++){
     const row = aoa[i]; if(!row) continue;
@@ -1549,12 +1571,17 @@ function parseVetReminderReport(aoa){
     if(idVal==null || idVal==='') continue;
     const idStr = String(idVal);
     const noteText = (noteIdx!=null && row[noteIdx]!=null) ? String(row[noteIdx]) : '';
-    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', status:'', subStatus:'', notes:[]};
+    const scText = (scIdx!=null && row[scIdx]!=null) ? String(row[scIdx]).trim() : '';
+    if(!byId[idStr]) byId[idStr] = {animalId:idStr, location:'', weight:'', status:'', subStatus:'', notes:[], scNotes:[], scOther:[]};
     if(!byId[idStr].location && locIdx!=null && row[locIdx]) byId[idStr].location = normaliseRoomToken(row[locIdx]);
     if(!byId[idStr].weight && wIdx!=null && row[wIdx]) byId[idStr].weight = String(row[wIdx]);
     if(!byId[idStr].status && stIdx!=null && row[stIdx]) byId[idStr].status = String(row[stIdx]).trim();
     if(!byId[idStr].subStatus && subIdx!=null && row[subIdx]) byId[idStr].subStatus = String(row[subIdx]).trim();
     if(noteText && !byId[idStr].notes.includes(noteText)) byId[idStr].notes.push(noteText);
+    if(scText){
+      const bucket = isConsultNote(scText) ? byId[idStr].scNotes : byId[idStr].scOther;
+      if(!bucket.includes(scText)) bucket.push(scText);
+    }
   }
   /* An Animal ID can genuinely appear on more than one row with distinct
      note text — two separate active reminders for the same animal, not an
@@ -1564,8 +1591,19 @@ function parseVetReminderReport(aoa){
      consult entry instead, so she works through them individually. */
   const results = [];
   Object.values(byId).forEach(rec=>{
-    rec.notes.forEach(noteText=>{
-      results.push({animalId:rec.animalId, location:rec.location, weight:rec.weight, status:rec.status, subStatus:rec.subStatus, noteText, otherReminders:[]});
+    const base = {animalId:rec.animalId, location:rec.location, weight:rec.weight, status:rec.status, subStatus:rec.subStatus};
+    if(rec.scNotes.length){
+      /* Surgery Comments carries the full history: it is the consult; the Reminder text is kept as reference only. */
+      const refs = rec.notes.filter(t=>!rec.scNotes.includes(t)).map(t=>`Reminder:\n${t}`);
+      rec.scNotes.forEach(full=>{
+        const noteText = latestConsultBlock(full);
+        results.push(Object.assign({}, base, {noteText, otherReminders: (noteText!==full ? [`Full history (Surgery Comments):\n${full}`] : []).concat(refs)}));
+      });
+      return;
+    }
+    const extra = rec.scOther.map(t=>`Surgery Comments:\n${t}`);   // not a consult note: reference only
+    rec.notes.forEach((noteText,i)=>{
+      results.push(Object.assign({}, base, {noteText, otherReminders: i===0 ? extra.slice() : []}));
     });
   });
   return results;
