@@ -153,6 +153,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       body: JSON.stringify({ status: { shift: 'processing', items: [] } })
     }).then(function (res) {
       if (res.status === 401) { fail('Incorrect code. Try again.'); return; }
+      if (res.status === 429) { fail('Too many wrong attempts from this network. Wait 15 minutes, then try again.'); return; }
       if (res.status !== 400 && !res.ok) { fail('Could not check the code right now. Try again shortly.'); return; }
       ls(OK_KEY, '1'); ls(SYNC_KEY, code); unlock();
     }).catch(function () {
@@ -248,7 +249,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-10-29.1';
+const APP_VERSION = '2026-10-30.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
