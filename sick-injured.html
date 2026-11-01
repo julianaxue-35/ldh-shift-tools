@@ -714,7 +714,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-10-30.2';
+const APP_VERSION = '2026-11-01.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1485,8 +1485,24 @@ function flagHistoryLabel(r){
   const redFlags = Array.isArray(r.redFlags) ? r.redFlags.filter(Boolean).join(', ') : String(r.redFlags||'').trim();
   let label = `AA Flag — Presenting problem:\n${r.problem || '(not specified)'}`;
   if(redFlags) label += `\nEmergency signs: ${redFlags}`;
-  if(r.condition && String(r.condition).trim()) label += `\nSuspected condition: ${String(r.condition).trim()}`;
+  const signs = flagSignsText(r);
+  if(signs) label += `\nSuspected signs: ${signs}`;
   return label;
+}
+/* 2026-11-01: flags carry sign GROUPS (`conditions`), not one condition. Labels and the old-condition -> group
+   folding mirror LDHLogic.CONDITION_LABELS / LEGACY_GROUP in the dashboard repo (lib/ldh-logic.js); keep in step. */
+const SIGN_LABELS = {respiratory:'Respiratory signs', gi:'GI signs', urinary:'Urinary signs', skin:'Skin signs', msk:'MSK signs',
+  neuro:'Neurological signs', eyes:'Eye signs', ears:'Ear signs', wounds_pain_swelling:'Wounds / pain / swelling',
+  neonatal:'Kitten / puppy signs', other:'Other'};
+const LEGACY_SIGN_GROUP = {cat_flu:'respiratory', kennel_cough:'respiratory', vomiting:'gi', diarrhoea:'gi',
+  eye_condition:'eyes', skin_condition:'skin', wounds_injury:'wounds_pain_swelling', other:'other'};
+function flagSignsText(r){
+  const has = (o,k)=> Object.prototype.hasOwnProperty.call(o,k);
+  const one = k => { const g = has(LEGACY_SIGN_GROUP,k) ? LEGACY_SIGN_GROUP[k] : k; return has(SIGN_LABELS,g) ? SIGN_LABELS[g] : k; };
+  const keys = Array.isArray(r.conditions) ? r.conditions.map(x=>String(x==null?'':x).trim()).filter(Boolean) : [];
+  if(keys.length) return Array.from(new Set(keys.map(one))).join(', ');
+  const c = r.condition == null ? '' : String(r.condition).trim();
+  return c ? one(c) : '';   // a pre-joined string ("GI signs, Urinary signs") or an unknown key prints as it came
 }
 function addOrMergeFromFlag(r){
   const label = flagHistoryLabel(r);
@@ -2220,6 +2236,7 @@ renderShiftList();
       problem: String(it.problem||'').trim(),
       redFlags: it.redFlags,
       condition: it.condition,
+      conditions: it.conditions,
     });
   });
   saveShift();
