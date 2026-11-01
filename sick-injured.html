@@ -346,6 +346,19 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     </details>
 
     <details class="faq-item">
+      <summary>Why tick “Surgery Comments” when exporting? (500-word note limit)</summary>
+      <div class="a">
+        <p>The consultation <b>Vet Reminder</b> field in ShelterBuddy is capped at <b>500 words</b>, which cuts off longer consult notes. To get around this on S&amp;I shifts, the <b>S&amp;I vet</b> puts the full consult note in the <b>Surgery Comments</b> section instead, which has no word limit.</p>
+        <ul>
+          <li>When you generate the report, make sure <b>Surgery Comments</b> is ticked in the column list (arrow in the screenshot below). If it isn't ticked, the tool can't see those notes.</li>
+          <li>The tool reads the consult note from <b>Surgery Comments</b> first. If an animal has nothing in Surgery Comments, it falls back to whatever is in the <b>Vet Reminder</b> field, so nothing is lost.</li>
+          <li>Surgery notes: if you want to schedule a revisit, you can still put it in the Vet Reminder, as long as it's within 500 words.</li>
+        </ul>
+        <img src="faq-surgery-comments.png" alt="ShelterBuddy report columns — Surgery Comments ticked">
+      </div>
+    </details>
+
+    <details class="faq-item">
       <summary>Step 2 — bringing it into the tool</summary>
       <div class="a">On the Shift List tab, upload that file where it says to upload the Vet Reminder Report. Every animal on it shows up with its history already filled in from the report.</div>
     </details>
@@ -714,7 +727,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-01.1';
+const APP_VERSION = '2026-11-02.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
