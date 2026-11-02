@@ -309,7 +309,11 @@
       line = line.replace(RECHECK_MARK_RE, '');
       var parts = splitInstruction(line);
       var drug = findDrug(line);
-      var strength = detectStrength(parts.head);
+      var doseText = detectDoseText(parts.tail) || detectDoseText(line);
+      // Strength is normally before the colon/"give" ("trazodone 100mg: give 2 tablets"). If it was written after it
+      // ("trazodone: 100mg, give 2 tablets", "give 2 tablets of trazodone 100mg"), take it from there, but only when the
+      // dose is a tablet/ml amount, so a bare dose ("give 100mg") is never mistaken for the strength.
+      var strength = detectStrength(parts.head) || (doseText && !/(?:mg|mcg)$/i.test(doseText) ? detectStrength(line) : null);
       var freq = detectFreq(line);
       // Meloxicam is ALWAYS once daily at LDH: whatever the line says, it is charted once daily
       var meloxWarn = '';
@@ -318,7 +322,6 @@
       if (drug && drug.key === 'fluoxetine') { if (freq === 'BID') meloxWarn = 'Fluoxetine is once daily only: set to once daily'; freq = 'SID'; }
       var route = detectRoute(line, drug);
       var days = detectDays(line);
-      var doseText = detectDoseText(parts.tail) || detectDoseText(line);
       var formSuffix = drug ? detectFormSuffix(line, drug.key) : '';
       var warnings = [];
       if (!drug) warnings.push('Drug not recognised — pick manually');
