@@ -639,7 +639,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-02.4';
+const APP_VERSION = '2026-11-02.5';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1193,7 +1193,7 @@ function gabaBestCap(w){
 }
 function gabaForm(a){ return a.gabaForm || (a.species==='dog' ? 'capsule' : 'liquid'); }   // cats usually liquid, dogs usually capsules
 function gabaInfo(a){
-  if(isNewExo(a)) return null;   // gabapentin not used for guinea pig / ferret / rat
+  if(isExotic(a)) return null;   // gabapentin not used for rabbit / guinea pig / ferret / rat
   const w = parseFloat(postWeight(a));
   if(!a.gabaOn || !w || w<=0 || isNaN(w)) return null;
   const mg = +(w*10).toFixed(1);
@@ -1364,7 +1364,7 @@ function postopMedRows(a){
     dose: mf && mf.ml!=null ? mf.ml+'mL PO '+(meloxBid(a)?'BID':'SID')+' '+(mf.timing||'(timing pending)')+' × '+mf.days+' days ('+meloxOralConcLbl(a.species)+')' : 'enter weight',
     chart: onChart('auto-melox') ? 'on chart' : 'press Register medication chart'});
   const g = gabaInfo(a);
-  if(!isNewExo(a)) rows.push({name:'Gabapentin', on:a.gabaOn,
+  if(!isExotic(a)) rows.push({name:'Gabapentin', on:a.gabaOn,
     dose: g ? g.doseText+' PO BID'+(parseInt(a.gabaDays,10)>0?' × '+a.gabaDays+' days':'') : 'enter weight',
     chart: onChart('auto-gaba') ? 'on chart' : 'enter days to add'});
   return rows.map(r=>Object.assign({wTxt}, r));
@@ -4093,7 +4093,7 @@ function examFormHtml(a){
   if(a.bupRequired && isPregSpey(a)) h += usesPostWeight(a) ? `<p style="font-size:11.5px;color:var(--ink-soft);margin-top:6px">Dose calculated from the post-spey weight (${esc(a.postWeight)}kg).</p>` : `<p style="font-size:11.5px;color:var(--amber);font-weight:600;margin-top:6px">Enter the post-spey weight above so the dose is calculated from it (currently using the pre-op weight).</p>`;
   h += `</div>`;
 
-  if(!isNewExo(a)){   // gabapentin is not offered for guinea pig / ferret / rat
+  if(!isExotic(a)){   // gabapentin is not offered for rabbit / guinea pig / ferret / rat
   h += `<div class="pe-field"><div class="lbl">Gabapentin post op (optional)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.gabaOn?'selected':''}" id="gabaToggle">Gabapentin required post-op (10mg/kg BID)</button></div>`;
   if(a.gabaOn){
