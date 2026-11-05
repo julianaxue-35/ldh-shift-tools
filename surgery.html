@@ -544,6 +544,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div id="examStickyBar" style="position:sticky;top:0;z-index:10;background:var(--paper);padding:12px 0;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--line);flex-wrap:wrap">
       <button class="btn secondary" id="closeExamBtn">&larr; Back to list</button>
       <b id="examStickyId" style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto;text-align:center"></b>
+      <span id="examStickyFiv" style="display:none;background:#b3261e;color:#fff;font-weight:800;font-size:13px;padding:3px 10px;border-radius:6px;white-space:nowrap">FIV POS</span>
       <span id="examProgress" style="font-size:12.5px;color:var(--ink-soft);font-weight:600;white-space:nowrap"></span>
       <div id="examStickyMed" style="flex:1 0 100%"></div>
     </div>
@@ -639,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-02.5';
+const APP_VERSION = '2026-11-05.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3504,6 +3505,7 @@ function openExam(id){
   document.getElementById('examTitle').textContent = `${a.animalId||'(no ID)'} — ${surgTypeFullLabel(a)}`;
   document.getElementById('examStickyId').textContent = (a.animalId||'(no ID)') +
     (parseFloat(a.weight)>0 ? ' — ' + a.weight + ' kg' + (usesPostWeight(a) ? ' (post-op ' + a.postWeight + ' kg)' : '') : '') + cprBarText(a);
+  document.getElementById('examStickyFiv').style.display = (a.fivResult === 'POSITIVE' && !isExotic(a)) ? '' : 'none';   // FIV POS stays frozen with the ID + weight
   document.getElementById('examStickyMed').innerHTML = onMedBannerHtml(a, true);   // frozen with the ID + weight
   {
     const total = state.animals.length;
