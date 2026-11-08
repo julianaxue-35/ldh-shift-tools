@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-05.1';
+const APP_VERSION = '2026-11-09.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -5667,7 +5667,9 @@ async function shareStop(){
   clearInterval(share.pollTimer); clearTimeout(share.pushTimer); clearTimeout(share.pullTimer);
   try{ if(share.channel && share.client) share.client.removeChannel(share.channel); }catch(e){}
   share.channel = null; share.base = {}; share.deleted = new Set(); share.delConfirmed = new Set(); share.scrubbed = new Set();
-  try{ if(share.client) await share.client.auth.signOut(); }catch(e){}
+  // scope 'local': the stations all share ONE login, and signOut()'s default ('global') revokes that login on EVERY device, so one station
+  // turning sharing off (or the midnight switch-off) silently dropped every other station mid-shift
+  try{ if(share.client) await share.client.auth.signOut({ scope:'local' }); }catch(e){}
   try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
   shareShowUi(false);
 }
@@ -5695,7 +5697,19 @@ try{
     if(on && !sameDay){
       try{ localStorage.removeItem(LS_SHARE_ON); }catch(e){}
       shareDayNote('Sharing was switched off because it is a new day. Turn it on again to share today\u2019s list. Animals from earlier days stay on this device.');
-    } else if(on) shareStart().then(ok=>{ if(!ok) shareShowUi(false); }).catch(()=>{ shareShowUi(false); });
+    } else if(on){
+      // Resuming after a reload (phone tab refreshed, new-version reload): a blip (offline, library slow to load) used to flip sharing to
+      // "off" for good. Retry a few times, showing "reconnecting", and only say it is off if the saved login really is gone.
+      const resume = (n)=>{
+        shareStart().then(ok=>{ if(!ok){ shareShowUi(false); shareDayNote('Sharing was switched off because this device\u2019s sharing login has ended. Enter the surgery-stations login and press Turn on sharing.'); } })
+          .catch(()=>{
+            if(n >= 6){ shareShowUi(false); shareDayNote('Sharing could not reconnect (no connection?). Your list is safe on this device. Press Turn on sharing to try again.'); return; }
+            shareShowUi(true); shareSetStatus('Sharing on \u2014 reconnecting\u2026', false);
+            setTimeout(()=>resume(n+1), 10000);
+          });
+      };
+      resume(0);
+    }
   }
   setInterval(()=>{ if(share.on && shareDate() !== share.sessionDate){ shareStop().then(()=>{ shareDayNote('Sharing was switched off at midnight. Turn it on again to share today\u2019s list. Animals from earlier days stay on this device.'); renderShiftList(); }); } }, 60000);
 }catch(e){}
