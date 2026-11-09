@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-09.2';
+const APP_VERSION = '2026-11-09.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -933,6 +933,9 @@ function normalizeAnimal(a){
   if(!a.emgConc || typeof a.emgConc!=='object') a.emgConc = {};
   if(a.emgScenario == null) a.emgScenario = null;
   if(a.emgWeight == null) a.emgWeight = '';
+  if(a.weightEst == null) a.weightEst = false;       // 2026-11-09: weight is an estimate until a weighed (actual) weight is recorded
+  if(a.weightActual == null) a.weightActual = '';
+  if(a.weightEstVal == null) a.weightEstVal = '';     // the estimate, kept once the actual weight replaces a.weight
   if(!a.id) a.id = uid();
   return a;
 }
@@ -1152,6 +1155,14 @@ function calcDoses(w){
    post-spey weight when one is entered. Premed / atipamezole always stay on the
    pre-op weight. Blank post-spey weight = everything uses the pre-op weight. */
 function isPregSpey(a){ return /^preg\d$/.test(a.surgType||''); }
+/* Estimated weight: a.weight is always the weight the doses use. While it is only an estimate (weightEst ticked, no actual yet) it is
+   marked "est." everywhere; recording an actual weight later moves the estimate to weightEstVal and puts the actual in a.weight. */
+function weightIsEst(a){ return !!a.weightEst && !(parseFloat(a.weightActual)>0); }
+function weightNoteText(a){
+  const w = a.weight||'?';
+  if(!a.weightEst) return w+'kg';
+  return parseFloat(a.weightActual)>0 ? w+'kg (weighed; estimated '+(a.weightEstVal||'?')+'kg earlier)' : w+'kg (ESTIMATED, not weighed)';
+}
 function postWeight(a){
   if(isPregSpey(a)){ const p = parseFloat(a.postWeight); if(p>0) return a.postWeight; }
   return a.weight;
@@ -2855,7 +2866,7 @@ function dueTreatmentsLine(a){
 /* Weight text for the lists: pregnant spey shows the post-spey weight once entered. */
 function listWeightHtml(a){
   if(!a.weight && !usesPostWeight(a)) return '-';
-  return esc(a.weight||'-')+(a.weight?'kg':'')+(usesPostWeight(a)?` → ${esc(a.postWeight)}kg post-spey`:'');
+  return esc(a.weight||'-')+(a.weight?'kg':'')+(weightIsEst(a)?' est.':'')+(usesPostWeight(a)?` → ${esc(a.postWeight)}kg post-spey`:'');
 }
 /* One-line "Post-op meds" summary for the lists; ⚠ = needs the chart button pressing. */
 function postopMedsLine(a){
@@ -3688,8 +3699,12 @@ function examFormHtml(a){
   h += `<details class="exam-section" id="sec-peri" ${a.examSectionsOpen.peri?'open':''}><summary>Assist — health checks, induction</summary><div class="exam-section-body">`;
   h += `<div class="two-col">
     <div><label style="font-size:12px">Patient ID / Tag</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
-    <div><label style="font-size:12px">Weight (kg)</label><br><input class="plain" id="fld_weight" type="number" step="0.1" value="${esc(a.weight||'')}" style="width:100%"></div>
-  </div>`;
+    <div><label style="font-size:12px">${a.weightEst ? 'Estimated weight (kg)' : 'Weight (kg)'}</label><br><input class="plain" id="fld_weight" type="number" step="0.1" value="${esc(parseFloat(a.weightActual)>0 ? a.weightEstVal : (a.weight||''))}" style="width:100%"></div>
+  </div>
+  <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px"><input type="checkbox" id="fld_weightEst" ${a.weightEst?'checked':''}> Weight is an estimate (animal not weighed)</label>`;
+  if(a.weightEst) h += `<div class="pe-field" style="margin-top:6px"><div class="lbl">Actual weight (kg)</div>
+    <input class="plain" id="fld_weightActual" type="number" step="0.01" min="0" value="${esc(a.weightActual||'')}" placeholder="enter when weighed" style="width:100%">
+    <p style="font-size:11.5px;color:var(--ink-soft);margin-top:4px">${parseFloat(a.weightActual)>0 ? 'Doses now use the actual weight, '+esc(a.weight)+'kg (estimate was '+esc(a.weightEstVal||'-')+'kg). Clear this box to go back to the estimate.' : 'Doses use the estimate ('+esc(a.weight||'-')+'kg) until you enter the actual weight here.'}</p></div>`;
   h += `<div style="margin-top:8px"><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%" placeholder="e.g. CR1-7, CA1, P2, T"></div>`;
   if(isReleaseLoc(a)) h += `<div class="pe-field" style="margin-top:8px"><div class="lbl">CPR (release animal)</div>
     <div class="opts"><button type="button" class="opt-btn ${a.cpr==='YES'?'selected':''}" data-cpr="YES">Yes</button><button type="button" class="opt-btn ${a.cpr==='NO'?'selected':''}" data-cpr="NO">No</button></div>
@@ -4365,7 +4380,23 @@ function bindExamForm(a){
   const weightEl = document.getElementById('fld_weight');
   if(weightEl) weightEl.addEventListener('change', ()=>{
     const untouched = a.species==='dog' && a.surgNotes === buildTemplate(a);   // dog suture defaults depend on weight
-    a.weight = weightEl.value;
+    if(parseFloat(a.weightActual)>0) a.weightEstVal = weightEl.value;   // the actual weight stays in use; this edits the estimate it replaced
+    else a.weight = weightEl.value;
+    if(untouched) a.surgNotes = buildTemplate(a);
+    saveShift(); openExam(a.id);
+  });
+  const weightEstEl = document.getElementById('fld_weightEst');
+  if(weightEstEl) weightEstEl.addEventListener('change', ()=>{
+    a.weightEst = weightEstEl.checked;
+    if(!a.weightEst){ a.weightActual = ''; a.weightEstVal = ''; }   // no longer an estimate: whatever weight is in use stays
+    saveShift(); openExam(a.id);
+  });
+  const weightActEl = document.getElementById('fld_weightActual');
+  if(weightActEl) weightActEl.addEventListener('change', ()=>{
+    const untouched = a.species==='dog' && a.surgNotes === buildTemplate(a);
+    const v = weightActEl.value;
+    if(parseFloat(v)>0){ if(!(parseFloat(a.weightActual)>0)) a.weightEstVal = a.weight; a.weightActual = v; a.weight = v; }
+    else { if(parseFloat(a.weightActual)>0) a.weight = a.weightEstVal; a.weightActual = ''; a.weightEstVal = ''; }
     if(untouched) a.surgNotes = buildTemplate(a);
     saveShift(); openExam(a.id);
   });
@@ -4801,7 +4832,7 @@ function assembleNote(a){
   L.push(`Patient ID/Tag: ${a.animalId||'-'}`);
   if(a.scp && a.species!=='dog' && !isExotic(a)) L.push('⚠️ CARE — Scared Cat Program (SCP): handle with a crush cage / minimal handling');
   L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
-  L.push(`Species: ${speciesName(a.species)||'?'} | Weight: ${a.weight||'?'}kg${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}${isReleaseLoc(a)?` | CPR: ${a.cpr==='YES'?'YES':a.cpr==='NO'?'NO':'not recorded'}`:''}`);
+  L.push(`Species: ${speciesName(a.species)||'?'} | Weight: ${weightNoteText(a)}${usesPostWeight(a)?` (post-spey ${a.postWeight}kg)`:''} | Sex: ${a.sex||'?'} | Age: ${a.age||'?'} years | Location: ${a.location||'-'}${isReleaseLoc(a)?` | CPR: ${a.cpr==='YES'?'YES':a.cpr==='NO'?'NO':'not recorded'}`:''}`);
   { const needed = needsSummary(a); if(needed.length) L.push(`Required: ${needed.join(', ')}`); }
   L.push('');
   L.push('Physical Examination:');
