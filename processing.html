@@ -499,7 +499,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-02.1';
+const APP_VERSION = '2026-11-10.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -820,8 +820,8 @@ function isUnsafeHandling(a){ return !!a.handling && a.handling === UNSAFE_HANDL
 
 /* "Awaiting spay/neuter" family — she wants the pathway to flag outstanding
    microchip/FIV work up front rather than her remembering to chase it once
-   the animal's already sitting in the SN queue. Chip counts as missing if
-   blank OR marked 'N/A' (no chip found — same actual gap). FIV only applies
+   the animal's already sitting in the SN queue. Chip counts as missing ONLY if
+   marked 'N/A' (no chip found); a number or a blank is not flagged (2026-11-10). FIV only applies
    to cats, and only counts as a gap if it's required but no result is in yet. */
 const SN_PATHWAY_BASE = 'Awaiting spay/neuter';
 const SN_PATHWAY_VARIANTS = [
@@ -963,12 +963,9 @@ function syncSexChangeNote(a){
 }
 const BLOODWORK_TYPES = ['PAB','Chem 17','Chem 17 + TT4'];
 function snChipMissing(a){
-  const c = (a.microchip||'').trim();
-  // 2026-09-25: a BLANK chip is not flagged (she often just forgets to type it
-  // in, so it must not auto-pick the "...and microchip" pathway or add the
-  // due-out note). "N/A" and an incomplete/invalid typed number still count.
-  if(c==='') return false;
-  return c==='N/A' || !/^9560000\d{8}$/.test(c);
+  // 2026-11-10: ONLY "N/A" flags a missing chip. A blank chip (2026-09-25) or any typed number, even one that does not look
+  // like a full 15-digit chip, does not auto-pick the "...and microchip" pathway or add the due-out note.
+  return (a.microchip||'').trim()==='N/A';
 }
 function snFivGap(a){ return a.species==='cat' && a.fivTest==='YES' && !a.fivResult; }
 function resolveSnPathway(a){
