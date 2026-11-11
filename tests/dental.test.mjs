@@ -97,3 +97,18 @@ test('charting order: 101-110, then 411-401, 301-311, 210-201; or the loop rever
   assert.equal(D.nextTooth('canine', 210, 'B'), 311);
   assert.equal(D.prevTooth('canine', 102, 'A'), 101);
 });
+test('gingivitis, calculus and a per-tooth comment', () => {
+  assert.deepEqual(D.toothTokens({ gingivitis: '2', calculus: '3' }), ['GI2', 'CI3']);
+  assert.deepEqual(D.toothTokens({ comment: 'pulp exposed' }), ['*']);                    // a comment alone still marks the tooth
+  assert.deepEqual(D.toothTokens({ comment: '   ' }), []);                               // blank/space-only is not a comment
+  assert.deepEqual(D.toothTokens({ missing: true, comment: 'old extraction site' }), ['MISS', '*']);
+  assert.ok(D.hasFindings({ comment: 'recheck in 2 weeks' }));
+  assert.ok(D.hasFindings({ gingivitis: '1' }));
+  // a chart saved before these fields existed still opens (normTooth fills the new ones)
+  const old = D.normTooth({ ccf: true });
+  assert.equal(old.gingivitis, ''); assert.equal(old.calculus, ''); assert.equal(old.comment, '');
+  const chart = { teeth: { 407: { comment: 'abscess' }, 104: { comment: 'fractured' }, 101: { gingivitis: '1' } } };
+  assert.deepEqual(D.toothComments(chart), [[104, 'fractured'], [407, 'abscess']]);
+  const keys = D.abbreviationKey().map(r => r[0]);
+  ['GI1-3', 'CI1-3', '*'].forEach(k => assert.ok(keys.includes(k), 'key explains ' + k));
+});
