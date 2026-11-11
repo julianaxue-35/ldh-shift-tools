@@ -20,7 +20,7 @@
   // sheets (see project_ldh_medication_treatment_sheets memory) —
   // keep this list in sync if a drug is added/renamed there.
   var DRUG_VOCAB = [
-    { key: 'amoxyclav', label: 'Amoxyclav', aliases: ['amoxyclav', 'amoxi-clav', 'amoxiclav', 'clavulox', 'amoxicillin clavulanate'], route: 'PO' },
+    { key: 'amoxyclav', label: 'Amoxyclav', aliases: ['amoxyclav', 'amoxi-clav', 'amoxiclav', 'clavulox', 'amoxicillin clavulanate', 'amoxy-clav', 'amoxy clav', 'amoxi clav', 'amoxycillin clavulanate', 'amoxicillin clavulanic', 'amoxycillin clavulanic', 'amoxicillin/clavulanate', 'amoxycillin/clavulanate', 'amoxicillin-clavulanate', 'amoxycillin-clavulanate'], route: 'PO' },
     { key: 'doxycycline-paste', label: 'Doxycycline paste', aliases: ['doxycycline paste', 'doxy paste'], route: 'PO' },
     { key: 'doxycycline', label: 'Doxycycline', aliases: ['doxycycline', 'doxy'], route: 'PO' },
     { key: 'doxybrome', label: 'Doxybrom', aliases: ['doxybrome', 'doxybrom'], route: 'PO' },
@@ -98,6 +98,39 @@
       }
     }
     return best;
+  }
+
+  // 2026-11-11: a misspelt name ("trazadone", "mirtazipine") matched nothing, so the chart showed the typo and "Drug not recognised".
+  // Last resort, only when the exact match found nothing: compare each word of 7+ letters with every single-word alias of 7+ letters
+  // and accept ONE edit (two for 11+ letters), same first letter, and only if exactly one drug fits. The row then carries a
+  // "read as X, check spelling" warning so a wrong guess is always seen.
+  function editDistance(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    var prev = [], cur = [], i, j;
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      cur = [i];
+      for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+  function findDrugFuzzy(text) {
+    var words = text.toLowerCase().match(/[a-z]{7,}/g) || [];
+    var hit = null, ambiguous = false;
+    words.forEach(function (w) {
+      DRUG_VOCAB.forEach(function (d) {
+        d.aliases.forEach(function (alias) {
+          if (alias.length < 7 || /[^a-z]/.test(alias) || alias.charAt(0) !== w.charAt(0)) return;
+          var max = alias.length >= 11 ? 2 : 1;
+          if (editDistance(w, alias, max) <= max) {
+            if (hit && hit.drug !== d) ambiguous = true;
+            else hit = { drug: d, word: w, alias: alias };
+          }
+        });
+      });
+    });
+    return hit && !ambiguous ? hit : null;
   }
 
   function detectFreq(text) {
@@ -184,11 +217,13 @@
   // "Drug [strength] amount..."), so an unrecognised drug still gets a
   // clean, readable guess rather than a full sentence.
   function guessDrugNameOnly(line, head) {
+    // "Give 1 tablet of tramadol 50mg BID" / "1 tab tramadol 50mg": drop the leading "give 1 tablet of" so the name shown is the drug
+    var clean = line.replace(/^\s*(?:(?:give|administer)\s+)?[\d.\/\u00bc\u00bd\u00be]+\s*(?:x\s*)?(?:tablets?|tabs?|capsules?|caps?|mls?)?\s*(?:of\s+)?(?=[a-z])/i, '');
     var trimmedHead = head.trim().replace(/[,;:\s]+$/, '');
-    if (head.trim() !== line.trim()) return trimmedHead || line.trim();
-    var numMatch = line.match(/\d/);
-    if (!numMatch) return line.trim();
-    return line.slice(0, numMatch.index).trim() || line.trim();
+    if (head.trim() !== line.trim() && trimmedHead) return trimmedHead;       // text before the colon / "give"
+    var numMatch = clean.match(/\d/);
+    if (!numMatch) return clean.trim();
+    return clean.slice(0, numMatch.index).trim() || clean.trim();
   }
 
   function splitLines(text) {
@@ -308,7 +343,8 @@
       // our own "(recheck d/m)" note-marker is not a date the vet typed: the chart works the recheck out from the days
       line = line.replace(RECHECK_MARK_RE, '');
       var parts = splitInstruction(line);
-      var drug = findDrug(line);
+      var drug = findDrug(line), fuzzy = null;
+      if (!drug) { fuzzy = findDrugFuzzy(line); if (fuzzy) drug = fuzzy.drug; }
       var doseText = detectDoseText(parts.tail) || detectDoseText(line);
       // Strength is normally before the colon/"give" ("trazodone 100mg: give 2 tablets"). If it was written after it
       // ("trazodone: 100mg, give 2 tablets", "give 2 tablets of trazodone 100mg"), take it from there, but only when the
@@ -325,6 +361,7 @@
       var formSuffix = drug ? detectFormSuffix(line, drug.key) : '';
       var warnings = [];
       if (!drug) warnings.push('Drug not recognised — pick manually');
+      if (fuzzy) warnings.push('Read "' + fuzzy.word + '" as ' + drug.label + ' — check the spelling');
       if (!freq) warnings.push('Frequency unclear — confirm SID/BID');
       if (meloxWarn) warnings.push(meloxWarn);
       if (!route) warnings.push('Route unclear — confirm');
