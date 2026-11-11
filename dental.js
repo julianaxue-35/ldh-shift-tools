@@ -5,7 +5,7 @@
   A chart is saved on the device only (nothing goes to the dashboard):
     { surgId, animalId, species: 'canine' | 'feline', grade: '0'..'4' | '', desc, procedure: 'sp' | 'spx' | 'x' | '',
       teeth: { '104': { missing, retained, attrition, abrasion, ccf, ucf, om, onf, pd,
-                        pocketB, pocketL, furcation, recession, mobility, resorption, ext: '' | 'surgical' | 'nonsurgical' } },
+                        pocketB, pocketL, gingivitis, calculus, comment (free text), furcation, recession, mobility, resorption, ext: '' | 'surgical' | 'nonsurgical' } },
       vet, day, updated }
   Vets pick WORDS; the chart and the PDF show the abbreviations, and the PDF lists what each one means.
 */
@@ -65,6 +65,8 @@
     { key: 'pd', abbr: 'PD', label: 'Persistent deciduous' }
   ];
   const GRADES = [   // pick 1-3
+    { key: 'gingivitis', abbr: 'GI', label: 'Gingivitis', prefix: 'Grade' },
+    { key: 'calculus', abbr: 'CI', label: 'Calculus', prefix: 'Grade' },
     { key: 'furcation', abbr: 'FE', label: 'Furcation exposure', prefix: 'Grade' },
     { key: 'recession', abbr: 'GR', label: 'Gingival recession', prefix: 'Grade' },
     { key: 'mobility', abbr: 'M', label: 'Mobile tooth', prefix: 'Grade' },
@@ -81,6 +83,7 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
     const k = [];
     CHECKS.forEach(c => k.push([c.abbr, c.label]));
     GRADES.forEach(g => k.push([g.abbr + '1-3', g.label + ' (' + g.prefix.toLowerCase() + ' 1 to 3)']));
+    k.push(['*', 'Vet comment on this tooth (written under the chart)']);
     k.push(['PP B/L', 'Periodontal pocket depth in mm: B = buccal side, L = lingual side']);
     k.push([EXTRACTIONS.surgical.abbr, EXTRACTIONS.surgical.label]);
     k.push([EXTRACTIONS.nonsurgical.abbr, EXTRACTIONS.nonsurgical.label]);
@@ -90,7 +93,7 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
   }
 
   function emptyTooth() {
-    const t = { pocketB: '', pocketL: '', ext: '', extPlanned: false };
+    const t = { pocketB: '', pocketL: '', ext: '', extPlanned: false, comment: '' };
     CHECKS.forEach(c => { t[c.key] = false; });
     GRADES.forEach(g => { t[g.key] = ''; });
     return t;
@@ -98,15 +101,16 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
   function normTooth(t) { return Object.assign(emptyTooth(), t || {}); }
   function toothTokens(t) {
     t = normTooth(t);
-    if (t.missing) return ['MISS'];
+    const note = String(t.comment || '').trim() ? ['*'] : [];      // * = the vet left a comment on this tooth (printed under the chart)
+    if (t.missing) return ['MISS'].concat(note);
     const out = [];
     CHECKS.forEach(c => { if (c.key !== 'missing' && t[c.key]) out.push(c.abbr); });
     GRADES.forEach(g => { if (t[g.key]) out.push(g.abbr + t[g.key]); });
     if (t.pocketB || t.pocketL) out.push('PP ' + [t.pocketB ? 'B' + t.pocketB : '', t.pocketL ? 'L' + t.pocketL : ''].filter(Boolean).join('/'));
     if (t.ext && EXTRACTIONS[t.ext]) out.push(t.extPlanned ? PLANNED_ABBR[t.ext] : EXTRACTIONS[t.ext].abbr);
-    return out;
+    return out.concat(note);
   }
-  function hasFindings(t) { return toothTokens(t).length > 0; }
+  function hasFindings(t) { return toothTokens(t).length > 0; }   // a comment alone counts (it adds a * token)
   // colour group for the tooth on the chart
   function toothClass(t) {
     t = normTooth(t);
@@ -120,6 +124,16 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
     none: [[255, 255, 255], [90, 90, 90]], missing: [[235, 235, 235], [150, 150, 150]], ext: [[244, 190, 180], [181, 70, 43]],
     planned: [[255, 214, 160], [230, 126, 34]], fracture: [[205, 226, 247], [29, 95, 168]], resorption: [[221, 205, 240], [122, 79, 181]], finding: [[255, 243, 190], [150, 120, 20]]
   };
+
+  // [[toothNumber, comment], ...] in chart order, for the PDF
+  function toothComments(chart) {
+    const out = [];
+    Object.keys((chart && chart.teeth) || {}).forEach(n => {
+      const c = String(normTooth(chart.teeth[n]).comment || '').trim();
+      if (c) out.push([Number(n), c]);
+    });
+    return out.sort((a, b) => a[0] - b[0]);
+  }
 
   /* ---------- extractions and the surgery note ---------- */
   function extractionGroups(chart, planned) {      // done extractions by default; planned = true for the not-yet-done ones
@@ -270,6 +284,18 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
     if (pl) { doc.setFont('helvetica', 'normal'); doc.text('Planned, not done yet: ' + pl, M, y); y += 6; }
     y += 2;
 
+    const notes = toothComments(chart);
+    if (notes.length) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('Tooth comments', M, y); y += 5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      notes.forEach(([num, c]) => {
+        const lines = doc.splitTextToSize(num + ': ' + c, W - 2 * M);
+        if (y + lines.length * 4.2 > 285) { doc.addPage(); y = 18; }
+        doc.text(lines, M, y); y += lines.length * 4.2 + 1;
+      });
+      y += 3;
+    }
+    if (y + 60 > 290) { doc.addPage(); y = 18; }
     doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text('Abbreviation key', M, y); y += 5;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
     const key = abbreviationKey(), colW = (W - 2 * M) / 2;
@@ -283,7 +309,7 @@ const PLANNED_ABBR = { surgical: 'pXS', nonsurgical: 'pXN' };
 
   const api = {
     POSITION, CHECKS, GRADES, EXTRACTIONS, PROCEDURES, POCKET_MAX, COLOURS, BOX,
-    quadrants, toothList, toothInfo, abbreviationKey, emptyTooth, normTooth, toothTokens, hasFindings, toothClass,
+    quadrants, toothList, toothInfo, abbreviationKey, emptyTooth, normTooth, toothTokens, toothComments, hasFindings, toothClass,
     route, nextTooth, prevTooth, PLANNED_ABBR, extractionGroups, extractionSentence, summarySentence, noteBlock, applyToNote, geometry, buildPdf,
     speciesOf: s => (s === 'cat' ? 'feline' : s === 'dog' ? 'canine' : null)
   };

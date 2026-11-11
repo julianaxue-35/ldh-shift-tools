@@ -216,6 +216,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <div class="note" style="margin:6px 0 0;font-weight:700">Findings</div>
       <div class="checks" id="tpChecks"></div>
       <div class="fields" id="tpFields"></div>
+      <div style="margin-top:10px"><label for="tpComment" style="font-size:0.85rem;font-weight:600">Comment for this tooth (optional)</label>
+        <textarea id="tpComment" class="plain" rows="2" maxlength="300" placeholder="e.g. pulp exposure, suspected abscess, recheck in 2 weeks" style="width:100%"></textarea></div>
       <div class="row"><button class="btn secondary small" id="tpClear" type="button">Clear this tooth</button></div>
       <div class="row actions" style="flex-wrap:nowrap">
         <button class="btn secondary small" id="tpPrev" type="button">&larr; Previous</button>
@@ -249,7 +251,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-10-30.1';
+const APP_VERSION = '2026-11-11.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
@@ -388,6 +390,7 @@ function renderPanel() {
   $('tpFields').innerHTML =
     D.GRADES.map(g => `<div><label>${g.label}</label>${sel(g.key, g3(g.prefix), t[g.key])}</div>`).join('') +
     `<div><label>Extraction</label>${sel('extsel', `<option value="">None</option><option value="planned-surgical">Planned: surgical (orange)</option><option value="planned-nonsurgical">Planned: non-surgical (orange)</option><option value="done-surgical">Extracted: surgical (red)</option><option value="done-nonsurgical">Extracted: non-surgical (red)</option>`, exVal)}</div>`;
+  $('tpComment').value = t.comment || '';
   $('tpPrev').disabled = !D.prevTooth(cur.species, selTooth, ROUTE);
   const nx = D.nextTooth(cur.species, selTooth, ROUTE);
   $('tpClose').textContent = nx ? 'Done, next tooth ' + nx + ' \u2192' : 'Done, last tooth';
@@ -405,6 +408,8 @@ $('toothPanel').addEventListener('change', e => {
   else if (f) editTooth(t => { t[f.dataset.field] = f.value; });
   if (f && f.dataset.field === 'extsel') renderPanel();
 });
+// the comment saves as it is typed (the panel is not redrawn, so the cursor stays put)
+$('tpComment').addEventListener('input', () => { if (!cur || !selTooth) return; editTooth(t => { t.comment = $('tpComment').value.slice(0, 300); }); });
 $('tpClear').addEventListener('click', () => { if (!cur || !selTooth) return; delete cur.teeth[selTooth]; touch(); renderMouth(); renderPanel(); });
 $('tpClose').addEventListener('click', () => {
   if (!cur || !selTooth) return;
