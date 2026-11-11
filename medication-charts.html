@@ -115,6 +115,7 @@ function renderList(){
           <div class="meta">${esc(c.species)} &middot; ${esc(c.weight)||'? '}kg &middot; ${esc(c.location)||'no location'} &middot; Vet: ${esc(c.vetInCharge)||'-'} &middot; Day 1: ${MedChart.chartBaseOffset(c)===0?'Today':'Tomorrow'} &middot; saved ${esc((c.createdAt||'').slice(0,16).replace('T',' '))}</div>
           ${c.problemList ? `<div class="meta">Vet Plan: ${esc(c.problemList)}</div>` : ''}
           ${MedChart.aaChartBadge(c) ? `<div class="meta aa-status" style="font-weight:600">${esc(MedChart.aaChartBadge(c))}</div>` : ''}
+          ${MedChart.nurseChartBadge(c) ? `<div class="meta nc-status" style="font-weight:600">${esc(MedChart.nurseChartBadge(c))}</div>` : ''}
           ${MedChart.nurseLabelBadge(c) ? `<div class="meta nl-status" style="font-weight:600">${esc(MedChart.nurseLabelBadge(c))}</div>` : ''}
         </div>
         <label style="font-size:12.5px;white-space:nowrap"><input type="checkbox" class="pickChart" data-id="${esc(c.id)}"> Select</label>
@@ -125,6 +126,7 @@ function renderList(){
       </table>
       <div style="margin-top:8px;display:flex;gap:8px">
         <button type="button" class="btn small nl-send" data-nl="${esc(c.id)}">${MedChart.nurseLabelStatus(c)==='sent' ? 'Label sent to the Welfare nurse (send again)' : MedChart.nurseLabelStatus(c)==='stale' ? 'Send the changed label to the Welfare nurse' : 'Send label to the Welfare nurse'}</button>
+        <button type="button" class="btn secondary small nc-send" data-nc="${esc(c.id)}">${MedChart.nurseChartStatus(c)==='sent' ? 'Chart sent to the nurses to print (send again)' : MedChart.nurseChartStatus(c)==='stale' ? 'Send the changed chart to the nurses to print' : 'Send chart to the nurses to print'}</button>
         <button type="button" class="btn secondary small" data-edit="${esc(c.id)}">Edit</button>
         <button type="button" class="btn secondary small" data-del="${esc(c.id)}">Delete this chart</button>
       </div>
@@ -141,6 +143,16 @@ function renderList(){
       if(!String(chart.animalId||'').trim()){ alert('Add the Animal ID to this chart first (Edit).'); return; }
       btn.disabled = true; btn.textContent = 'Sending...';
       await MedChart.sendLabelsToNurse(chart);
+      renderList();
+    });
+  });
+  list.querySelectorAll('[data-nc]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const chart = MedChart.loadCharts().find(x=>x.id===btn.dataset.nc); if(!chart) return;
+      if(!String(chart.animalId||'').trim()){ alert('Add the Animal ID to this chart first (Edit).'); return; }
+      btn.disabled = true; btn.textContent = 'Sending...';
+      const ok = await MedChart.sendChartToNurse(chart);
+      if(!ok){ const c = MedChart.loadCharts().find(x=>x.id===chart.id); alert('The chart was NOT sent to the nurses' + (c && c.nurseChartErr ? ' (' + c.nurseChartErr + ')' : '') + '. Press the button to try again.'); }
       renderList();
     });
   });
