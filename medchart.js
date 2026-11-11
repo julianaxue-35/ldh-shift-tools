@@ -740,6 +740,45 @@
     }, function () { return fail('no connection'); }).then(function (ok) { delete nurseSending[chart.id]; return ok; });
   }
 
+  // ---------- the whole chart, sent to the nurses to PRINT (2026-11-11) ----------
+  // For when the Admission AA is not in (weekends). Separate from the labels above: it needs no medication ticked. The nurses get a
+  // task with the medication lines and a Download button for the same Excel chart the Admission AA gets; sending again after an edit
+  // updates that task and replaces the file.
+  function nurseChartSig(chart) {
+    var str = JSON.stringify([chart.meds || [], chart.location || '', chart.animalId || '', chart.vetInCharge || '', chart.weight || '', chart.problemList || '', chart.startOption || '']), h = 5381;
+    for (var i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+    return String(h);
+  }
+  function nurseChartStatus(chart) {
+    if (!String(chart.animalId == null ? '' : chart.animalId).trim()) return 'noid';
+    if (!chart.nurseChartSentAt) return 'notsent';
+    return chart.nurseChartSig === nurseChartSig(chart) ? 'sent' : 'stale';
+  }
+  function nurseChartBadge(chart) {
+    if (!chart) return '';
+    if (chart.nurseChartErr) return '\u274c Chart NOT SENT to the nurses (' + chart.nurseChartErr + ').';
+    var st = nurseChartStatus(chart);
+    if (st === 'sent') return '\u2705 Chart sent to the nurses to print at ' + new Date(chart.nurseChartSentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '.';
+    if (st === 'stale') return '\u274c Changed since the chart was sent to the nurses.';
+    return '';
+  }
+  var nurseChartSending = {};
+  function sendChartToNurse(chart) {
+    if (!chart || nurseChartSending[chart.id]) return Promise.resolve(false);
+    var id = String(chart.animalId == null ? '' : chart.animalId).trim(), lines = aaChartLines(chart);
+    if (!id || !lines.length || !global.LDHSync) return Promise.resolve(false);
+    nurseChartSending[chart.id] = true;
+    var sig = nurseChartSig(chart);
+    var fail = function (msg) { aaPatchChart(chart.id, { nurseChartErr: msg }); return false; };
+    return buildWorkbook([chart]).then(aaBlobToB64).then(function (b64) {
+      return global.LDHSync.fetch({ method: 'POST', body: JSON.stringify({ nurse_chart: { animal_id: id, location: chart.location || 'Location TBC', sent_by: chart.vetInCharge || '', key: chart.id, lines: lines.slice(0, 10), xlsx_b64: b64 } }) })
+        .then(function (res) {
+          if (res && res.ok) { aaPatchChart(chart.id, { nurseChartSentAt: new Date().toISOString(), nurseChartSig: sig, nurseChartErr: '' }); return true; }
+          return fail(res && res.status === 400 ? 'the dashboard did not accept it' : 'could not reach the dashboard');
+        }, function () { return fail('no connection'); });
+    }, function () { return fail("couldn't build the Excel chart"); }).then(function (ok) { delete nurseChartSending[chart.id]; return ok; }, function () { delete nurseChartSending[chart.id]; return false; });
+  }
+
   // ---------- "Send to nurse" panel on the tool pages (2026-10-22) ----------
   // Under "+ Register medication chart" each tool has <div data-nursepanel="<animal id>"></div>. refreshNursePanels() fills it:
   // a tick box per medication on the saved chart (only the ticked ones go to the Welfare nurse; a med that needs no label made
@@ -756,10 +795,16 @@
     var line = st === 'noid' ? '\u274c No animal ID, so it cannot be sent to the nurse.'
       : !n ? 'No medication is ticked "Send to nurse", so nothing will go.'
       : (nurseLabelBadge(chart) || ('Not sent to the nurse yet: ' + n + ' label' + (n === 1 ? '' : 's') + ' will go.'));
+    var cst = nurseChartStatus(chart);
+    var chartLine = cst === 'noid' ? '\u274c No animal ID, so it cannot be sent.' : (nurseChartBadge(chart) || 'Not sent. This is separate from the labels above: no medication needs to be ticked.');
+    var chartBtn = cst === 'sent' ? 'Send chart to nurses again' : cst === 'stale' ? 'Send the changed chart to nurses' : 'Send chart to nurses to print';
     var btn = st === 'sent' ? 'Send to nurse again' : st === 'stale' ? 'Send the changed labels to nurse' : 'Send to nurse';
     return '<div style="margin-top:8px"><div style="font-size:11.5px;font-weight:700;margin-bottom:2px">Which medications need the nurse to make up a label?</div>' + rows
       + '<div class="np-line" style="font-size:12.5px;margin-top:6px;line-height:1.4">' + escH(line) + '</div>'
-      + '<button type="button" class="btn small np-send" data-sendnurse style="margin-top:6px">' + escH(btn) + '</button></div>';
+      + '<button type="button" class="btn small np-send" data-sendnurse style="margin-top:6px">' + escH(btn) + '</button>'
+      + '<div style="margin-top:12px;padding-top:8px;border-top:1px dashed #bbb"><div style="font-size:11.5px;font-weight:700;margin-bottom:2px">Admission AA not in (weekend)? Send the whole chart to the nurses to print</div>'
+      + '<div class="np-chart-line" style="font-size:12.5px;line-height:1.4">' + escH(chartLine) + '</div>'
+      + '<button type="button" class="btn small secondary np-chart-send" data-sendchart style="margin-top:6px">' + escH(chartBtn) + '</button></div></div>';
   }
   function refreshNursePanels() {
     if (!global.document) return;
@@ -778,6 +823,19 @@
       refreshNursePanels();
     });
     global.document.addEventListener('click', function (e) {
+      var cb2 = e.target && e.target.closest && e.target.closest('[data-sendchart]');
+      if (cb2) {
+        var cpanel = cb2.closest('[data-nursepanel]'); if (!cpanel) return;
+        var csrc = cpanel.getAttribute('data-nursepanel'), cchart = findChartBySourceAnimal(csrc);
+        if (!cchart) { global.alert('Register the medication chart first (+ Register medication chart), then send it to the nurses.'); return; }
+        if (!String(cchart.animalId == null ? '' : cchart.animalId).trim()) { global.alert('Add the animal ID first: the nurses need it on the task.'); return; }
+        cb2.disabled = true; cb2.textContent = 'Sending...';
+        sendChartToNurse(cchart).then(function (ok) {
+          refreshNursePanels();
+          if (!ok) { var cc = findChartBySourceAnimal(csrc); global.alert('The chart was NOT sent to the nurses' + (cc && cc.nurseChartErr ? ' (' + cc.nurseChartErr + ')' : '') + '. Press the button to try again.'); }
+        });
+        return;
+      }
       var b = e.target && e.target.closest && e.target.closest('[data-sendnurse]'); if (!b) return;
       var panel = b.closest('[data-nursepanel]'); if (!panel) return;
       var src = panel.getAttribute('data-nursepanel'), chart = findChartBySourceAnimal(src);
@@ -1375,7 +1433,7 @@
     aaCharts: aaCharts,
     aaChartsToSend: aaChartsToSend,
     aaSendChart: aaSendChart,
-    nurseLabelText: nurseLabelText, nurseLabels: nurseLabels, nurseLabelStatus: nurseLabelStatus, nurseLabelBadge: nurseLabelBadge, sendLabelsToNurse: sendLabelsToNurse, refreshNursePanels: refreshNursePanels, nursePanelHtml: nursePanelHtml,
+    nurseLabelText: nurseLabelText, nurseLabels: nurseLabels, nurseLabelStatus: nurseLabelStatus, nurseLabelBadge: nurseLabelBadge, sendLabelsToNurse: sendLabelsToNurse, sendChartToNurse: sendChartToNurse, nurseChartStatus: nurseChartStatus, nurseChartBadge: nurseChartBadge, nurseChartSig: nurseChartSig, refreshNursePanels: refreshNursePanels, nursePanelHtml: nursePanelHtml,
     aaCatchUp: aaCatchUp,
     aaIsSending: function (id) { return !!aaSendingCharts[id]; },
     onAaChange: function (fn) { aaListener = fn; },
