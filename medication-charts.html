@@ -106,7 +106,7 @@ function renderList(){
       <td>${esc(m.freq)}</td>
       <td>${esc(m.route)}</td>
       <td>${esc(m.days)}d${m.freq==='SID' || m.freq==='EOD' ? ' ('+esc(m.startSlot)+' start)' : ''} &middot; from ${MedChart.medStartOffset(m,c)===0?'today':'tomorrow'}</td>
-      <td><label style="white-space:nowrap"><input type="checkbox" data-nursepick="${esc(c.id)}" data-mi="${mi}" ${m.nurseSend===false?'':'checked'}> to nurse</label></td>
+      <td><label style="white-space:nowrap"><input type="checkbox" data-nursepick="${esc(c.id)}" data-mi="${mi}" ${m.nurseSend===true?'checked':''}> to nurse</label></td>
     </tr>${(m.drugWarning||(m.warnings&&m.warnings.length)) ? `<tr><td colspan="6" class="warn">${esc([m.drugWarning].concat(m.warnings||[]).filter(Boolean).join(' · '))}</td></tr>` : ''}`).join('');
     return `<div class="card" data-chartid="${esc(c.id)}">
       <div class="card-hdr">

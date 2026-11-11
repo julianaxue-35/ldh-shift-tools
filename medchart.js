@@ -159,6 +159,11 @@
     if (m) return parseInt(m[1], 10);
     var w = text.match(/(?:\bfor\b|\bx\b|\u00d7|\bover\b)\s*(\d+)\s*weeks?\b/i);
     if (w) return parseInt(w[1], 10) * 7;
+    // 2026-11-11: no "for"/"x" in front: "BID 7 days", "SID 5d", "TID 2 weeks"
+    var bd = text.match(/(?:^|[\s,(])(\d{1,3})\s*(?:days?|d)\b(?!\s*\/)/i);
+    if (bd && !/\/\s*$/.test(text.slice(0, bd.index))) return parseInt(bd[1], 10);
+    var bw = text.match(/(?:^|[\s,(])(\d{1,2})\s*weeks?\b/i);
+    if (bw) return parseInt(bw[1], 10) * 7;
     return /\bongoing\b|\bon-going\b/i.test(text) ? ONGOING_DAYS : null;
   }
 
@@ -218,9 +223,13 @@
   // clean, readable guess rather than a full sentence.
   function guessDrugNameOnly(line, head) {
     // "Give 1 tablet of tramadol 50mg BID" / "1 tab tramadol 50mg": drop the leading "give 1 tablet of" so the name shown is the drug
+    // Vets number the plan and start each line with the action ("1. Start gabapentin 100mg ..."). Those are not part of the drug name; this
+    // only affects the NAME GUESS for an unlisted drug. The line itself is never changed (the note and label keep the vet's own words).
+    var orig = line;
+    line = line.replace(/^\s*\(?\d{1,2}[.)]\s+/, '').replace(/^\s*(?:start|commence|begin|initiate)\s+(?:on\s+)?/i, '');
     var clean = line.replace(/^\s*(?:(?:give|administer)\s+)?[\d.\/\u00bc\u00bd\u00be]+\s*(?:x\s*)?(?:tablets?|tabs?|capsules?|caps?|mls?)?\s*(?:of\s+)?(?=[a-z])/i, '');
     var trimmedHead = head.trim().replace(/[,;:\s]+$/, '');
-    if (head.trim() !== line.trim() && trimmedHead) return trimmedHead;       // text before the colon / "give"
+    if (head.trim() !== orig.trim() && trimmedHead) return trimmedHead.replace(/^\s*\(?\d{1,2}[.)]\s+/, '').replace(/^\s*(?:start|commence|begin|initiate)\s+(?:on\s+)?/i, '');       // text before the colon / "give"
     var numMatch = clean.match(/\d/);
     if (!numMatch) return clean.trim();
     return clean.slice(0, numMatch.index).trim() || clean.trim();
@@ -693,7 +702,7 @@
     var out = [];
     // 2026-10-22: a medication ticked off "Send to nurse" (m.nurseSend === false) needs no label made up, so it is not sent
     // the label wording is what goes to the nurses: the vet's own wording if she wrote or edited it, else the full label built from the fields
-    (chart.meds || []).forEach(function (m, i) { if (m.nurseSend === false) return; var t = (m.labelEdited && m.labelText) ? labelFor(m, base, chart.startOption) : nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
+    (chart.meds || []).forEach(function (m, i) { if (m.nurseSend !== true) return; var t = (m.labelEdited && m.labelText) ? labelFor(m, base, chart.startOption) : nurseLabelText(m, base, chart.startOption); if (t) out.push({ key: chart.id + '|' + i, text: t }); });
     return out;
   }
   function nurseLabelSig(chart) {
@@ -742,7 +751,7 @@
     if (!chart) return '';   // nothing to show until a chart is registered: the Send to nurse button is in the chart preview itself
     var st = nurseLabelStatus(chart), n = nurseLabels(chart).length;
     var rows = (chart.meds || []).map(function (m, i) {
-      return '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0"><input type="checkbox" data-nursepick="' + escH(chart.id) + '" data-mi="' + i + '"' + (m.nurseSend === false ? '' : ' checked') + ' style="width:auto"> Send to nurse: ' + escH(nurseMedName(m)) + '</label>';
+      return '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin:3px 0"><input type="checkbox" data-nursepick="' + escH(chart.id) + '" data-mi="' + i + '"' + (m.nurseSend === true ? ' checked' : '') + ' style="width:auto"> Send to nurse: ' + escH(nurseMedName(m)) + '</label>';
     }).join('');
     var line = st === 'noid' ? '\u274c No animal ID, so it cannot be sent to the nurse.'
       : !n ? 'No medication is ticked "Send to nurse", so nothing will go.'
