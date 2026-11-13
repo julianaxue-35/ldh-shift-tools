@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-11.2';
+const APP_VERSION = '2026-11-13.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3300,6 +3300,9 @@ document.getElementById('clearListBtn').addEventListener('click', ()=>{
   if(!aaGuard('Clear')) return;
   if(confirm(`Remove all ${state.animals.length} animal(s) from today's list?${smWarnText()} This can't be undone here — export first if you need a record (a backup is also kept automatically, restorable from the Export tab).`)){
     maybeBackupShift(true); // force a snapshot right before wiping, so this is always undoable
+    // 2026-11-13: animals not yet registered also come off the dashboard, otherwise the Surgery ring keeps counting them
+    // (e.g. 7 / 19 with 12 booked). Registered ones stay counted as done, as in Processing and Sick & Injured.
+    state.animals.filter(a=>!a.registered).forEach(a=> removeFromDashboard(a, 'surgery'));
     state.animals = [];
     saveShift(); renderShiftList();
     const note = document.getElementById('shareExportNote');
