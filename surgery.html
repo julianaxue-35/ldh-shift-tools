@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-13.1';
+const APP_VERSION = '2026-11-17.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -887,6 +887,9 @@ function normalizeAnimal(a){
     bhSentAt:null, bhSig:null, bhErr:''   // Send to Behaviour: when a send was confirmed, fingerprint of the note sent, last refusal
   };
   Object.keys(defaults).forEach(k=>{ if(a[k]==null) a[k]=defaults[k]; });
+  /* 2026-11-17: Hold intervention moved from the rehoming buttons into the Pathway dropdown. Records saved with the old button
+     are converted on load (the dropdown wins if she had already chosen one there). */
+  if(a.rehomingPathway==='hold'){ a.rehomingPathway=''; if(!a.pathway) a.pathway='Hold intervention'; }
   /* exotics (guinea pig / ferret / rat) have their own premed options: 'exoA' (methadone + midazolam) and 'exoB' (medetomidine + ketamine + buprenorphine).
      Ferrets only have B; guinea pig / rat stay blank until the vet picks one (no default). */
   if(isNewExo(a) && a.premedType!=='other' && a.premedType!=='exoA' && a.premedType!=='exoB') a.premedType = a.species==='ferret' ? 'exoB' : '';
@@ -1948,7 +1951,7 @@ function surgTypeLabel(t, species){
 /* Same admin-status dropdown as Processing-Notes-Tool_3 / SickInjured-Notes-Tool
    ("Next step in pathway"), reused here so admin sees one consistent status
    vocabulary across all three tools. */
-const PATHWAY_OPTIONS = ['Hold in vet care','Hold for possible match','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting foster','Awaiting rescue'];
+const PATHWAY_OPTIONS = ['Hold intervention','Hold in vet care','Hold for possible match','Awaiting triage','Awaiting behavioural assessment','Awaiting spay/neuter','Awaiting surgery - not spay/neuter','Ok to stay in adoption','Contact IP and awaiting IP collection','Awaiting foster','Awaiting rescue'];
 
 /* Only these four are logged with a time. Flea/vaccination/FIV/microchip/
    worming are plain "given" ticks in the needs block (no timestamp). */
@@ -4179,9 +4182,7 @@ function examFormHtml(a){
     <div class="opts">
       <button type="button" class="opt-btn ${a.rehomingPathway==='suitable'?'selected':''}" data-rehoming="suitable">Suitable for rehoming</button>
       <button type="button" class="opt-btn ${a.rehomingPathway==='not-suitable'?'selected abn':''}" data-rehoming="not-suitable">Not suitable for rehoming</button>
-      <button type="button" class="opt-btn ${a.rehomingPathway==='hold'?'selected abn':''}" data-rehoming="hold">Hold intervention</button>
     </div>
-    ${a.rehomingPathway==='hold' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason (optional)</label><br><input class="plain" id="fld_holdReason" value="${esc(a.holdReason||'')}" style="width:100%"></div>` : ''}
     ${a.rehomingPathway==='not-suitable' ? `<div style="margin-top:8px"><label style="font-size:12px">Reason</label><br><input class="plain" id="fld_notSuitableReason" value="${esc(a.notSuitableReason||'')}" style="width:100%"></div>` : ''}
   </div>`;
   h += `<div class="pe-field"><label style="font-size:12px">Paperwork by (usually the surgery nurse on the day)</label><br><input class="plain" id="fld_paperworkBy" value="${esc(a.paperworkBy||'')}" placeholder="Surgery nurse initials" style="width:100%"></div>`;
@@ -4196,7 +4197,8 @@ function examFormHtml(a){
     <select class="plain" id="fld_pathway" style="width:100%">
       <option value="">-</option>
       ${PATHWAY_OPTIONS.map(o=>`<option ${a.pathway===o?'selected':''}>${esc(o)}</option>`).join('')}
-    </select></div>`;
+    </select>
+    ${a.pathway==='Hold intervention' ? `<div style="margin-top:8px"><label style="font-size:12px">Hold intervention reason (optional)</label><br><input class="plain" id="fld_holdReason" value="${esc(a.holdReason||'')}" style="width:100%"></div>` : ''}</div>`;
 
   h += `</div></details>`;
 
@@ -4375,7 +4377,7 @@ function bindExamForm(a){
     });
   });
   const pathwayEl = document.getElementById('fld_pathway');
-  if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); });
+  if(pathwayEl) pathwayEl.addEventListener('change', ()=>{ a.pathway = pathwayEl.value; refreshNote(a); saveShift(); openExam(a.id); });  // re-render: the Hold intervention reason box shows/hides
   bindChange('fld_cryptoLocLeft','cryptoLocLeft'); bindChange('fld_cryptoLocRight','cryptoLocRight');
 
   const postWeightEl = document.getElementById('fld_postWeight');
@@ -5009,7 +5011,6 @@ function assembleNote(a){
   L.push('Pathway (CHOOSE ONE):');
   if(a.rehomingPathway==='suitable') L.push('- Suitable for rehoming');
   else if(a.rehomingPathway==='not-suitable') L.push(`- Not suitable for rehoming (Reason: ${a.notSuitableReason||''})`);
-  else if(a.rehomingPathway==='hold') L.push(`- Hold intervention${a.holdReason ? ' (Reason: '+a.holdReason+')' : ''}`);
   else L.push('-');
   L.push('');
   L.push(`Waivers required: ${a.waiversRequired==='NO'?'No':'Yes'}`);
@@ -5017,7 +5018,7 @@ function assembleNote(a){
   L.push('');
   L.push(`Paperwork by: ${a.paperworkBy||a.aaEnteredBy||'-'}`);
   L.push(`Vet chat needed? ${a.vetChatNeeded||'-'}`);
-  if(a.pathway) L.push(`Pathway (admin status): ${a.pathway}`);
+  if(a.pathway) L.push(`Pathway (admin status): ${a.pathway}${a.pathway==='Hold intervention' && a.holdReason ? ' (Reason: '+a.holdReason+')' : ''}`);
   if(a.planItems && a.planItems.length){
     L.push('');
     L.push('Medication / recheck:');
@@ -5310,8 +5311,7 @@ function pathwaySummary(a){
   const parts = [];
   if(a.rehomingPathway==='suitable') parts.push('Suitable for rehoming');
   else if(a.rehomingPathway==='not-suitable') parts.push(`Not suitable (${a.notSuitableReason||'reason not given'})`);
-  else if(a.rehomingPathway==='hold') parts.push(`Hold intervention${a.holdReason ? ' ('+a.holdReason+')' : ''}`);
-  if(a.pathway) parts.push(a.pathway);
+  if(a.pathway) parts.push(a.pathway==='Hold intervention' && a.holdReason ? `Hold intervention (${a.holdReason})` : a.pathway);
   return parts.length ? parts.join(' | ') : '-';
 }
 function buildExcelFile(){
