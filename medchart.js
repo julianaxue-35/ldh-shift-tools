@@ -324,12 +324,30 @@
       return line;
     }).join('\n');
   }
+  function isMeloxicamMed(med) {
+    return med.drugKey === 'meloxicam' || /\bmeloxicam\b|\bmetacam\b/i.test(med.drugLabel || '');
+  }
+  // "17/11 AM": the first dose day (today or tomorrow, as chosen) and the AM/PM slot chosen for it.
+  function startDateText(med, baseDate, chartStart) {
+    var d = new Date(baseDate || Date.now());
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + ((med.startOption || chartStart || 'tomorrow') === 'today' ? 0 : 1));
+    var slot = med.startSlot === 'PM' ? 'PM' : 'AM';
+    return d.getDate() + '/' + (d.getMonth() + 1) + ' ' + slot;
+  }
   function buildLabelSentence(med, baseDate, chartStart) {
     var head = [med.drugLabel, med.doseText, routeWords(med.route), freqWords(med.freq)]
       .filter(Boolean).join(' ').trim();
     if (!head) return '';
     var review = reviewDateText(med, baseDate, chartStart);
     var out = head + (review ? ', review due ' + review : '');
+    if (isMeloxicamMed(med)) {
+      // 2026-11-17: meloxicam labels always say when it starts (date + AM/PM), to give with food, and when to stop.
+      var start = startDateText(med, baseDate, chartStart);
+      if (start) out += '. Start ' + start;
+      out += '. Must be given with food. Stop if vomiting, diarrhoea, or not eating.';
+      return out;
+    }
     if (needsFood(med)) out += '. Must be given with food.';
     return out;
   }
