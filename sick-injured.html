@@ -727,7 +727,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-11.2';
+const APP_VERSION = '2026-11-19.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -856,6 +856,16 @@ function normalizeAnimal(a){
   if(a.bhSig == null) a.bhSig = null;         // fingerprint of the note that was sent
   if(a.bhErr == null) a.bhErr = '';           // why the last send was refused
   if(!a.exam || typeof a.exam !== 'object') a.exam = {demeanour:'', eating:'', urinating:'', defecating:'', free:''};
+  /* Full PE template (2026-11-19): fields the template reads. Older saved animals lack them, so fill in defaults here (never assume they exist). */
+  if(a.template !== 'pe' && a.template !== '28day') a.template = 'revisit';
+  if(!a.nsf || typeof a.nsf !== 'object') a.nsf = {eyes:true, nose:true, ears:true, skin:true, lungs:true, abdomen:true, ortho:true, neuro:true};
+  if(!a.peNotes || typeof a.peNotes !== 'object') a.peNotes = {};
+  if(!a.notExaminedFields || typeof a.notExaminedFields !== 'object') a.notExaminedFields = {};
+  if(!a.dental || typeof a.dental !== 'object') a.dental = {grade:'0', desc:''};
+  ['grade','desc','incisors','molars'].forEach(k=>{ if(a.dental[k]==null) a.dental[k] = (k==='grade' ? '0' : ''); });
+  if(!a.heart || typeof a.heart !== 'object') a.heart = {murmur:false, grade:'', gallop:false, free:''};
+  if(a.heart.notExamined==null) a.heart.notExamined = false;
+  ['desex','bcs','vhc','testes','pregnant','urogenitalNotes','peSpecies'].forEach(k=>{ if(a[k]==null) a[k]=''; });
   if(typeof a.examination === 'string' && a.examination.trim() && !a.exam.free) a.exam.free = a.examination;
   ['demeanour','eating','urinating','defecating','free'].forEach(k=>{ if(a.exam[k]==null) a.exam[k]=''; });
   if(!Array.isArray(a.assessment)) a.assessment = [];
@@ -2551,6 +2561,151 @@ function examination28DayHtml(a){
   </div>`;
   return h;
 }
+/* ---------- Full physical exam template (cat / dog / exotic) ----------
+   Same examination section as Processing's PE (eyes to neuro, heart, teeth, BCS/VHC, urogenital, "Not able to examine" per
+   system), written into S&I's Examination text in Processing's wording. Pick it from the "Exam template" box at the top of the
+   exam screen; Revisit stays the default. Assessment / Treatment / Plan stay S&I's own sections. The DDx blurbs and the intake
+   extras (handling, behaviour, vaccination, desexing automation) are Processing's and are not part of this template. */
+const PE_FIELDS_FULL = [
+  {key:'eyes', label:'Eyes'}, {key:'nose', label:'Nose'}, {key:'ears', label:'Ears'}, {key:'teeth', label:'Teeth', special:'teeth'},
+  {key:'skin', label:'Skin'}, {key:'heart', label:'Heart', special:'heart'}, {key:'lungs', label:'Lungs'}, {key:'abdomen', label:'Abdomen'},
+  {key:'ortho', label:'Ortho'}, {key:'neuro', label:'Neurological'}
+];
+function peSpeciesOf(a){ return a.peSpecies || ((a.species==='cat'||a.species==='dog') ? a.species : ''); }
+function examinationPeHtml(a){
+  const sp = peSpeciesOf(a);
+  let h = `<div class="pe-field"><div class="lbl">Physical examination</div>
+    <div class="opts" id="peSpeciesBtns" style="margin-bottom:8px">
+      ${[['cat','Cat'],['dog','Dog'],['exotic','Exotic']].map(([v,l])=>`<button type="button" class="opt-btn ${sp===v?'selected':''}" data-pespecies="${v}">${l}</button>`).join('')}
+    </div>
+    ${sp ? '' : '<div class="warn" style="margin-bottom:8px">Choose Cat, Dog or Exotic above.</div>'}
+    <div class="two-col">
+      <div><label style="font-size:12px">Sex</label><br><select class="plain" id="fld_sex" style="width:100%"><option value="">-</option><option ${a.sex==='M'?'selected':''}>M</option><option ${a.sex==='F'?'selected':''}>F</option><option ${a.sex==='U'?'selected':''}>U</option></select></div>
+      <div><label style="font-size:12px">Desexing status</label><br><select class="plain" id="fld_pedesex" style="width:100%"><option value="">-</option><option ${a.desex==='DESEXED'?'selected':''}>DESEXED</option><option ${a.desex==='ENTIRE'?'selected':''}>ENTIRE</option></select></div>
+    </div></div>`;
+  PE_FIELDS_FULL.forEach(f=>{
+    if(f.special==='teeth' && sp==='exotic'){
+      h += `<div class="pe-field"><div class="lbl">Teeth</div>`;
+      [['incisors','Incisors'],['molars','Molars']].forEach(([part,label])=>{
+        const v = a.dental[part] || '';
+        h += `<div style="margin-bottom:6px"><span style="font-size:12px;display:inline-block;min-width:64px">${label}</span><span class="opts" style="display:inline-flex">
+          <button type="button" class="opt-btn ${v==='N'?'selected':''}" data-dentalpart="${part}" data-val="N">Normal</button>
+          <button type="button" class="opt-btn ${v==='ABN'?'selected abn':''}" data-dentalpart="${part}" data-val="ABN">Abnormal</button>
+          <button type="button" class="opt-btn ${v==='NE'?'selected abn':''}" data-dentalpart="${part}" data-val="NE">Not able to examine</button></span></div>`;
+      });
+      h += `<textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea></div>`;
+      return;
+    }
+    if(f.special==='teeth'){
+      h += `<div class="pe-field"><div class="lbl">Teeth</div><div class="opts">`;
+      ['0','1','2','3','4'].forEach(g=>{ h += `<button type="button" class="opt-btn ${a.dental.grade===g?'selected':''}" data-dentalgrade="${g}">${g}</button>`; });
+      h += `<button type="button" class="opt-btn ${a.dental.grade==='NE'?'selected abn':''}" data-dentalgrade="NE">Not able to examine</button></div>
+        <textarea class="free-input" id="dental_desc" placeholder="Description (optional)...">${esc(a.dental.desc)}</textarea></div>`;
+      return;
+    }
+    if(f.special==='heart'){
+      const normal = !a.heart.murmur && !a.heart.gallop && !a.heart.notExamined;
+      h += `<div class="pe-field"><div class="lbl">Heart</div><div class="opts">
+        <button type="button" class="opt-btn ${normal?'selected':''}" data-heartnormal="1">Normal heart sounds</button>
+        <button type="button" class="opt-btn ${a.heart.murmur?'selected abn':''}" data-heartmurmur="1">Heart murmur</button>
+        <button type="button" class="opt-btn ${a.heart.gallop?'selected abn':''}" data-heartgallop="1">Gallop rhythm</button>
+        <button type="button" class="opt-btn ${a.heart.notExamined?'selected abn':''}" data-heartne="1">Not able to examine</button></div>`;
+      if(a.heart.murmur){
+        h += `<div class="opts" style="margin-top:6px">`;
+        ['1/6','2/6','3/6','4/6','5/6','6/6'].forEach(g=>{ h += `<button type="button" class="opt-btn ${a.heart.grade===g?'selected abn':''}" data-heartgrade="${g}">${g}</button>`; });
+        h += `</div>`;
+      }
+      h += `<textarea class="free-input" id="heart_free" placeholder="Additional cardiovascular notes (optional)...">${esc(a.heart.free||'')}</textarea></div>`;
+      return;
+    }
+    const fieldNE = !!a.notExaminedFields[f.key];
+    const isNsf = a.nsf[f.key] !== false && !fieldNE;
+    h += `<div class="pe-field"><div class="lbl">${f.label}</div><div class="opts">
+      <button type="button" class="opt-btn ${isNsf?'selected':''}" data-nsfkey="${f.key}">NSF</button>
+      <button type="button" class="opt-btn ${fieldNE?'selected abn':''}" data-nekey="${f.key}">Not able to examine</button></div>
+      <textarea class="free-input" data-noteskey="${f.key}" placeholder="Notes (optional)...">${esc(a.peNotes[f.key]||'')}</textarea></div>`;
+  });
+  h += `<div class="pe-field"><div class="lbl">Urogenital</div>`;
+  if(a.sex==='M'){
+    if(a.desex==='ENTIRE'){
+      h += `<div class="opts">`;
+      [['Bilateral','Testicles descended bilaterally',false],['R only','R testicle descended',true],['L only','L testicle descended',true],['None','No testicles present',true]].forEach(([v,label,abn])=>{
+        h += `<button type="button" class="opt-btn ${a.testes===v?'selected':''}${abn?' abn':''}" data-testes="${v}">${label}</button>`;
+      });
+      h += `</div>`;
+    } else h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">${a.desex==='DESEXED'?'Desexed — testes assessment not applicable.':'Set Desexing status above to record testes.'}</div>`;
+  } else if(a.sex==='F'){
+    if(a.desex==='DESEXED') h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Desexed — clean and dry vulva.</div>`;
+    else h += `<div class="opts"><button type="button" class="opt-btn ${a.pregnant==='NO'?'selected':''}" data-pregnant="NO">Not pregnant</button><button type="button" class="opt-btn ${a.pregnant==='YES'?'selected abn':''}" data-pregnant="YES">Pregnant</button></div>
+      <textarea class="free-input" id="fld_urogenitalNotes" placeholder="e.g. in season, discharge from vulva...">${esc(a.urogenitalNotes||'')}</textarea>`;
+  } else h += `<div style="font-size:12px;color:var(--ink-soft);font-style:italic">Select Sex above to record urogenital exam.</div>`;
+  h += `</div><div class="pe-field"><div class="lbl">BCS / VHC</div><div class="two-col">
+    <div><input class="plain" id="fld_bcs" style="width:100%" value="${esc(a.bcs)}" placeholder="BCS /5"></div>
+    <div><input class="plain" id="fld_vhc" style="width:100%" value="${esc(a.vhc)}" placeholder="VHC /6"></div></div></div>`;
+  return h;
+}
+function peExamText(a){
+  const L = [];
+  const sp = peSpeciesOf(a);
+  if(sp) L.push(`${sp==='cat'?'Cat':sp==='dog'?'Dog':'Exotic'} physical exam`);
+  if(a.sex || a.desex){ L.push(`Sex: ${a.sex||'-'}    Desexing status: ${a.desex||'-'}`); }
+  PE_FIELDS_FULL.forEach(f=>{
+    if(f.special==='teeth' && sp==='exotic'){
+      const lab = v=> v==='N' ? 'Normal' : (v==='ABN' ? 'Abnormal' : (v==='NE' ? 'Not able to examine' : '-'));
+      L.push(`Teeth: Incisors ${lab(a.dental.incisors)}; Molars ${lab(a.dental.molars)}${a.dental.desc ? ' — '+a.dental.desc : ''}`);
+      return;
+    }
+    if(f.special==='teeth'){
+      if(a.dental.grade==='NE') L.push(`Teeth: Not able to examine${a.dental.desc ? ' — '+a.dental.desc : ''}`);
+      else L.push(`Teeth: Dental Grade ${a.dental.grade||'0'}/4  ${a.dental.desc||''}`.trimEnd());
+      return;
+    }
+    if(f.special==='heart'){
+      if(a.heart.notExamined) L.push(`Heart: Not able to examine${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
+      else {
+        const parts = [];
+        if(a.heart.murmur) parts.push('Murmur'+(a.heart.grade?` grade ${a.heart.grade}`:''));
+        if(a.heart.gallop) parts.push('Gallop rhythm');
+        L.push(`Heart: ${parts.length ? parts.join(', ') : 'Normal heart sounds'}${a.heart.free && a.heart.free.trim() ? ' — '+a.heart.free.trim() : ''}`);
+      }
+      return;
+    }
+    const fieldNE = !!a.notExaminedFields[f.key];
+    const isNsf = a.nsf[f.key] !== false;
+    const note = (a.peNotes[f.key]||'').trim();
+    L.push(`${f.label}: ${fieldNE ? 'Not able to examine'+(note?' — '+note:'') : (isNsf ? 'NSF' : (note || '(not recorded)'))}`);
+  });
+  L.push(`BCS: ${a.bcs||'-'}/5    VHC: ${a.vhc||'-'}/6`);
+  if(a.sex==='M') L.push(`Testes: ${a.desex==='DESEXED' ? 'Desexed' : (a.testes||'-')}`);
+  else if(a.sex==='F') L.push(`Urogenital: ${a.desex==='DESEXED' ? 'Clean and dry vulva' : `Pregnant: ${a.pregnant||'-'}${a.urogenitalNotes && a.urogenitalNotes.trim() ? ' — '+a.urogenitalNotes.trim() : ''}`}`);
+  return L.join('\n');
+}
+function bindPeExamForm(a){
+  const body = document.getElementById('examBody');
+  const redo = ()=>{ saveShift(); openExam(a.id); };
+  body.querySelectorAll('[data-pespecies]').forEach(b=>b.addEventListener('click', ()=>{ a.peSpecies = b.dataset.pespecies; redo(); }));
+  const live = (el, set)=>{ if(!el) return; el.addEventListener('input', ()=>{ set(el.value); refreshNote(a); }); el.addEventListener('change', ()=>{ set(el.value); refreshNote(a); saveShift(); }); };
+  live(document.getElementById('dental_desc'), v=>{ a.dental.desc = v; });
+  live(document.getElementById('heart_free'), v=>{ a.heart.free = v; });
+  live(document.getElementById('fld_urogenitalNotes'), v=>{ a.urogenitalNotes = v; });
+  live(document.getElementById('fld_bcs'), v=>{ a.bcs = v; });
+  live(document.getElementById('fld_vhc'), v=>{ a.vhc = v; });
+  body.querySelectorAll('[data-noteskey]').forEach(el=>live(el, v=>{ a.peNotes[el.dataset.noteskey] = v; }));
+  body.querySelectorAll('[data-dentalgrade]').forEach(b=>b.addEventListener('click', ()=>{ a.dental.grade = b.dataset.dentalgrade; redo(); }));
+  body.querySelectorAll('[data-dentalpart]').forEach(b=>b.addEventListener('click', ()=>{ const k=b.dataset.dentalpart, v=b.dataset.val; a.dental[k] = a.dental[k]===v ? '' : v; redo(); }));
+  const hb = (sel, fn)=>{ const b = body.querySelector(sel); if(b) b.addEventListener('click', ()=>{ fn(); redo(); }); };
+  hb('[data-heartnormal]', ()=>{ a.heart.murmur=false; a.heart.gallop=false; a.heart.grade=''; a.heart.notExamined=false; });
+  hb('[data-heartmurmur]', ()=>{ a.heart.murmur=!a.heart.murmur; if(!a.heart.murmur) a.heart.grade=''; else a.heart.notExamined=false; });
+  hb('[data-heartgallop]', ()=>{ a.heart.gallop=!a.heart.gallop; if(a.heart.gallop) a.heart.notExamined=false; });
+  hb('[data-heartne]', ()=>{ a.heart.notExamined=!a.heart.notExamined; if(a.heart.notExamined){ a.heart.murmur=false; a.heart.gallop=false; a.heart.grade=''; } });
+  body.querySelectorAll('[data-heartgrade]').forEach(b=>b.addEventListener('click', ()=>{ a.heart.grade = a.heart.grade===b.dataset.heartgrade ? '' : b.dataset.heartgrade; redo(); }));
+  body.querySelectorAll('[data-nsfkey]').forEach(b=>b.addEventListener('click', ()=>{ const k=b.dataset.nsfkey; a.nsf[k] = !(a.nsf[k] !== false); a.notExaminedFields[k]=false; redo(); }));
+  body.querySelectorAll('[data-nekey]').forEach(b=>b.addEventListener('click', ()=>{ const k=b.dataset.nekey; a.notExaminedFields[k] = !a.notExaminedFields[k]; if(a.notExaminedFields[k]) a.nsf[k]=false; else a.nsf[k]=true; redo(); }));
+  const dx = document.getElementById('fld_pedesex');
+  if(dx) dx.addEventListener('change', ()=>{ a.desex = dx.value; redo(); });
+  body.querySelectorAll('[data-testes]').forEach(b=>b.addEventListener('click', ()=>{ a.testes = b.dataset.testes; redo(); }));
+  body.querySelectorAll('[data-pregnant]').forEach(b=>b.addEventListener('click', ()=>{ a.pregnant = b.dataset.pregnant; redo(); }));
+}
 function bind28DayExamForm(a){
   const body = document.getElementById('examBody');
   const visualBtn = body.querySelector('[data-visualonly]');
@@ -2641,6 +2796,11 @@ function examFormHtml(a){
     <div><label style="font-size:12px">Animal ID</label><br><input class="plain" id="fld_animalId" value="${esc(a.animalId||'')}" style="width:100%"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%"></div>
   </div>`;
+  h += `<div style="margin-top:8px"><label style="font-size:12px">Exam template</label><br>
+    <select class="plain" id="fld_examTemplate" style="width:100%">
+      <option value="revisit" ${a.template!=='pe'?'selected':''}>Revisit (demeanour, eating, urinating, defecating)</option>
+      <option value="pe" ${a.template==='pe'?'selected':''}>Full physical exam (cat / dog / exotic)</option>
+    </select></div>`;
   if(a.template==='28day'){
     h += `<div class="two-col" style="margin-top:8px">
     <div><label style="font-size:12px">Weight</label><br><input class="plain" id="fld_weight" value="${esc(a.weight||'')}" style="width:100%" placeholder="e.g. 3.85 kg"></div>
@@ -2684,6 +2844,8 @@ function examFormHtml(a){
 
   if(a.template==='28day'){
     h += examination28DayHtml(a);
+  } else if(a.template==='pe'){
+    h += examinationPeHtml(a);
   } else {
     h += `<div class="pe-field"><div class="lbl">Examination</div>
     <div style="margin-bottom:8px">
@@ -2794,7 +2956,10 @@ function bindExamForm(a){
     saveShift(); renderShiftList();
     alert(`Added ${n} cop${n===1?'y':'ies'} to the Shift List. Open each one and fill in its Animal ID and weight.`);
   });
+  const tplEl = document.getElementById('fld_examTemplate');
+  if(tplEl) tplEl.addEventListener('change', ()=>{ a.template = tplEl.value; if(a.template==='pe' && !a.peSpecies) a.peSpecies = (a.species==='cat'||a.species==='dog') ? a.species : ''; saveShift(); openExam(a.id); });
   if(a.template==='28day') bind28DayExamForm(a);
+  if(a.template==='pe') bindPeExamForm(a);
   const map = {animalId:'fld_animalId', location:'fld_location', weight:'fld_weight', sex:'fld_sex', plan:'fld_plan'};
   const speciesEl = document.getElementById('fld_species');
   if(speciesEl) speciesEl.addEventListener('change', ()=>{ a.species = speciesEl.value; saveShift(); renderShiftList(); });
@@ -2823,7 +2988,7 @@ function bindExamForm(a){
         });
       }
       saveShift();
-      if(k==='sex' && a.template==='28day') openExam(a.id);
+      if(k==='sex' && (a.template==='28day' || a.template==='pe')) openExam(a.id);
     });
     el.addEventListener('input', ()=>{ a[k]=el.value; refreshNote(a); });
   });
@@ -3018,7 +3183,9 @@ function assembleNote(a){
   L.push(`Current medication: ${a.currentMed && a.currentMed.trim() ? reflowMedText(a.currentMed.trim()) : '-'}`);
   L.push('');
   L.push('Examination:');
-  if(a.template==='28day'){
+  if(a.template==='pe'){
+    L.push(peExamText(a));
+  } else if(a.template==='28day'){
     if(a.visualOnly) L.push('VISUAL CHECK ONLY — not safely handleable.');
     L.push(`Desexing status: ${a.desex||'-'}`);
     PE_FIELDS_28DAY.forEach(f=>{
