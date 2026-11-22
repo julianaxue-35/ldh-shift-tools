@@ -41,12 +41,20 @@ async function run(tool) {
     const ticks = await page.$$eval('[data-mfield="nurseSend"]', els => els.map(e => e.checked));
     t.ok(ticks.length >= 2 && ticks.every(x => !x), L + 'every medication row has a "Send to nurse" tick, OFF by default: ' + ticks);
     t.ok(await page.isVisible('#saveChartBtn') && !(await page.isVisible('#saveSendChartBtn')), L + 'nothing ticked: only Save chart is offered (no Save chart & send to nurse)');
-    t.ok(await page.evaluate(() => { const ids = Array.from(document.querySelectorAll('#saveChartBtn, #saveSendChartBtn, #cancelChartBtn')).map(e => e.id); return ids.join() === 'saveChartBtn,saveSendChartBtn,cancelChartBtn'; }), L + 'button order is Save chart, Save chart & send to nurse, Cancel');
+    t.ok(await page.evaluate((exp) => { const ids = Array.from(document.querySelectorAll('#saveChartBtn, #sendLabelOnlyBtn, #saveSendChartBtn, #cancelChartBtn')).map(e => e.id); return ids.join() === exp; }, tool.file === 'surgery.html' ? 'saveChartBtn,saveSendChartBtn,cancelChartBtn' : 'saveChartBtn,sendLabelOnlyBtn,saveSendChartBtn,cancelChartBtn'), L + 'button order is Save chart, Send label only, Save chart & send to nurse, Cancel');
     await page.check('[data-mfield="nurseSend"][data-mi="0"]');
     t.ok(await page.isVisible('#saveSendChartBtn') && /send to nurse/i.test(await page.textContent('#saveSendChartBtn')), L + 'ticking a medication shows the Save chart & send to nurse button');
     await page.uncheck('[data-mfield="nurseSend"][data-mi="0"]');
-    t.ok(!(await page.isVisible('#saveSendChartBtn')), L + 'unticking it again hides the button');
+    t.ok(!(await page.isVisible('#saveSendChartBtn')) && !(await page.isVisible('#sendLabelOnlyBtn')), L + 'unticking it again hides both send buttons');
     await page.check('[data-mfield="nurseSend"][data-mi="0"]');
+    // send the label ONLY: goes to the nurse, but no chart is saved and the preview stays open
+    if (tool.file !== 'surgery.html') {
+    await page.click('#sendLabelOnlyBtn');
+    await page.waitForFunction(() => !document.querySelector('#sendLabelOnlyBtn').disabled, { timeout: 4000 });
+    t.ok(posts.length === 1 && posts[0].labels.length === 1 && /^Meloxicam/.test(posts[0].labels[0].text), L + 'Send label only posts the ticked label: ' + JSON.stringify(posts[0] && posts[0].labels));
+    t.ok(await page.evaluate(() => !MedChart.findChartBySourceAnimal(window.__aid)) && await page.isVisible('#saveChartBtn'), L + 'Send label only saved no chart and the preview is still open');
+    posts.length = 0;
+    }
     dialogs.length = 0;
     await page.click('#saveSendChartBtn');
     await page.waitForFunction(() => document.querySelector('[data-nursepanel] .np-line') && /sent to the Welfare nurse/i.test(document.querySelector('[data-nursepanel]').innerText), { timeout: 4000 });
