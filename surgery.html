@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-17.1';
+const APP_VERSION = '2026-11-24.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2958,6 +2958,14 @@ function smWarnText(list){
   const p = (list||state.animals).filter(a=> a.registered && !smDone(a));
   return p.length ? `\n\n\u26A0 ${p.length} of these ${p.length===1?'has':'have'} NOT been entered on ShelterMate yet (${p.map(a=>a.animalId||'(no ID)').join(', ')}). Enter ${p.length===1?'it':'them'} first.` : '';
 }
+/* Spey / castrate / other, from the main procedure (pregnant and flank speys are speys; cryptorchid is a castrate) */
+const SURG_KIND_LABELS = {spey:'Speys', castrate:'Castrates', other:'Other procedures'};
+function surgKindOf(a){
+  const t = a.surgType || '';
+  if(t==='spey' || t==='spey-flank' || /^preg\d$/.test(t)) return 'spey';
+  if(t==='castrate' || t==='cryptorchid') return 'castrate';
+  return 'other';
+}
 function groupedListHtml(animals, opts){
   opts = opts || {};
   const groups = {fresh:[], cat:[], dog:[], exotic:[], rabbit:[], other:[]};
@@ -2969,8 +2977,15 @@ function groupedListHtml(animals, opts){
     const list = groups[g].slice();
     if(!list.length) return;
     if(g!=='fresh') list.sort((a,b)=> (b.nextUp?1:0) - (a.nextUp?1:0));   // nextUp first; otherwise keeps the incoming (alphabetical-by-ID) order
+    /* 2026-11-24: inside each species, speys then castrates then other procedures (the list keeps its order within each) */
+    if(g!=='fresh'){ const ord = {spey:0, castrate:1, other:2}; list.sort((a,b)=> ord[surgKindOf(a)] - ord[surgKindOf(b)]); }
     html += `<div class="list-group-hdr" style="font-size:12px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.03em;margin:14px 0 6px">${g==='fresh' ? 'New \u2014 no ID yet' : SPECIES_GROUP_LABELS[g]} (${list.length})</div>`;
+    let lastKind = null;
     list.forEach(a=>{
+      if(g!=='fresh' && surgKindOf(a)!==lastKind){
+        lastKind = surgKindOf(a);
+        html += `<div class="list-kind-hdr" style="font-size:11.5px;font-weight:700;color:var(--ink-soft);margin:8px 0 4px 2px">${SURG_KIND_LABELS[lastKind]} (${list.filter(x=>surgKindOf(x)===lastKind).length})</div>`;
+      }
       html += `
       <div class="animal-card" style="${a.nextUp?'border:2px solid var(--amber)':''}">
         <div class="info">
