@@ -499,7 +499,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-23.1';
+const APP_VERSION = '2026-11-23.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -1479,7 +1479,7 @@ function examination28DayHtml(a){
 }
 function examFormHtml28(a){
   let h = `<div class="two-col">
-    <div><label style="font-size:12px">Animal ID${!a.animalId?' — <span style="color:var(--amber)">needed</span>':''}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" style="width:100%"></div>
+    <div><label style="font-size:12px">${idLabelHtml(a)}</label><br><input class="plain" id="fld_animalid" value="${esc(a.animalId||'')}" placeholder="${String(a.species||'').toLowerCase()==='dog'?'e.g. CZU627':''}" style="width:100%"></div>
     <div><label style="font-size:12px">Location</label><br><input class="plain" id="fld_location" value="${esc(a.location||'')}" style="width:100%"></div>
   </div>
   <div class="two-col" style="margin-top:8px">
@@ -2402,6 +2402,13 @@ function chartDraftHtml(a, draft, planText){
     <button type="button" class="btn small rust" id="cancelChartBtn">Cancel</button>
   </div></div>`;
   return h;
+}
+// 2026-11-23: dogs are identified by their TAG NUMBER (3 letters + 3 numbers, e.g. CZU627), not the shelter ID number. Cats keep the shelter ID.
+function idLabelHtml(a){
+  const isDog = String(a.species||'').toLowerCase()==='dog', v = String(a.animalId||'').trim();
+  if(!isDog) return 'Animal ID' + (!v ? ' \u2014 <span style="color:var(--amber)">needed</span>' : '');
+  if(!v) return 'Tag number (dog) \u2014 <span style="color:var(--amber)">needed</span>';
+  return /^[A-Za-z]{3}\d{3}$/.test(v) ? 'Tag number (dog)' : 'Tag number (dog) \u2014 <span style="color:var(--amber)">use the tag, 3 letters + 3 numbers, e.g. CZU627</span>';
 }
 function blankMedRow(){
   return {rawText:'', drugKey:'', drugLabel:'', doseText:'', freq:'BID', route:'PO', days:5,
