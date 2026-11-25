@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-24.1';
+const APP_VERSION = '2026-11-25.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -3515,9 +3515,13 @@ function refreshDentalNote(){
 }
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden){ refreshDentalNote(); shareSchedulePush(); } });   // back from the full-page Dental chart
 window.addEventListener('storage', e=>{ if(e.key===LS_DENTAL){ refreshDentalNote(); shareSchedulePush(); } });             // the chart tool inside the exam saved a change
+const dentalHeights = {};   // animal id -> last height of its framed chart
 window.addEventListener('message', e=>{                                                              // the framed chart tells us how tall it is
   const f = document.getElementById('dentalFrame');
-  if(f && e.source===f.contentWindow && e.data && typeof e.data.ldhDentalHeight==='number') f.style.height = Math.max(400, e.data.ldhDentalHeight+20)+'px';
+  if(f && e.source===f.contentWindow && e.data && typeof e.data.ldhDentalHeight==='number'){
+    f.style.height = Math.max(400, e.data.ldhDentalHeight+20)+'px';
+    dentalHeights[state.openId] = f.style.height;
+  }
 });
 /* CPR status (2026-10-30): animals going to RELEASE (location says "release") get a Yes/No for CPR, kept in the frozen bar with
    the ID and weight. '' = not answered yet; the bar then says so, so it is not forgotten. */
@@ -4034,7 +4038,7 @@ function examFormHtml(a){
   if((hasProcedure(a,'dental') || dentalChartFor(a)) && !isRabbit(a) && String(a.animalId||'').trim()){
     // the dental chart tool, inside the exam: the chart fills the surgical notes above by itself
     h += `<details class="pe-field" id="dentalToolBox" open><summary style="cursor:pointer;font-weight:700;color:var(--teal-dark)">Dental chart (tool)</summary>
-      <iframe id="dentalFrame" data-src="dental.html?embed=1&animal=${encodeURIComponent(a.id)}" allow="web-share" style="width:100%;height:900px;border:0;margin-top:8px" title="Dental chart"></iframe>
+      <iframe id="dentalFrame" data-src="dental.html?embed=1&animal=${encodeURIComponent(a.id)}" allow="web-share" style="width:100%;height:${dentalHeights[a.id]||'900px'};border:0;margin-top:8px" title="Dental chart"></iframe>
       <p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Extractions marked as extracted go into the surgical notes above. <a href="dental.html?animal=${encodeURIComponent(a.id)}">Open as a full page</a> (to download the PDF on its own).</p></details>`;
   }
 
@@ -5388,7 +5392,7 @@ document.getElementById('shareExportBtn').addEventListener('click', async ()=>{
 const SHARE_URL = 'https://yeazfafvylawwgoxlhbl.supabase.co';
 const LS_SHARE_ON = 'ldh_surgery_share_on_v1';
 const SHARE_LOCAL_ONLY_KEYS = ['examSectionsOpen','cloudScrubbed','chipTickRemote','aaSentAt','aaSig','aaSentId','aaErr','aaEnteredAt','aaEnteredBy','dentalChart'];   // (2026-10-21: microchipNum now syncs between the stations; it still never goes to the dashboard)
-const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, scrubbed:new Set(), skipped:0, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null };
+const share = { initialsPending:false, client:null, on:false, base:{}, deleted:new Set(), delConfirmed:new Set(), dirty:false, scrubbed:new Set(), skipped:0, pushing:false, pushTimer:null, pollTimer:null, pullTimer:null, channel:null, sessionDate:null, redrawFor:null };
 // Any station can enter or correct the number now (it syncs to the others), so number entry is never locked
 function chipEntryLocked(a){ return false; }
 function chipHasFullNumber(a){ return !!a.microchipNum && String(a.microchipNum).replace(/\D/g,'').length > 7; }
@@ -5469,11 +5473,14 @@ function stripForSync(a){
 function shareDiff(b, c){
   if(shareIsObj(b) && shareIsObj(c)){
     const p = {}; let any = false;
+    /* 2026-11-25: an empty (null) value and a missing key mean the same thing. The database keeps a removed key as null while
+       this device deletes it, so after anything was un-ticked the two never matched again: every few seconds the animal was
+       re-sent and the exam redrawn, which reloaded the Dental chart in the middle of charting. */
     Object.keys(c).forEach(k=>{
-      if(!(k in b)){ p[k]=c[k]; any=true; }
+      if(!(k in b)){ if(c[k]!==null){ p[k]=c[k]; any=true; } }
       else { const d = shareDiff(b[k], c[k]); if(d!==undefined){ p[k]=d; any=true; } }
     });
-    Object.keys(b).forEach(k=>{ if(!(k in c)){ p[k]=null; any=true; } });
+    Object.keys(b).forEach(k=>{ if(!(k in c) && b[k]!==null){ p[k]=null; any=true; } });
     return any ? p : undefined;
   }
   return JSON.stringify(b)===JSON.stringify(c) ? undefined : c;
@@ -5635,14 +5642,18 @@ async function sharePull(){
     if(changed.size){
       if(!tabBlocked) localStorage.setItem(LS_SHIFT, JSON.stringify(state.animals));
       renderShiftList();
-      if(state.openId && changed.has(state.openId) && !document.getElementById('examModal').classList.contains('hidden')){
+    }
+    {
+      if(state.openId && (changed.has(state.openId) || share.redrawFor===state.openId) && !document.getElementById('examModal').classList.contains('hidden')){
         const ae = document.activeElement;
-        const typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && document.getElementById('examBody').contains(ae);
+        // IFRAME = the Dental chart inside the exam: a redraw would reload it under the person charting
+        const typing = ae && /^(INPUT|TEXTAREA|SELECT|IFRAME)$/.test(ae.tagName) && document.getElementById('examBody').contains(ae);
         const editingNote = !document.getElementById('noteEditArea').classList.contains('hidden');
         if(!typing && !editingNote){
           const m = document.getElementById('examModal'), st = m.scrollTop, wy = window.scrollY;
           openExam(state.openId); m.scrollTop = st; window.scrollTo(0, wy);
-        }
+          share.redrawFor = null;
+        } else share.redrawFor = state.openId;   // show it at the first sync after they leave the field or the chart
       }
     }
     shareSetStatus(share.skipped ? 'Sharing on — ignored ' + share.skipped + ' incomplete shared record(s) to protect your list' : 'Sharing on ✓ · synced ' + nowTime(), !share.skipped);
