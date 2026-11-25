@@ -1807,9 +1807,9 @@ function guineaPigTemplate(a){
 function exoEmgScenarios(sp){
   const e = EXO[sp];
   const brady = sp==='ferret'
-    ? [{k:'ex_atr',n:'Atropine (0.65mg/mL)',unit:'mL',low:0.06,route:'IV/IM',noconc:true,note:'if HR < 160'}]
+    ? [{k:'ex_atr',n:'Atropine (0.6mg/mL)',unit:'mL',low:0.065,route:'IV/IM',noconc:true,note:'if HR < 160'}]
     : sp==='rat'
-      ? [{k:'ex_atr',n:'Atropine (0.65mg/mL)',unit:'mL',low:0.1,route:'IV/IM',noconc:true,note:'if HR < 160'},{k:'ex_gly',n:'Glycopyrrolate (0.2mg/mL)',unit:'mL',low:0.1,route:'IV',noconc:true,note:'if HR < 160'}]
+      ? [{k:'ex_atr',n:'Atropine (0.6mg/mL)',unit:'mL',low:0.108,route:'IV/IM',noconc:true,note:'if HR < 160'},{k:'ex_gly',n:'Glycopyrrolate (0.2mg/mL)',unit:'mL',low:0.1,route:'IV',noconc:true,note:'if HR < 160'}]
       : [{k:'ex_gly',n:'Glycopyrrolate (0.2mg/mL)',unit:'mL',low:0.05,route:'IV/IM',noconc:true,note:'if HR < 160'}];
   const bnote = sp==='rat' ? 'Atropine does not work well in some rats.' : sp==='guineapig' ? 'Atropine is less effective in guinea pigs — glycopyrrolate preferred.' : '';
   const out = [{id:'ex_brady',btn:'🟡 Bradycardia',title:'🟡 Bradycardia ('+e.name.toLowerCase()+' HR < 160)',sections:[{note:bnote||undefined,drugs:brady}]}];
@@ -2075,7 +2075,7 @@ const EMG_SCN=[
       'Attach ECG + capnography (EtCO2) · assign team leader & roles'
     ]},
     {heading:'STEP 2 · First drug — give as soon as access is in (ALS)',note:'Adrenaline first, low-dose, as early as possible — then repeat every other 2-min cycle (every 3–5 min). Check rhythm only at the cycle change to minimise pauses.',drugs:[
-      {k:'arr_adr',n:'① Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'FIRST drug · every 3–5 min (every other cycle) · ET route 0.1 mg/kg · escalate to high-dose 0.1 mg/kg only after prolonged CPR'},
+      {k:'arr_adr',conc:1,n:'① Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'FIRST drug · every 3–5 min (every other cycle) · ET route 0.1 mg/kg · escalate to high-dose 0.1 mg/kg only after prolonged CPR'},
       {k:'arr_vaso',n:'Vasopressin (optional)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'}
     ]},
     {heading:'STEP 3 · Match the rhythm',note:'ASYSTOLE / PEA (non-shockable) → atropine + continue adrenaline.\nVF / pulseless VT (shockable) → DEFIBRILLATE first, then resume CPR.',actions:[
@@ -2086,7 +2086,7 @@ const EMG_SCN=[
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
       {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
-      {k:'arr_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
+      {k:'arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
     ],extra:'Flumazenil (0.1mg/mL) if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
   ]},
   {id:'apnoea',btn:'🟠 Apnoea',title:'🟠 Apnoea / Hypoventilation',sections:[
@@ -2097,7 +2097,7 @@ const EMG_SCN=[
       'Secure IV catheter'
     ],drugs:[
       {k:'apn_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'opioid reversal — repeat as needed (short half-life)'},
-      {k:'apn_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM',note:'alpha-2 reversal (100 µg/kg)'}
+      {k:'apn_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM',note:'alpha-2 reversal (100 µg/kg)'}
     ],extra:'Doxapram is NOT recommended (exam trap). Flumazenil (0.1mg/mL) for benzodiazepine reversal if used.'}
   ]},
   {id:'brady',btn:'🟡 Bradycardia',title:'🟡 Bradycardia (cat HR < 90)',sections:[
@@ -2105,7 +2105,7 @@ const EMG_SCN=[
       'Log bradycardia — cat HR < 90'
     ]},
     {heading:'Reversal — first line if HR low + BP low',drugs:[
-      {k:'bra_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverses medetomidine · 100 µg/kg, or ½ ZMD volume'}
+      {k:'bra_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverses medetomidine · 100 µg/kg, or ½ ZMD volume'}
     ]},
     {heading:'Anticholinergic — backup if reversal insufficient',drugs:[
       {k:'bra_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.02,high:0.04,route:'IV',note:'onset 1–2 min · 0.04–0.1 mg/kg IM if no IV access'},
@@ -2146,9 +2146,92 @@ const EMG_SCN=[
     ],note:'Hypothermia prolongs drug metabolism, extends recovery, depresses cardiac function, increases bleeding time and impairs immunity. Especially severe in kittens & small cats — preventable.'}
   ]}
 ];
+/* ---------- DOG emergency sheet (2026-11-25). CPR doses: RECOVER 2024. Reversal doses as on the cat sheet.
+   Non-CPR screens (not covered by RECOVER) use canine thresholds / lidocaine from the ABVP study hub. ---------- */
+const EMG_SCN_DOG=[
+  {id:'arrest',btn:'🔴 Cardiac arrest',title:'🔴 Dog Cardiac Arrest → CPR (RECOVER 2024)',sections:[
+    {heading:'STEP 1 · Start NOW — all at once (BLS)',note:'Confirm arrest in <10 s, then start. Turn the vaporiser OFF.',actions:[
+      'Chest compressions 100–120/min in 2 min cycles, pause < 10 s · lateral: ⅓–½ chest width · wide-chested dog on its back: ¼ chest depth (once intubated)',
+      'Secure airway: intubate · ventilate 10 breaths/min (1 s each) with 100% O2',
+      'Place IV / IO access',
+      'Attach ECG + capnography (aim EtCO2 ≥ 18 mmHg during compressions) · assign team leader & roles'
+    ]},
+    {heading:'STEP 2 · ASYSTOLE / PEA (non-shockable)',note:'Adrenaline every 3–5 min (every other cycle). High-dose adrenaline is NOT recommended.',drugs:[
+      {k:'d_arr_adr',conc:1,n:'Adrenaline (Epinephrine)',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
+      {k:'d_arr_vaso',n:'Vasopressin (alternative)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'},
+      {k:'d_arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, early, if high vagal tone suspected — do not repeat'}
+    ]},
+    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'Biphasic: 2 J/kg, then 4 J/kg for the second and later shocks. Monophasic: 4 J/kg. Resume compressions for 2 min straight after each shock.',actions:[
+      'Defibrillated (dog VF / pulseless VT)'
+    ],drugs:[
+      {k:'d_arr_vaso2',n:'Vasopressin',unit:'U',low:0.8,route:'IV/IO',note:'shock-refractory · use adrenaline 0.01 mg/kg only if no vasopressin'},
+      {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO',note:'refractory VF / pulseless VT after the first shock'}
+    ]},
+    {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
+      {k:'d_arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
+      {k:'d_arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
+    ],extra:'Flumazenil (0.1mg/mL) if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
+  ]},
+  {id:'apnoea',btn:'🟠 Apnoea',title:'🟠 Apnoea / Hypoventilation',sections:[
+    {note:'Defined as ETCO2 > 55 mmHg, RR < 8, or apnoea > 30 seconds.',actions:[
+      'Check ET tube placement & patency',
+      'Turn inhalant DOWN / OFF',
+      'Manual IPPV 10–15 mL/kg, 8–12 breaths/min — 100% O2',
+      'Secure IV catheter'
+    ],drugs:[
+      {k:'d_apn_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'opioid reversal — repeat as needed (short half-life)'},
+      {k:'d_apn_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM',note:'alpha-2 reversal (100 µg/kg)'}
+    ],extra:'Doxapram is NOT recommended (exam trap). Flumazenil (0.1mg/mL) for benzodiazepine reversal if used.'}
+  ]},
+  {id:'brady',btn:'🟡 Bradycardia',title:'🟡 Bradycardia (dog HR < 50)',sections:[
+    {heading:'Assess blood pressure FIRST',note:'HR low + BP NORMAL → no reversal needed. Reduce inhalant, treat the cause, monitor.\nHR low + BP LOW → first attempt is reversal if medetomidine was given.',actions:[
+      'Log bradycardia — dog HR < 50'
+    ]},
+    {heading:'Reversal — first line if HR low + BP low',drugs:[
+      {k:'d_bra_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverses medetomidine · 100 µg/kg'}
+    ]},
+    {heading:'Anticholinergic — backup if reversal insufficient',drugs:[
+      {k:'d_bra_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.02,high:0.04,route:'IV',note:'onset 1–2 min'},
+      {k:'d_bra_gly',conc:0.2,n:'Glycopyrrolate',unit:'mg',low:0.005,high:0.011,route:'IV',note:'longer acting · does not cross blood–brain barrier'}
+    ]}
+  ]},
+  {id:'tachy',btn:'🟡 Tachycardia',title:'🟡 Tachycardia',sections:[
+    {heading:'① Sinus tachycardia — find & treat the cause',actions:[
+      'Light anaesthetic plane → induction agent top-up / deepen',
+      'Pain → analgesia',
+      'Hypoxia / hypercapnia → check O2 & ventilation',
+      'Hypovolaemia / hypotension → fluid bolus',
+      'Hyperthermia · drug effect'
+    ]},
+    {heading:'② VPCs / Ventricular tachycardia',note:'First correct the cause: hypoxia, hypercapnia, electrolytes (esp. K+ / Mg2+), light plane, pain, catecholamines.\nTreat if: sustained VT, multiform / polymorphic, R-on-T, or haemodynamically unstable.',drugs:[
+      {k:'d_tac_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'slow IV',note:'dog dose only — never use on a cat'}
+    ],extra:'Magnesium for refractory ventricular arrhythmias.'}
+  ]},
+  {id:'hypotension',btn:'🟠 Hypotension',title:'🟠 Hypotension (MAP < 60 mmHg)',sections:[
+    {actions:[
+      'Step 1 — Reduce inhalant (vasodilation is dose-dependent)',
+      'Step 2 — Isotonic crystalloid bolus (see below), reassess after each',
+      'Step 3 — Vasopressor / inotrope if no response',
+      'If also bradycardic → give an anticholinergic'
+    ],drugs:[
+      {k:'d_hyp_flu',n:'Crystalloid bolus',unit:'mL',low:5,high:10,route:'IV',note:'isotonic · 5–10 mL/kg · reassess after each bolus',noconc:true},
+      {k:'d_hyp_eph',n:'Ephedrine (bolus)',unit:'mg',low:0.1,high:0.2,route:'IV bolus',note:'indirect — inotrope + vasoconstrictor. Tachyphylaxis with repeat dosing.'},
+      {k:'d_hyp_dob',n:'Dobutamine (CRI)',cri:true,dtext:'2–10 µg/kg/min',route:'CRI',note:'inotrope — poor contractility. Watch for tachycardia / arrhythmias.'},
+      {k:'d_hyp_na',n:'Noradrenaline / Norepinephrine (CRI)',cri:true,dtext:'0.05–0.3 µg/kg/min',route:'CRI',note:'direct potent vasoconstrictor — for refractory vasodilatory hypotension.'}
+    ],extra:'Match the drug to the problem: dobutamine for contractility · noradrenaline / phenylephrine for vasodilation · ephedrine (bolus) for both. Dopamine is an alternative CRI. Investigate haemorrhage, excessive depth, acepromazine, cardiac disease, sepsis.'}
+  ]},
+  {id:'hypothermia',btn:'🔵 Hypothermia',title:'🔵 Hypothermia',sections:[
+    {actions:[
+      'Active warming — forced-air / warming devices',
+      'Monitor temperature every 5–10 min',
+      'Target core temp > 37°C before recovery',
+      'Reduce inhalant (hypothermia deepens anaesthesia)'
+    ],note:'Hypothermia prolongs drug metabolism, extends recovery, depresses cardiac function, increases bleeding time and impairs immunity. Especially severe in puppies & small dogs — preventable.'}
+  ]}
+];
 const EMG_DRUGS={};
-EMG_SCN.concat(EMG_SCN_RABBIT, EMG_SCN_EXO.guineapig, EMG_SCN_EXO.ferret, EMG_SCN_EXO.rat).forEach(s=>s.sections.forEach(sec=>(sec.drugs||[]).forEach(d=>{EMG_DRUGS[d.k]=d;})));
-function emgScenarios(a){ return isRabbit(a) ? EMG_SCN_RABBIT : isNewExo(a) ? EMG_SCN_EXO[a.species] : EMG_SCN; }
+EMG_SCN.concat(EMG_SCN_DOG, EMG_SCN_RABBIT, EMG_SCN_EXO.guineapig, EMG_SCN_EXO.ferret, EMG_SCN_EXO.rat).forEach(s=>s.sections.forEach(sec=>(sec.drugs||[]).forEach(d=>{EMG_DRUGS[d.k]=d;})));
+function emgScenarios(a){ return isRabbit(a) ? EMG_SCN_RABBIT : isNewExo(a) ? EMG_SCN_EXO[a.species] : a.species==='dog' ? EMG_SCN_DOG : EMG_SCN; }
 
 function emgRnd(n){ return Math.round(n*1000)/1000; }
 function emgDoseText(d,w){
