@@ -2078,10 +2078,11 @@ const EMG_SCN=[
       {k:'arr_adr',conc:1,n:'Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
       {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, as early as possible, if high vagal tone may be contributing — do not repeat'}
     ]},
-    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.\nNo antiarrhythmic for cats here: amiodarone is not stocked, and RECOVER advises AGAINST lidocaine in cats.',actions:[
+    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.\nCats: amiodarone for shock-refractory rhythms — RECOVER advises AGAINST lidocaine in cats.',actions:[
       'Defibrillated (cat VF / pulseless VT)'
     ],drugs:[
-      {k:'arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'}
+      {k:'arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'},
+      {k:'arr_amio',n:'Amiodarone (cat)',unit:'mg',low:5,route:'IV/IO over 2–4 min',note:'still VF / pulseless VT after the 1st shock + 2 min of compressions · type the strength of the stock in hand'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
       {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV/IO',note:'if opioid (methadone) on board'},
@@ -2121,7 +2122,7 @@ const EMG_SCN=[
     ]},
     {heading:'② VPCs / Ventricular tachycardia',note:'First correct the cause: hypoxia, hypercapnia, electrolytes (esp. K+ / Mg2+), light plane, pain, catecholamines.\nTreat if: sustained VT, multiform / polymorphic, R-on-T, or haemodynamically unstable.',drugs:[
       {k:'tac_lid',conc:20,n:'Lidocaine (cat)',unit:'mg',low:0.25,high:0.5,route:'slow IV',note:'Caution — cats are sensitive to lidocaine toxicity. Do NOT use the canine 2 mg/kg dose.'}
-    ],extra:'Magnesium for refractory ventricular arrhythmias.'}
+    ],extra:'Alternative: amiodarone. Magnesium for refractory ventricular arrhythmias.'}
   ]},
   {id:'hypotension',btn:'🟠 Hypotension',title:'🟠 Hypotension (MAP < 60 mmHg)',sections:[
     {actions:[
