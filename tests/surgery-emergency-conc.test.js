@@ -1,0 +1,60 @@
+// Emergency sheet: stock strengths from the emergency box are pre-filled, and can still be typed over. Fictional animal only.
+const { chromium } = require('playwright');
+const path = require('path');
+const t = require('./check')('surgery-emergency-conc');
+const FILE = 'file://' + path.resolve(__dirname, '..', 'surgery.html');
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext();
+  await ctx.route('**/*', r => r.request().url().startsWith('file:') ? r.continue() : r.abort());
+  await ctx.addInitScript(() => { localStorage.setItem('ldhGateOk_v2', '1'); });
+  const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('dialog', d => d.accept());
+  try {
+    await page.goto(FILE); await page.waitForTimeout(500);
+    const r = await page.evaluate(() => {
+      const a = normalizeAnimal({ id: 'fict1', animalId: 'FICT-1', species: 'cat', weight: '4', surgType: 'spey' });
+      state.animals.push(a); state.openId = a.id;
+      const out = {};
+      openEmergency();
+      const read = (scn, k) => { selectScenario(a, scn); return [document.querySelector(`[data-emgconc="${k}"]`).value, document.querySelector(`#emg-panel .emg-ml[data-k="${k}"]`).textContent]; };
+      out.atr = read('arrest', 'arr_atr'); out.nal = read('arrest', 'arr_nal'); out.nal2 = read('apnoea', 'apn_nal');
+      out.batr = read('brady', 'bra_atr'); out.gly = read('brady', 'bra_gly'); out.lid = read('tachy', 'tac_lid');
+      out.adr = read('arrest', 'arr_adr'); out.ati = read('arrest', 'arr_ati');
+      const d = normalizeAnimal({ id: 'fict2', animalId: 'FICT-2', species: 'dog', weight: '20', surgType: 'spey' });
+      state.animals.push(d); state.openId = d.id; closeEmergency(); openEmergency();
+      const rd = (scn, k) => { selectScenario(d, scn); return [document.querySelector(`[data-emgconc="${k}"]`).value, document.querySelector(`#emg-panel .emg-ml[data-k="${k}"]`).textContent]; };
+      out.dadr = rd('arrest', 'd_arr_adr'); out.datr = rd('arrest', 'd_arr_atr'); out.dlid = rd('arrest', 'd_arr_lid'); out.dati = rd('arrest', 'd_arr_ati');
+      out.dtlid = rd('tachy', 'd_tac_lid');
+      selectScenario(d, 'brady'); out.dbrady = document.getElementById('emg-panel').textContent.includes('dog HR < 50');
+      selectScenario(d, 'arrest'); out.noAmio = !document.getElementById('emg-panel').textContent.includes('Amiodarone');
+      out.ferret = emgScenarios({ species: 'ferret' })[0].sections[0].drugs[0]; out.rat = emgScenarios({ species: 'rat' })[0].sections[0].drugs[0];
+      state.openId = a.id; closeEmergency(); openEmergency();
+      setEmgConc(a, 'arr_atr', '0.5'); out.typed = read('arrest', 'arr_atr');
+      setEmgConc(a, 'arr_atr', ''); out.cleared = read('arrest', 'arr_atr');
+      selectScenario(a, 'apnoea'); logEmgDrug(a, 'apn_nal'); out.log = a.emergency[a.emergency.length-1].text;
+      return out;
+    });
+    const is = (name, got, want) => t.ok(JSON.stringify(got) === JSON.stringify(want), name + ' ' + JSON.stringify(got));
+    is('atropine 0.6', r.atr, ['0.6', '0.333 mL']);
+    is('naloxone 0.4 (arrest)', r.nal, ['0.4', '0.4 mL']);
+    is('naloxone 0.4 (apnoea)', r.nal2, ['0.4', '0.4 mL']);
+    is('atropine 0.6 (bradycardia)', r.batr, ['0.6', '0.133–0.267 mL']);
+    is('glycopyrrolate 0.2', r.gly, ['0.2', '0.1–0.22 mL']);
+    is('lignocaine 20', r.lid, ['20', '0.05–0.1 mL']);
+    is('adrenaline 1', r.adr, ['1', '0.04 mL']);
+    is('atipamezole 5', r.ati, ['5', '0.08 mL']);
+    is('dog adrenaline 20kg', r.dadr, ['1', '0.2 mL']);
+    is('dog atropine 0.04mg/kg', r.datr, ['0.6', '1.333 mL']);
+    is('dog lidocaine CPR 2mg/kg', r.dlid, ['20', '2 mL']);
+    is('dog atipamezole', r.dati, ['5', '0.4 mL']);
+    is('dog lidocaine tachycardia', r.dtlid, ['20', '2 mL']);
+    t.ok(r.dbrady && r.noAmio, 'dog sheet: dog bradycardia threshold, no amiodarone');
+    is('ferret atropine', [r.ferret.n, r.ferret.low], ['Atropine (0.6mg/mL)', 0.065]);
+    is('rat atropine', [r.rat.n, r.rat.low], ['Atropine (0.6mg/mL)', 0.108]);
+    is('typed value wins', r.typed, ['0.5', '0.4 mL']);
+    is('emptied box stays empty', r.cleared, ['', '— mL']);
+    t.ok(r.log.includes('(0.4 mL)'), 'log records the mL: ' + r.log);
+    t.ok(!errs.length, 'no page errors ' + errs.join(' | '));
+  } finally { await browser.close(); }
+  t.done();
+})();
