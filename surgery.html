@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-25.1';
+const APP_VERSION = '2026-11-25.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2081,13 +2081,13 @@ const EMG_SCN=[
     {heading:'STEP 3 · Match the rhythm',note:'ASYSTOLE / PEA (non-shockable) → atropine + continue adrenaline.\nVF / pulseless VT (shockable) → DEFIBRILLATE first, then resume CPR.',actions:[
       'VF / pulseless VT → defibrillate biphasic 2–4 J/kg (monophasic 4–6), start low → immediately resume compressions for 2 min before re-checking'
     ],drugs:[
-      {k:'arr_atr',n:'Atropine',unit:'mg',low:0.05,route:'IV/IO',note:'asystole / PEA / vagally-mediated arrest · once per 3–5 min cycle'},
+      {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.05,route:'IV/IO',note:'asystole / PEA / vagally-mediated arrest · once per 3–5 min cycle'},
       {k:'arr_amio',n:'Amiodarone',unit:'mg',low:5,route:'IV/IO',note:'refractory VF / pulseless VT after repeated shocks. Canine lidocaine 2 mg/kg is NOT recommended in cats'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
-      {k:'arr_nal',n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
+      {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
       {k:'arr_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
-    ],extra:'Flumazenil if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
+    ],extra:'Flumazenil (0.1mg/mL) if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
   ]},
   {id:'apnoea',btn:'🟠 Apnoea',title:'🟠 Apnoea / Hypoventilation',sections:[
     {note:'Defined as ETCO2 > 55 mmHg, RR < 8, or apnoea > 30 seconds.',actions:[
@@ -2096,9 +2096,9 @@ const EMG_SCN=[
       'Manual IPPV 10–15 mL/kg, 8–12 breaths/min — 100% O2',
       'Secure IV catheter'
     ],drugs:[
-      {k:'apn_nal',n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'opioid reversal — repeat as needed (short half-life)'},
+      {k:'apn_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'opioid reversal — repeat as needed (short half-life)'},
       {k:'apn_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM',note:'alpha-2 reversal (100 µg/kg)'}
-    ],extra:'Doxapram is NOT recommended (exam trap). Flumazenil for benzodiazepine reversal if used.'}
+    ],extra:'Doxapram is NOT recommended (exam trap). Flumazenil (0.1mg/mL) for benzodiazepine reversal if used.'}
   ]},
   {id:'brady',btn:'🟡 Bradycardia',title:'🟡 Bradycardia (cat HR < 90)',sections:[
     {heading:'Assess blood pressure FIRST',note:'HR low + BP NORMAL → no reversal needed. Reduce inhalant, treat the cause, monitor.\nHR low + BP LOW → first attempt is ALWAYS reversal (reverse the medetomidine in the ZMD premed).',actions:[
@@ -2108,8 +2108,8 @@ const EMG_SCN=[
       {k:'bra_ati',n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverses medetomidine · 100 µg/kg, or ½ ZMD volume'}
     ]},
     {heading:'Anticholinergic — backup if reversal insufficient',drugs:[
-      {k:'bra_atr',n:'Atropine',unit:'mg',low:0.02,high:0.04,route:'IV',note:'onset 1–2 min · 0.04–0.1 mg/kg IM if no IV access'},
-      {k:'bra_gly',n:'Glycopyrrolate',unit:'mg',low:0.005,high:0.011,route:'IV',note:'longer acting · does not cross blood–brain barrier'}
+      {k:'bra_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.02,high:0.04,route:'IV',note:'onset 1–2 min · 0.04–0.1 mg/kg IM if no IV access'},
+      {k:'bra_gly',conc:0.2,n:'Glycopyrrolate',unit:'mg',low:0.005,high:0.011,route:'IV',note:'longer acting · does not cross blood–brain barrier'}
     ]}
   ]},
   {id:'tachy',btn:'🟡 Tachycardia',title:'🟡 Tachycardia',sections:[
@@ -2121,7 +2121,7 @@ const EMG_SCN=[
       'Hyperthermia · drug effect'
     ]},
     {heading:'② VPCs / Ventricular tachycardia',note:'First correct the cause: hypoxia, hypercapnia, electrolytes (esp. K+ / Mg2+), light plane, pain, catecholamines.\nTreat if: sustained VT, multiform / polymorphic, R-on-T, or haemodynamically unstable.',drugs:[
-      {k:'tac_lid',n:'Lidocaine (cat)',unit:'mg',low:0.25,high:0.5,route:'slow IV',note:'Caution — cats are sensitive to lidocaine toxicity. Do NOT use the canine 2 mg/kg dose.'}
+      {k:'tac_lid',conc:20,n:'Lidocaine (cat)',unit:'mg',low:0.25,high:0.5,route:'slow IV',note:'Caution — cats are sensitive to lidocaine toxicity. Do NOT use the canine 2 mg/kg dose.'}
     ],extra:'Alternative: amiodarone. Magnesium for refractory ventricular arrhythmias.'}
   ]},
   {id:'hypotension',btn:'🟠 Hypotension',title:'🟠 Hypotension (MAP < 60 mmHg)',sections:[
@@ -2157,9 +2157,11 @@ function emgDoseText(d,w){
   if(d.high) return lo+'–'+emgRnd(d.high*w)+' '+d.unit;
   return lo+' '+d.unit;
 }
+/* the box's stock strength unless this animal has its own (typed over, even if emptied) */
+function emgConcFor(d,emgConc){ const own=(emgConc||{})[d.k]; return own!=null ? own : (d.conc!=null ? d.conc : ''); }
 function emgMlText(d,w,emgConc){
   if(d.noconc) return '';
-  const c=parseFloat((emgConc||{})[d.k]);
+  const c=parseFloat(emgConcFor(d,emgConc));
   if(!w||w<=0||isNaN(w)||!c||c<=0||isNaN(c)) return '— mL';
   const lo=emgRnd(d.low*w/c);
   if(d.high) return lo+'–'+emgRnd(d.high*w/c)+' mL';
@@ -2235,7 +2237,7 @@ function selectScenario(a, id){
     btn.addEventListener('click', ()=> logEmgDrug(a, btn.dataset.emglog));
   });
   document.querySelectorAll('[data-emgconc]').forEach(inp=>{
-    inp.value = (a.emgConc||{})[inp.dataset.emgconc] || '';
+    inp.value = emgConcFor(EMG_DRUGS[inp.dataset.emgconc], a.emgConc);
     inp.addEventListener('input', ()=> setEmgConc(a, inp.dataset.emgconc, inp.value));
   });
   refreshEmgDoses(a);
