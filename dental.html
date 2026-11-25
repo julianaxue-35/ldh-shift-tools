@@ -251,7 +251,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="dental.js"></script>
 <script>
-const APP_VERSION = '2026-11-11.1';
+const APP_VERSION = '2026-11-25.1';
 const D = LDHDental;
 const LS_SHIFT = 'ldh_surgery_shift_v1', LS_CHARTS = 'ldh_dental_charts_v1', LS_INIT = 'ldh_processing_vetinit_v1';
 const $ = id => document.getElementById(id);
@@ -374,7 +374,14 @@ $('archUpper').parentNode.addEventListener('click', e => {
   selTooth = Number(b.dataset.tooth); renderMouth(); renderPanel();
   $('toothPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 });
+// inside the Surgery exam the chart can be reloaded (the exam redraws): remember the open tooth so it comes straight back
+const LS_AT = 'ldh_dental_open_tooth_v1';
+function rememberTooth() {
+  if (!document.body.classList.contains('embed')) return;
+  try { if (selTooth) sessionStorage.setItem(LS_AT, JSON.stringify({ key: cur.key, tooth: selTooth, route: ROUTE })); else sessionStorage.removeItem(LS_AT); } catch (e) { /* storage blocked */ }
+}
 function renderPanel() {
+  rememberTooth();
   const info = D.toothInfo(cur.species, selTooth), t = D.normTooth(cur.teeth[selTooth]);
   $('toothPanel').classList.remove('hidden');
   $('tpTitle').textContent = 'Tooth ' + selTooth + ' — ' + info.name;
@@ -415,7 +422,7 @@ $('tpClose').addEventListener('click', () => {
   if (!cur || !selTooth) return;
   const nx = D.nextTooth(cur.species, selTooth, ROUTE);
   if (nx) { selTooth = nx; renderMouth(); renderPanel(); }
-  else { selTooth = null; $('toothPanel').classList.add('hidden'); renderMouth(); $('pdfBtn').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  else { selTooth = null; rememberTooth(); $('toothPanel').classList.add('hidden'); renderMouth(); $('pdfBtn').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 });
 $('tpPrev').addEventListener('click', () => { const p = cur && selTooth && D.prevTooth(cur.species, selTooth, ROUTE); if (p) { selTooth = p; renderMouth(); renderPanel(); } });
 function startAt(route) { if (!cur) return; ROUTE = route; selTooth = D.route(cur.species, route)[0]; renderMouth(); renderPanel(); $('toothPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
@@ -495,6 +502,12 @@ pruneCharts(); saveCharts();
 renderPicker(); renderSaved();
 const want = new URLSearchParams(location.search).get('animal');
 if (want && shiftAnimals().some(a => a.id === want)) { $('animalPick').value = want; $('animalPick').dispatchEvent(new Event('change')); }
+if (cur && document.body.classList.contains('embed')) {
+  try {
+    const at = JSON.parse(sessionStorage.getItem(LS_AT) || 'null');
+    if (at && at.key === cur.key && D.toothInfo(cur.species, at.tooth)) { ROUTE = at.route; selTooth = at.tooth; renderMouth(); renderPanel(); }
+  } catch (e) { /* nothing to restore */ }
+}
 </script>
 </body>
 </html>
