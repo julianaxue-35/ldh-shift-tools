@@ -640,7 +640,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-25.2';
+const APP_VERSION = '2026-11-25.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2075,14 +2075,13 @@ const EMG_SCN=[
       'Attach ECG + capnography (EtCO2) · assign team leader & roles'
     ]},
     {heading:'STEP 2 · First drug — give as soon as access is in (ALS)',note:'Adrenaline first, low-dose, as early as possible — then repeat every other 2-min cycle (every 3–5 min). Check rhythm only at the cycle change to minimise pauses.',drugs:[
-      {k:'arr_adr',conc:1,n:'① Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'FIRST drug · every 3–5 min (every other cycle) · ET route 0.1 mg/kg · escalate to high-dose 0.1 mg/kg only after prolonged CPR'},
-      {k:'arr_vaso',n:'Vasopressin (optional)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'}
+      {k:'arr_adr',conc:1,n:'① Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'FIRST drug · every 3–5 min (every other cycle) · ET route 0.1 mg/kg · high-dose adrenaline is NOT recommended'},
     ]},
     {heading:'STEP 3 · Match the rhythm',note:'ASYSTOLE / PEA (non-shockable) → atropine + continue adrenaline.\nVF / pulseless VT (shockable) → DEFIBRILLATE first, then resume CPR.',actions:[
       'VF / pulseless VT → defibrillate biphasic 2–4 J/kg (monophasic 4–6), start low → immediately resume compressions for 2 min before re-checking'
     ],drugs:[
-      {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.05,route:'IV/IO',note:'asystole / PEA / vagally-mediated arrest · once per 3–5 min cycle'},
-      {k:'arr_amio',n:'Amiodarone',unit:'mg',low:5,route:'IV/IO',note:'refractory VF / pulseless VT after repeated shocks. Canine lidocaine 2 mg/kg is NOT recommended in cats'}
+      {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, early — asystole / PEA / vagally-mediated arrest · do not repeat'},
+      {k:'arr_lid',conc:20,n:'Lidocaine (cat)',unit:'mg',low:0.25,high:0.5,route:'slow IV',note:'refractory VF / pulseless VT after repeated shocks. Cats are sensitive — do NOT use the dog 2 mg/kg dose.'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
       {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
@@ -2122,7 +2121,7 @@ const EMG_SCN=[
     ]},
     {heading:'② VPCs / Ventricular tachycardia',note:'First correct the cause: hypoxia, hypercapnia, electrolytes (esp. K+ / Mg2+), light plane, pain, catecholamines.\nTreat if: sustained VT, multiform / polymorphic, R-on-T, or haemodynamically unstable.',drugs:[
       {k:'tac_lid',conc:20,n:'Lidocaine (cat)',unit:'mg',low:0.25,high:0.5,route:'slow IV',note:'Caution — cats are sensitive to lidocaine toxicity. Do NOT use the canine 2 mg/kg dose.'}
-    ],extra:'Alternative: amiodarone. Magnesium for refractory ventricular arrhythmias.'}
+    ],extra:'Magnesium for refractory ventricular arrhythmias.'}
   ]},
   {id:'hypotension',btn:'🟠 Hypotension',title:'🟠 Hypotension (MAP < 60 mmHg)',sections:[
     {actions:[
@@ -2158,13 +2157,12 @@ const EMG_SCN_DOG=[
     ]},
     {heading:'STEP 2 · ASYSTOLE / PEA (non-shockable)',note:'Adrenaline every 3–5 min (every other cycle). High-dose adrenaline is NOT recommended.',drugs:[
       {k:'d_arr_adr',conc:1,n:'Adrenaline (Epinephrine)',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
-      {k:'d_arr_vaso',n:'Vasopressin (alternative)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'},
       {k:'d_arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, early, if high vagal tone suspected — do not repeat'}
     ]},
     {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'Biphasic: 2 J/kg, then 4 J/kg for the second and later shocks. Monophasic: 4 J/kg. Resume compressions for 2 min straight after each shock.',actions:[
       'Defibrillated (dog VF / pulseless VT)'
     ],drugs:[
-      {k:'d_arr_vaso2',n:'Vasopressin',unit:'U',low:0.8,route:'IV/IO',note:'shock-refractory · use adrenaline 0.01 mg/kg only if no vasopressin'},
+      {k:'d_arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'low dose · every 3–5 min'},
       {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO',note:'refractory VF / pulseless VT after the first shock'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
