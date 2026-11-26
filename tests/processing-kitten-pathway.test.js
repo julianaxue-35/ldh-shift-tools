@@ -19,7 +19,7 @@ const t = require('./check')('processing-kitten-pathway');
     // [what, weight, kc, tattoo, step, substatus, note]
     const table = [
       ['has ID', '0.5', { reason: ID }, '', S, '', MGMT],
-      ['tattoo on a stray', '2', { reason: NOID }, 'YES', S, '', MGMT],
+      ['tattoo on a stray', '0.7', { reason: NOID }, 'YES', S, '', MGMT],
       ['has ID, tiny', '0.15', { reason: ID }, '', S, '', MGMT],
       ['200 g', '0.2', { reason: NOID }, '', E, '', ''],
       ['300 g healthy, carer', '0.3', { reason: NOID, health: 'healthy', neoCarer: 'Y' }, '', F, '', ''],
@@ -27,18 +27,18 @@ const t = require('./check')('processing-kitten-pathway');
       ['300 g unwell', '0.3', { reason: NOID, health: 'one' }, '', E, '', ''],
       ['under 8 weeks', '0.5', { reason: NOID, health: 'healthy', age: '5' }, '', F, '', ''],
       ['400 g one condition', '0.4', { reason: NOID, health: 'one', age: '5' }, '', F, '', ''],
-      ['not suitable', '0.8', { reason: NOID, health: 'not', age: '10', litter: 'single' }, '', E, '', ''],
-      ['8-16 weeks single', '1', { reason: NOID, health: 'healthy', age: '10', litter: 'single' }, '', S, SUB, ''],
-      ['8-16 weeks pair', '1', { reason: NOID, health: 'healthy', age: '10', litter: 'pair' }, '', F, '', ''],
-      ['over 16 weeks', '2', { reason: NOID, health: 'healthy', age: '20' }, '', S, '', ''],
-      ['surrender single 8-16', '1', { reason: SUR, health: 'healthy', age: '10', litter: 'single' }, '', F, '', QUAR],
+      ['not suitable', '0.7', { reason: NOID, health: 'not', age: '10', litter: 'single' }, '', E, '', ''],
+      ['8-16 weeks single', '0.7', { reason: NOID, health: 'healthy', age: '10', litter: 'single' }, '', S, SUB, ''],
+      ['8-16 weeks pair', '0.7', { reason: NOID, health: 'healthy', age: '10', litter: 'pair' }, '', F, '', ''],
+      ['over 16 weeks', '0.7', { reason: NOID, health: 'healthy', age: '20' }, '', S, '', ''],
+      ['surrender single 8-16', '0.7', { reason: SUR, health: 'healthy', age: '10', litter: 'single' }, '', F, '', QUAR],
       ['surrender under 8', '0.5', { reason: SUR, health: 'healthy', age: '5' }, 'YES', F, '', QUAR],
-      ['nothing chosen yet', '1', {}, '', '', '', ''],
+      ['nothing chosen yet', '0.7', {}, '', '', '', ''],
       ['7.5 weeks counts as under 8', '0.7', { reason: NOID, health: 'healthy', age: '7.5' }, '', F, '', ''],
-      ['exactly 8 weeks single', '0.9', { reason: NOID, health: 'healthy', age: '8 weeks', litter: 'single' }, '', S, SUB, ''],
-      ['16 weeks pair', '1.8', { reason: NOID, health: 'healthy', age: '16', litter: 'pair' }, '', F, '', ''],
-      ['3 months single', '1.2', { reason: NOID, health: 'healthy', age: '3 months', litter: 'single' }, '', S, SUB, ''],
-      ['5 months', '2.2', { reason: NOID, health: 'healthy', age: '5 months' }, '', S, '', ''],
+      ['exactly 8 weeks single', '0.7', { reason: NOID, health: 'healthy', age: '8 weeks', litter: 'single' }, '', S, SUB, ''],
+      ['16 weeks pair', '0.7', { reason: NOID, health: 'healthy', age: '16', litter: 'pair' }, '', F, '', ''],
+      ['3 months single', '0.7', { reason: NOID, health: 'healthy', age: '3 months', litter: 'single' }, '', S, SUB, ''],
+      ['5 months', '0.7', { reason: NOID, health: 'healthy', age: '5 months' }, '', S, '', ''],
       ['40 days', '0.5', { reason: NOID, health: 'healthy', age: '40 days' }, '', F, '', '']
     ];
     for (const [what, weight, kc, tt, step, sub, extra] of table) {
@@ -52,7 +52,7 @@ const t = require('./check')('processing-kitten-pathway');
       t.ok(r.step === step && r.select === step && subOk && noteOk, what + ' -> ' + (step || 'blank') + (sub ? ' + ' + sub : '') + (r.step === step && subOk && noteOk ? '' : ' (got ' + r.step + ', subOk ' + subOk + ', noteOk ' + noteOk + ')'));
     }
     // by tapping, as the vet does
-    await page.evaluate(() => { const a = makeAnimal({ animalId: 'T', species: 'cat', weight: '1' }); a.id = 'T'; a.checklist = 'kitten'; state.animals = [a]; saveShift(); renderShiftList(); openExam('T'); });
+    await page.evaluate(() => { const a = makeAnimal({ animalId: 'T', species: 'cat', weight: '0.7' }); a.id = 'T'; a.checklist = 'kitten'; state.animals = [a]; saveShift(); renderShiftList(); openExam('T'); });
     const tap = (k, v) => page.click(`[data-set="kc.${k}"][data-val="${v}"]`);
     t.ok(/To fill in the next step, add/.test(await page.textContent('#examBody')), 'says what is still needed');
     await tap('reason', NOID); await tap('health', 'healthy'); await page.fill('[data-kc="age"]', '10'); await page.evaluate(() => document.activeElement.blur()); await tap('litter', 'single');
@@ -65,6 +65,10 @@ const t = require('./check')('processing-kitten-pathway');
     t.ok((await page.inputValue('#fld_nextstep')) === S, 'one tap goes back to the intake flow step');
     await tap('health', 'not');
     t.ok((await page.inputValue('#fld_nextstep')) === E && (await page.inputValue('#fld_ongoing')) === '', 'euthanasia step: no ongoing care typed in');
+    // from 750 g it is the plain normal template: a step the intake form filled in does not follow, one she picked does
+    await tap('health', 'healthy');
+    await page.fill('#fld_weight', '1.2'); await page.evaluate(() => document.activeElement.blur()); await page.waitForTimeout(200);
+    t.ok((await page.inputValue('#fld_nextstep')) === '' && (await page.locator('[data-kc]').count()) === 0 && !/Substatus|stray period/.test(await page.textContent('#noteDisplay')) && !(await page.evaluate(() => awaitingFoster(state.animals[0]))), '750 g and over: nothing from the intake form carries onto the normal template');
     t.ok(errs.length === 0, 'no page errors: ' + errs.join('; '));
   } finally { await browser.close(); }
   t.done();
