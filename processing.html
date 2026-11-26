@@ -501,7 +501,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-26.2';
+const APP_VERSION = '2026-11-26.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -620,13 +620,19 @@ const NEO_TREAT_WEEKS = 4;
 const neosOf = a => Array.isArray(a.kc.neos) ? a.kc.neos : [];
 function litterWeeks(a){ const t = String(a.kc.litterAge||''), v = parseFloat(t); return isNaN(v) ? null : (/day/i.test(t) ? v/7 : v); }
 const litterTooYoung = a => { const w = litterWeeks(a); return w !== null && w < NEO_TREAT_WEEKS; };
-const litterTreatments = a => litterTooYoung(a) ? 'No treatment given' : String(a.kc.litterTx||'').trim();
+/* Under 400 g usually gets no treatment, so that is filled in when the whole litter is under (by age under 4 weeks if no weights).
+   It is only a default: she can tap treatments anyway, and in a mixed litter (380 g and 400 g) nothing is assumed. */
+const NEO_TREAT_GRAMS = 400, NO_TX = 'No treatment given';
+const litterGrams = a => neosOf(a).map(n=>gramsIn(n.weight)[0]).filter(Boolean);
+function litterUsuallyUntreated(a){ const g = litterGrams(a); return g.length ? g.every(x=>x<NEO_TREAT_GRAMS) : litterTooYoung(a); }
+const litterTreatments = a => String(a.kc.litterTx||'').trim() || (litterUsuallyUntreated(a) ? NO_TX : '');
+const litterTreated = a => { const t = litterTreatments(a); return !!t && t !== NO_TX; };
 const neoForEuth = n => n.health==='Unhealthy' && !!n.euth;
 const neoName = (a, n) => String(n.id||'').trim() || 'neo '+(neosOf(a).indexOf(n)+1);
 const litterAgeText = a => { const t = String(a.kc.litterAge||'').trim(); return t && !/[a-z]/i.test(t) ? t+' weeks' : t; };
 function ongoingTemplate(a){
   if(a.checklist==='queen'){
-    const w = litterWeeks(a), allOldEnough = w !== null && w >= NEO_TREAT_WEEKS;
+    const w = litterWeeks(a), allOldEnough = (w !== null && w >= NEO_TREAT_WEEKS) || litterTreated(a);
     const euth = neosOf(a).filter(neoForEuth), noneLeft = neosOf(a).length > 0 && euth.length === neosOf(a).length;
     // with no neos left to go with her, the queen's plan drops the lines about them and there is no kitten plan
     const lines = ['Queen plan:'].concat(noneLeft ? [] : ['Send queen to foster with neos when due out.', 'Return for surgery when kittens are weaned.'], ['Vaccination due again in 2 weeks.', 'Worming and flea treatment every month.', 'Kitten plan:']);
@@ -3135,7 +3141,7 @@ function checklistFormHtml(a){
       `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--teal-dark);font-weight:600">How to score RTP</summary>
         <p style="font-size:12px;margin:6px 0">Spend a few minutes letting the cat get used to you, with something positive (soft voice, treats or a toy). Then try to rub the cat on the cheeks with the cat scratcher or your hand. (Adapted from Ellis 2022.)</p>
         ${RTP_SCORES.map((d,i)=>`<div style="font-size:12px"><b>${i}</b> ${esc(d)}</div>`).join('')}</details>`);
-    h += box('Vet treatments given', (kg > 0 && kg < 0.4 ? warn('Under 400 g: no vaccine, wormer or flea treatment today.') : '') + given +
+    h += box('Vet treatments given', (kg > 0 && kg < 0.4 ? warn('Under 400 g: usually no vaccine, wormer or flea treatment.') : '') + given +
       `<input class="plain" id="fld_treatments" style="width:100%;margin-top:6px" value="${esc(a.treatments||'')}">`);
     h += box('Plan', pick('kc.plan', 'Plan', ['OK for juvenile foster','Medical euthanasia','Behaviour review']) +
       nextStep() + suggestion() + substatus() + ongoing() + medPlan('Medication plan (if required)'));
@@ -3146,14 +3152,14 @@ function checklistFormHtml(a){
       label('Behaviour') + `<textarea class="free-input" id="fld_behaviour">${esc(a.behaviour||'')}</textarea>` + fas('FAS') +
       label('Vet treatments') + pick('kc.flea', 'Flea', yn) + pick('kc.worm', 'Worm', yn) + pick('kc.vacc', 'Vacc', yn));
     const neoText = (n, i, key, title, hint) => label(title) + `<input class="plain" data-neo="${i}:${key}" style="width:100%" value="${esc(n[key]||'')}" placeholder="${esc(hint)}">`;
-    const old = litterWeeks(a) !== null && !litterTooYoung(a);
-    const txItem = item => `<button type="button" class="opt-btn ${String(k.litterTx||'').split(',').map(x=>x.trim()).includes(item)?'selected':''}" data-littertx="${item}">+ ${item}</button>`;
+    const g = litterGrams(a), usually = litterUsuallyUntreated(a), chosen = String(k.litterTx||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const shown = litterTreatments(a).split(',').map(x=>x.trim());
+    const txItem = item => `<button type="button" class="opt-btn ${shown.includes(item)?'selected':''}" data-littertx="${item}">${item===NO_TX?item:'+ '+item}</button>`;
+    const txHint = chosen.length ? '' : usually ? '<p style="font-size:12.5px;margin-bottom:6px">Under 400 g usually gets no treatment (filled in). Tap treatments if you give them anyway.</p>'
+      : (g.some(x=>x>=NEO_TREAT_GRAMS) || (litterWeeks(a)!==null && !litterTooYoung(a))) ? warn((g.some(x=>x<NEO_TREAT_GRAMS) ? 'Some are 400 g or over, some under. ' : '') + 'Choose the treatments given: vaccine, worming and flea.') : '';
     h += box('Neos / kittens', label('Number of neos') + `<div class="opts">${[1,2,3,4,5,6,7,8].map(x=>`<button type="button" class="opt-btn ${neosOf(a).length===x?'selected':''}" data-neocount="${x}">${x}</button>`).join('')}</div>` +
       text('litterAge', 'Age in weeks (the same for the whole litter)', 'e.g. 3') + AGEING_GUIDE_HTML + pick('kc.litterWood', "Wood's lamp", lamp) +
-      label('Vet treatments (if appropriate)') + (litterTooYoung(a)
-        ? '<p style="font-size:12.5px">Under 4 weeks old: <b>No treatment given</b>.</p>'
-        : (old && !String(k.litterTx||'').trim() ? warn('4 weeks or older: give vaccine, worming and flea treatment.') : '') +
-          `<div class="opts" style="margin-bottom:6px">${['Vaccine','Worming','Flea treatment'].map(txItem).join('')}</div><input class="plain" data-kc="litterTx" style="width:100%" value="${esc(k.litterTx||'')}">`) +
+      label('Vet treatments (if appropriate)') + txHint + `<div class="opts" style="margin-bottom:6px">${['Vaccine','Worming','Flea treatment', NO_TX].map(txItem).join('')}</div><input class="plain" data-kc="litterTx" style="width:100%" value="${esc(k.litterTx||'')}">` +
       neosOf(a).map((n,i)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px"><b>Neo ${i+1}</b>
         <div class="two-col"><div>${neoText(n, i, 'id', 'Shelter number', 'e.g. 1176455')}</div><div>${neoText(n, i, 'colour', 'Colour', 'e.g. black')}</div></div>
         ${label('Sex')}<div class="opts">${['M','F','U'].map(v=>`<button type="button" class="opt-btn ${n.sex===v?'selected':''}" data-neoset="${i}:sex" data-val="${v}">${v}</button>`).join('')}</div>
@@ -3234,8 +3240,10 @@ function bindExamForm(a){
     const n = a.kc.neos[Number(btn.dataset.neoeuth)]; n.euth = !n.euth; redraw();
   }));
   document.querySelectorAll('#examBody [data-littertx]').forEach(btn=>btn.addEventListener('click', ()=>{
-    const items = String(a.kc.litterTx||'').split(',').map(x=>x.trim()).filter(Boolean), item = btn.dataset.littertx, at = items.indexOf(item);
-    if(at >= 0) items.splice(at, 1); else items.push(item);
+    const item = btn.dataset.littertx;
+    let items = String(a.kc.litterTx||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const at = items.indexOf(item);
+    if(at >= 0) items.splice(at, 1); else items = item===NO_TX ? [NO_TX] : items.filter(x=>x!==NO_TX).concat(item);   // "none" and a treatment never sit together
     a.kc.litterTx = items.join(', '); redraw();
   }));
   document.querySelectorAll('#examBody [data-kc="age"]').forEach(el=>el.addEventListener('change', ()=>{ a.kc.age = el.value.trim(); redraw(); }));
@@ -3247,7 +3255,7 @@ function bindExamForm(a){
   document.querySelectorAll('#examBody [data-neo]').forEach(el=>{
     const [i, key] = el.dataset.neo.split(':');
     el.addEventListener('input', ()=>{ a.kc.neos[Number(i)][key] = el.value; refreshNote(a); saveShiftSoon(); });
-    el.addEventListener('change', ()=>{ a.kc.neos[Number(i)][key] = el.value.trim(); refreshNote(a); saveShift(); const box = document.getElementById('fld_ongoing'); if(box) box.value = ongoingText(a); });
+    el.addEventListener('change', ()=>{ a.kc.neos[Number(i)][key] = el.value.trim(); if(key==='weight'){ redraw(); return; } refreshNote(a); saveShift(); const box = document.getElementById('fld_ongoing'); if(box) box.value = ongoingText(a); });
   });
   document.querySelectorAll('#examBody [data-neocopy]').forEach(btn=>btn.addEventListener('click', async ()=>{
     const n = neoNotesFor(a)[Number(btn.dataset.neocopy)]; if(!n) return;
