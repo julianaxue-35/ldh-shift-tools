@@ -228,6 +228,8 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
     <div class="row-actions">
       <button class="btn" id="parseXlsxBtn">Parse Excel</button>
       <button class="btn secondary" id="manualAddBtn">Add one manually</button>
+      <button class="btn secondary" id="addKittenBtn">+ Kitten processing</button>
+      <button class="btn secondary" id="addQueenBtn">+ Queen and neos</button>
       <button class="btn secondary" id="add28DayBtn">+ 28-day health check (court hold)</button>
     </div>
     <div id="parsedWrap"></div>
@@ -499,7 +501,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-24.2';
+const APP_VERSION = '2026-11-25.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -542,6 +544,104 @@ setInterval(dashCatchUp, 60000);                                   // a send los
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) dashCatchUp(); });
 /* ---------- share with Admission AA (2026-10-18) ---------- */
 const AA_TOOL = 'processing';
+/* ---- Kitten and queen check list rules ----
+   Declared up here, before anything that can build a note while the page is still loading (saved animals are read at start-up). */
+const RTP_SCORES = [
+  'Approaches and actively interacts: tail up, rubbing, head-butting, cheerful vocalising, may purr',
+  'Stays put but clearly enjoys it: rolling, pushing head into your hand, may purr',
+  'Stays put with mild enjoyment: lifts chin slightly when petted, tense body',
+  'Stays put but only tolerates petting: does not move when touched, tense body',
+  'Stays put but does not want to be touched: flinches from your hand, ears flat, dilated pupils, tense body',
+  'Flees from or lunges at attempts to touch'
+];
+/* Microchip at 600 g or over. Grams from what is already typed ("0.5", "550 g", "350-380 g"); under 20 is read as kg. */
+const gramsIn = v => (String(v||'').match(/\d+(\.\d+)?/g)||[]).map(Number).filter(n=>n>0).map(n=>n<20 ? Math.round(n*1000) : n);
+const chipWeights = a => gramsIn(a.weight);
+/* From 750 g a kitten has the full physical exam today, so the plan is to desex at due out; smaller ones get it under GA at surgery. */
+const FULL_PE_GRAMS = 750;
+const needsFullPe = a => a.checklist==='kitten' && gramsIn(a.weight)[0] >= FULL_PE_GRAMS;
+/* The short intake form is for the queen list and for kittens under 750 g. From 750 g a kitten gets the normal cat PE. */
+const usesIntakeForm = a => a.species==='cat' && !!a.checklist && !needsFullPe(a);
+const checklistSteps = () => ['Awaiting sort'].concat(NEXT_STEP_OPTIONS, ['Awaiting foster for stray period', 'Awaiting euthanasia']);
+/* FAS 4 or 5 ticks the behaviour review substatus by itself; she can tick or untick it either way. */
+const behaviourReviewOn = a => a.kc.behReview != null ? a.kc.behReview : Number(a.fasScore) >= 4;
+/* Single kitten: the next step (status), any substatus and the plan note follow her intake flow (confirmed 2026-11-26).
+   Order matters: has ID (not a surrender) first, then health and weight, then age and litter. Returns what is still needed when it
+   cannot tell yet. "ID" is the intake reason or a desex tattoo, not the chip number (she may have just implanted that herself). */
+const STRAY_SUBSTATUS = 'Awaiting foster for stray period';
+function kittenPathway(a){
+  const k = a.kc, g = gramsIn(a.weight)[0], surrender = k.reason==='Surrender';
+  const out = (step, substatus, note) => ({ step, substatus: substatus||'', note: note||'', need: [] });
+  const need = list => ({ step:'', substatus:'', note:'', need: list });
+  const foster = () => out('Awaiting foster', '', surrender ? 'Awaiting foster during quarantine period.' : '');
+  if(k.plan==='Medical euthanasia') return out('Awaiting euthanasia');
+  if(!surrender && (k.reason==='Stray (with ID)' || a.tt==='YES')) return out('Awaiting sort', '', 'Confirm with management if foster is available.');
+  if(!g) return need(['weight']);
+  if(g<=200) return out('Awaiting euthanasia');
+  if(!k.health) return need(['health']);
+  if(g<400){
+    if(k.health!=='healthy') return out('Awaiting euthanasia');
+    if(!k.neoCarer) return need(['neonatal carer']);
+    return k.neoCarer==='Y' ? foster() : out('Awaiting euthanasia');
+  }
+  if(k.health==='not') return out('Awaiting euthanasia');
+  const band = ageGroup(a);
+  if(!band) return need(['age']);
+  if(band==='over16') return out('Awaiting sort');
+  if(!k.reason) return need(['intake reason']);
+  if(surrender || band==='under8') return foster();
+  if(!k.litter) return need(['single or pair']);
+  return k.litter==='single' ? out('Awaiting sort', STRAY_SUBSTATUS) : foster();
+}
+/* Age as typed: a plain number is weeks; days, months and years are understood too. */
+function ageInWeeks(text){
+  const t = String(text||'').toLowerCase(), n = parseFloat(t);
+  if(isNaN(n)) return null;
+  if(/d/.test(t) && !/w|m|y/.test(t.replace(/days?/g,''))) return n/7;
+  if(/y/.test(t.replace(/days?/g,''))) return n*52;
+  if(/m/.test(t)) return n*52/12;
+  return n;
+}
+const ageGroup = a => { const w = ageInWeeks(a.kc.age); return w===null ? '' : (w<8 ? 'under8' : (w<=16 ? '8to16' : 'over16')); };
+/* fills the next step by itself until she picks one from the list herself */
+function syncKittenStep(a){
+  if(a.checklist!=='kitten' || a.kc.stepByHand) return;
+  a.nextStep = kittenPathway(a).step;
+}
+/* The ongoing plan's standard wording. It follows the weight until she types in the box; after that her text stays. */
+/* Neos: pick how many, and each gets its own line (shelter number, colour, healthy or not, weight). The litter shares one age,
+   Wood's lamp and treatment box; under 4 weeks old there is no treatment. */
+const NEO_TREAT_WEEKS = 4;
+const neosOf = a => Array.isArray(a.kc.neos) ? a.kc.neos : [];
+function litterWeeks(a){ const t = String(a.kc.litterAge||''), v = parseFloat(t); return isNaN(v) ? null : (/day/i.test(t) ? v/7 : v); }
+const litterTooYoung = a => { const w = litterWeeks(a); return w !== null && w < NEO_TREAT_WEEKS; };
+const litterTreatments = a => litterTooYoung(a) ? 'No treatment given' : String(a.kc.litterTx||'').trim();
+const neoForEuth = n => n.health==='Unhealthy' && !!n.euth;
+const neoName = (a, n) => String(n.id||'').trim() || 'neo '+(neosOf(a).indexOf(n)+1);
+const litterAgeText = a => { const t = String(a.kc.litterAge||'').trim(); return t && !/[a-z]/i.test(t) ? t+' weeks' : t; };
+function ongoingTemplate(a){
+  if(a.checklist==='queen'){
+    const w = litterWeeks(a), allOldEnough = w !== null && w >= NEO_TREAT_WEEKS;
+    const euth = neosOf(a).filter(neoForEuth), noneLeft = neosOf(a).length > 0 && euth.length === neosOf(a).length;
+    // with no neos left to go with her, the queen's plan drops the lines about them and there is no kitten plan
+    const lines = ['Queen plan:'].concat(noneLeft ? [] : ['Send queen to foster with neos when due out.', 'Return for surgery when kittens are weaned.'], ['Vaccination due again in 2 weeks.', 'Worming and flea treatment every month.', 'Kitten plan:']);
+    if(euth.length) lines.push('Humane euthanasia: ' + euth.map(n=>neoName(a, n)).join(', ') + '.');
+    if(!noneLeft) lines.push(...(allOldEnough ? [] : ['Return at 4 weeks old for treatments.']), 'Full physical exam at the time of surgery.', 'Microchip at 600 g, or at the time of surgery.');
+    return lines.join('\n');
+  }
+  if(a.kc.plan==='Medical euthanasia' || a.nextStep==='Awaiting euthanasia') return '';
+  const g = chipWeights(a), lines = ['Worming every 2 weeks.', 'Flea treatment and vaccination every 4 weeks.'];
+  if(g.length) lines.push(g[0]>=FULL_PE_GRAMS ? 'Desex at due out.' : 'Full physical exam under GA at surgery.');
+  if(g.length && g[0]<600) lines.push('Microchip at 600 g.');
+  return lines.join('\n');
+}
+const ongoingText = a => a.kc.ongoing != null ? a.kc.ongoing : ongoingTemplate(a);
+/* Ageing guide for kittens under 8 weeks (all she wants shown). Figures: National Kitten Coalition "Determining Kitten Age" (2015). */
+const AGEING_GUIDE_HTML = `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--teal-dark);font-weight:600">Ageing guide (under 8 weeks)</summary>
+  <div style="font-size:12px;line-height:1.6;margin-top:6px">
+  Eyes open: 7 to 10 days<br>Ears upright: about 3 weeks<br>Walking, tail up: about 4 weeks<br>
+  Baby incisors: 2&frac12; to 3&frac12; weeks<br>Baby canines: 3 to 4 weeks<br>Baby premolars: 5 to 8 weeks<br>
+  <i>Eruption times vary with breed, nutrition and health. Source: National Kitten Coalition.</i></div></details>`;
 const aaNoteOf = a => (a.noteEdited !== null && a.noteEdited !== undefined) ? a.noteEdited : assembleNote(a);
 // The signature ignores the Date/Vet/Nurse line and the closing initials, so a nurse change or midnight is not an "edit".
 const aaSigText = a => (aaPriorityOf(a) ? '[PRIORITY]\n' : '') + AAShare.normalize(aaNoteOf(a), [vetInitEl.value, nurseInitEl.value, vetOf(a), nurseOf(a)]);
@@ -570,7 +670,7 @@ async function aaSendAnimal(a){
 }
 // Priority (e.g. awaiting foster): the Admission AA does these first. Ticked for her automatically when the animal's next step is
 // "Awaiting foster"; she can tick or untick it herself, and her choice then stands.
-const awaitingFoster = a => allNextSteps(a).some(s=>/awaiting foster/i.test(s));
+const awaitingFoster = a => allNextSteps(a).some(s=>/awaiting foster/i.test(s)) || (a.checklist==='kitten' && kittenPathway(a).substatus===STRAY_SUBSTATUS && a.nextStep==='Awaiting sort');
 const aaPriorityOf = a => (a.aaPriorityChoice === true || a.aaPriorityChoice === false) ? a.aaPriorityChoice : awaitingFoster(a);
 function aaRegisterHint(a){
   if(!AAShare.isOn(AA_TOOL)) return '';
@@ -1080,6 +1180,8 @@ function stampNewAuthors(list){
 }
 function normalizeAnimal(a){
   stampAuthor(a);
+  if(a.checklist==null) a.checklist = '';
+  if(!a.kc) a.kc = {};
   if(!a.addedDay) a.addedDay = localStorage.getItem(LS_SHIFT_DATE) || todayStr();   // saved before this field: it came with the list
   if(a.weight == null) a.weight = '';
   if(!Array.isArray(a.waiversSelected)){
@@ -1813,6 +1915,15 @@ function statusBannerHtml(a){
   if(!a.status && !a.subStatus) return '';
   return `<div class="status-line" style="margin-top:8px;font-size:13px;display:flex;gap:16px;flex-wrap:wrap"><span><b>Status:</b> ${esc(a.status||'-')}</span><span><b>Substatus:</b> ${esc(a.subStatus||'-')}</span></div>`;
 }
+/* 2026-11-26: a dog is identified by its shelter tag (3 letters + 3 numbers, e.g. CZU627). A column with "tag" in its name is
+   read first; otherwise any cell in the row that is exactly a tag. No tag found = the Animal ID stays, and the form asks for the tag. */
+const DOG_TAG_RE = /^[A-Za-z]{3}\s?\d{3}$/;
+function dogTagIn(row, colMap){
+  const clean = v => String(v==null?'':v).trim();
+  const tagCols = Object.keys(colMap).filter(h=>/tag/.test(h) && !/desex|tattoo|stage|vintage/.test(h)).map(h=>colMap[h]);
+  const hit = tagCols.map(i=>clean(row[i])).find(v=>DOG_TAG_RE.test(v)) || row.map(clean).find(v=>DOG_TAG_RE.test(v));
+  return hit ? hit.replace(/\s/g,'').toUpperCase() : '';
+}
 function parseInCareInventory(aoa){
   const rows = [];
   const excludedFsa = [];
@@ -1848,7 +1959,9 @@ function parseInCareInventory(aoa){
 
     const ageYears = parseAgeToYears(row[colMap['age']]);
     const location = String(row[colMap['shelter loc. / kennel']] ?? '');
-    const animalId = String(row[colMap['animalid']] ?? '');
+    const shelterId = String(row[colMap['animalid']] ?? '');
+    const species = speciesFromLocation(location) || currentSpecies || '';
+    const animalId = species==='dog' ? (dogTagIn(row, colMap) || shelterId) : shelterId;
     const subStatusIdx = subStatusColIdx(colMap);
     if(subStatusIdx!==-1 && isFelineSpectrumAssessment(row[subStatusIdx])){
       excludedFsa.push(animalId);
@@ -1858,7 +1971,7 @@ function parseInCareInventory(aoa){
       animalId,
       location,
       dueDate: fmtExcelDate(row[colMap['due date out']]),
-      species: speciesFromLocation(location) || currentSpecies || '',
+      species,
       ageYears,
       sex: matchSexCode(row[colMap['sex']]),
       status: statusColIdx(colMap)!==-1 ? String(row[statusColIdx(colMap)] ?? '').trim() : '',
@@ -1978,6 +2091,18 @@ document.getElementById('add28DayBtn').addEventListener('click', ()=>{
   renderShiftList();
   openExam(a.id);
 });
+[['addKittenBtn','kitten'],['addQueenBtn','queen']].forEach(([id, list])=>document.getElementById(id).addEventListener('click', ()=>{
+  if(!checkStaleShiftBeforeAdd()) return;
+  const a = makeAnimal({animalId:'', location:'', dueDate:'', species:'cat', ageYears:'', sex: list==='queen' ? 'F' : ''});
+  a.checklist = list;
+  a.treatments = '';
+  a.location = 'Cat transport';   // where these almost always are; editable
+  if(list==='queen') a.nextStep = 'Awaiting sort';
+  state.animals.push(a);
+  saveShift();
+  renderShiftList();
+  openExam(a.id);
+}));
 document.getElementById('manualAddBtn').addEventListener('click', ()=>{
   if(!checkStaleShiftBeforeAdd()) return;
   const r = {animalId:'', location:'', dueDate:'', species: state.species, ageYears:'', sex:''};
@@ -2005,6 +2130,7 @@ function makeAnimal(r){
     notExaminedFields: {}, // key -> true if that check couldn't be safely performed
     notes: {},          // key -> free-text notes (used when NSF is off)
     behaviour: '', handling: '', fasScore: '',
+    checklist: '', kc: {},  // '' standard exam | 'kitten' | 'queen' intake check list, and its own fields
     dental: {grade:'0', desc:'', incisors:'', molars:''}, // incisors/molars (''|'N'|'ABN'|'NE') are used for exotics instead of grade
     heart: {murmur:false, grade:'', gallop:false, free:'', notExamined:false},
     microchip: '',
@@ -2477,7 +2603,7 @@ function bindChartDraft(a, body){
     // printed chart say exactly the same thing, recheck date included; any other medication line gets the chart's start day
     const intoNote = t => MedChart.annotateRecheck(MedChart.putLabelsInNote(t||'', chart), chart.createdAt, chart.startOption);
     if(a.template==='28day') a.treat28 = intoNote(a.treat28);
-    else if(a.notExamined) a.notExaminedPlan = intoNote(a.notExaminedPlan);
+    else if(a.notExamined && !usesIntakeForm(a)) a.notExaminedPlan = intoNote(a.notExaminedPlan);
     else a.medPlan = intoNote(a.medPlan);
     refreshNote(a); saveShift();
     delete chartDrafts[a.id];
@@ -2564,6 +2690,14 @@ function examFormHtml(a){
   </div>
   ${statusBannerHtml(a)}
   <div class="row-actions" style="margin-top:8px"><button type="button" class="btn small secondary" id="duplicateBtn">Duplicate for littermates…</button></div>`;
+  if(a.species==='cat'){
+    h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Check list</div>
+      <select class="plain" id="fld_checklist" style="width:100%">
+        ${[['','Standard cat exam'],['kitten','Kitten intake'],['queen','Queen and litter intake']].map(([v,l])=>`<option value="${v}" ${(a.checklist||'')===v?'selected':''}>${l}</option>`).join('')}
+      </select></div>`;
+    if(usesIntakeForm(a)) return h + checklistFormHtml(a);
+    if(needsFullPe(a)) h += kittenExtrasHtml(a);
+  }
   h += `<div class="pe-field" style="margin-top:10px"><div class="lbl">Current medication</div>
     <div class="opts">
       <button type="button" class="opt-btn ${a.currentMed==='NA'?'selected':''}" data-curmed="NA">N/A</button>
@@ -2780,7 +2914,7 @@ function examFormHtml(a){
     <p style="font-size:11px;color:var(--ink-soft);margin-bottom:6px">An animal can carry more than one status at once — add another if it does.</p>
     <select class="plain" id="fld_nextstep" style="width:100%">
       <option value="">-</option>
-      ${NEXT_STEP_OPTIONS.map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}
+      ${(needsFullPe(a) ? checklistSteps() : NEXT_STEP_OPTIONS).map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}
     </select>`;
   (a.nextStepsExtra||[]).forEach((val,i)=>{
     const isCustom = isCustomNextStep(val);
@@ -2901,7 +3035,225 @@ function examFormHtml(a){
   return h;
 }
 
+/* 2026-11-25: Kitten Intake and Queen and Litter check lists (her wording). A cat's exam can be swapped for either one. Fields that
+   already exist on the animal (chip, tattoo, BCS, Wood's lamp, FAS, treatments, plan) are reused so exports and the medication
+   chart keep working; the rest live in a.kc. */
+function kittenExtrasHtml(a){
+  syncKittenStep(a);
+  const k = a.kc, p = kittenPathway(a), g = gramsIn(a.weight)[0];
+  const label = t => `<label style="font-size:12px;display:block;margin-top:8px">${t}</label>`;
+  const pick = (key, title, options) => label(title) + `<div class="opts">${options.map(o=>{ const [v,l] = Array.isArray(o) ? o : [o,o]; return `<button type="button" class="opt-btn ${k[key]===v?'selected':''}" data-set="kc.${key}" data-val="${esc(v)}">${esc(l)}</button>`; }).join('')}</div>`;
+  const text = (key, title, hint) => label(title) + `<input class="plain" data-kc="${key}" style="width:100%" value="${esc(k[key]||'')}" placeholder="${esc(hint)}">`;
+  return `<div class="pe-field"><div class="lbl">Kitten pathway (750 g or over: normal physical exam below)</div>` +
+    pick('reason', 'Intake reason', ['Surrender','Stray (with ID)','Stray (no ID)']) + text('age', 'Age (weeks)', 'e.g. 10') + AGEING_GUIDE_HTML +
+    (ageGroup(a)==='8to16' ? pick('litter', 'Litter', [['single','Single'],['pair','Pair or more']]) : '') +
+    pick('health', 'Health', [['healthy','Healthy'],['one','One condition, otherwise well'],['not','Not suitable']]) +
+    text('colour', 'Colour', 'e.g. black and white') + pick('rtp', 'RTP (0-5)', ['0','1','2','3','4','5']) +
+    (g >= 600 && !a.microchip ? '<div class="warn" style="margin-top:8px">600 g or over: microchip now and enter the number.</div>' : '') +
+    (p.need.length ? `<p style="font-size:12px;margin-top:8px">To fill in the next step, add: <b>${esc(p.need.join(', '))}</b>.</p>`
+      : `<p style="font-size:12px;margin-top:8px">From the intake flow, next step: <b>${esc(p.step)}</b>${p.substatus ? ', substatus <b>'+esc(p.substatus)+'</b>' : ''}${p.note ? '. '+esc(p.note) : ''}</p>` +
+        (k.stepByHand && a.nextStep!==p.step ? '<button type="button" class="btn small secondary" id="useFlowStepBtn">Use the intake flow step</button>' : '')) +
+    label('Substatus') + `<div class="opts"><button type="button" class="opt-btn ${behaviourReviewOn(a)?'selected':''}" id="behReviewBtn">Behaviour review required</button></div>` +
+    label('Ongoing plan (already typed in; change it as you need)') + `<textarea class="free-input" id="fld_ongoing" style="min-height:90px">${esc(ongoingText(a))}</textarea>` +
+    (k.ongoing != null ? '<button type="button" class="btn small secondary" id="ongoingResetBtn">Put the standard wording back</button>' : '') + `</div>`;
+}
+/* the normal PE note, with the kitten pathway lines slotted in */
+function addKittenLines(a, L){
+  syncKittenStep(a);
+  const k = a.kc, p = kittenPathway(a), followed = p.step && a.nextStep===p.step;
+  const after = (prefix, lines) => { const i = L.findIndex(l=>l.startsWith(prefix)); if(i < 0) L.push(...lines); else L.splice(i+1, 0, ...lines); };
+  after('Microchip:', [`Colour: ${k.colour||'-'}`, `Intake reason: ${k.reason||'-'}`, `RTP score: ${k.rtp||'-'}`]);
+  after('Plan:', (followed && p.note ? [p.note] : []).concat(ongoingText(a).split('\n').map(x=>x.trim()).filter(Boolean)));
+  after('Next step in pathway:', (followed && p.substatus ? [`Substatus: ${p.substatus}`] : []).concat(behaviourReviewOn(a) ? ['Substatus: Behaviour review required'] : []));
+  return L.join('\n');
+}
+function checklistFormHtml(a){
+  syncKittenStep(a);
+  const k = a.kc, queen = a.checklist==='queen';
+  const box = (title, inner) => `<div class="pe-field"><div class="lbl">${title}</div>${inner}</div>`;
+  const label = t => `<label style="font-size:12px;display:block;margin-top:8px">${t}</label>`;
+  const get = path => path.startsWith('kc.') ? (k[path.slice(3)]||'') : (a[path]||'');
+  // one tap to choose, tap again to clear
+  const pick = (path, title, options) => label(title) + `<div class="opts">${options.map(o=>{ const [v,l] = Array.isArray(o) ? o : [o,o]; return `<button type="button" class="opt-btn ${get(path)===v?'selected':''}" data-set="${path}" data-val="${esc(v)}">${esc(l)}</button>`; }).join('')}</div>`;
+  const text = (key, title, hint, quick) => label(title) + (quick ? `<div class="opts" style="margin-bottom:6px">${quick.map(q=>`<button type="button" class="opt-btn ${k[key]===q?'selected':''}" data-set="kc.${key}" data-val="${esc(q)}">${esc(q)}</button>`).join('')}</div>` : '') +
+    `<input class="plain" data-kc="${key}" style="width:100%" value="${esc(k[key]||'')}" placeholder="${esc(hint||'')}">`;
+  const yn = ['Y','N'], lamp = ['NEGATIVE','POSITIVE'];
+  const warn = t => `<div class="warn" style="margin-top:8px">${t}</div>`;
+  const chip = label('M/C') + `<input class="plain" id="fld_microchip" value="${esc(a.microchip==='N/A'?'':(a.microchip||''))}" placeholder="chip number" style="width:100%">
+    <div class="opts" style="margin-top:6px"><button type="button" class="opt-btn ${a.microchip==='N/A'?'selected':''}" id="chipNaBtn">N/A</button></div>`;
+  const tattoo = pick('tt', 'Tattoo', [['YES','Y'],['NO','N']]);
+  const fas = title => pick('fasScore', title, FAS_OPTIONS.map(o=>[o.v,o.v])) +
+    `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--teal-dark);font-weight:600">FAS scoring reference</summary><img src="${FAS_CHART_DATAURI}" style="max-width:100%;border-radius:8px;border:1px solid var(--line);margin-top:6px"></details>`;
+  const ongoing = () => label('Ongoing plan (already typed in; change it as you need)') +
+    `<textarea class="free-input" id="fld_ongoing" style="min-height:120px">${esc(ongoingText(a))}</textarea>` +
+    (k.ongoing != null ? '<button type="button" class="btn small secondary" id="ongoingResetBtn">Put the standard wording back</button>' : '');
+  const nextStep = () => (a.nextStep ? '' : warn('Choose the next step in pathway (this is the status change).')) + label('Next step in pathway') +
+    `<select class="plain" id="fld_nextstep" style="width:100%"><option value="">-</option>${checklistSteps().map(o=>`<option value="${esc(o)}" ${a.nextStep===o?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+  const suggestion = () => {
+    if(a.checklist!=='kitten') return '';
+    const p = kittenPathway(a);
+    if(p.need.length) return `<p style="font-size:12px;margin-top:6px">To fill in the next step, add: <b>${esc(p.need.join(', '))}</b>.</p>`;
+    return `<p style="font-size:12px;margin-top:6px">From the intake flow: <b>${esc(p.step)}</b>${p.substatus ? ', substatus <b>'+esc(p.substatus)+'</b>' : ''}${p.note ? '. '+esc(p.note) : ''}</p>` +
+      (k.stepByHand && a.nextStep!==p.step ? '<button type="button" class="btn small secondary" id="useFlowStepBtn">Use the intake flow step</button>' : '');
+  };
+  const substatus = () => label('Substatus') + `<div class="opts"><button type="button" class="opt-btn ${behaviourReviewOn(a)?'selected':''}" id="behReviewBtn">Behaviour review required</button></div>` +
+    (Number(a.fasScore) >= 4 ? '<p style="font-size:11.5px;margin-top:4px">Ticked because FAS is 4 or 5.</p>' : '');
+  const medPlan = title => label(title) + `<textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px">${esc(a.medPlan||'')}</textarea>
+    <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>` +
+    (chartDrafts[a.id] ? chartDraftHtml(a, chartDrafts[a.id], chartDraftPlans[a.id]) : '');
+  const kg = parseFloat(a.weight);
+  const given = `<div class="opts" style="margin-top:6px">
+      <button type="button" class="opt-btn ${treatmentHasItem(a,'Wormer')?'selected':''}" data-treatmentitem="Wormer">+ Worm</button>
+      <button type="button" class="opt-btn ${treatmentHasItem(a,'Flea treatment')?'selected':''}" data-treatmentitem="Flea treatment">+ Flea</button>
+      <button type="button" class="opt-btn ${a.vaccineGiven?'selected':''}" data-vaccinetoggle="1">+ Vaccine</button></div>`;
+  let h = '';
+  if(!queen){
+    const g = chipWeights(a);
+    h += box('Intake', pick('kc.reason', 'Intake reason', ['Surrender','Stray (with ID)','Stray (no ID)']) + pick('kc.ip', 'IP', yn) +
+      text('colour', 'Colour', 'e.g. black and white') + chip + (!g.length ? `<p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Enter the weight at the top for the microchip reminder.</p>`
+        : g[0] >= 600 && !a.microchip ? warn('600 g or over: microchip now and enter the number.')
+        : g[0] < 600 ? `<p style="font-size:12px;margin-top:4px">Under 600 g: "Microchip at 600 g" is added to the plan.</p>` : '') + tattoo +
+      `<p style="font-size:11px;color:var(--ink-soft);margin-top:6px">Sex, age and weight go in the note as "Updated on file".</p>`);
+    const grams = gramsIn(a.weight)[0];
+    h += box('For the pathway', text('age', 'Age (weeks)', 'e.g. 10') + AGEING_GUIDE_HTML +
+      (ageGroup(a)==='8to16' ? pick('kc.litter', 'Litter', [['single','Single'],['pair','Pair or more']]) : '') +
+      pick('kc.health', 'Health', [['healthy','Healthy'],['one','One condition, otherwise well'],['not','Not suitable']]) +
+      '<p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Not suitable: two or more infectious conditions, poor body condition or ill-thrift.</p>' +
+      (grams > 200 && grams < 400 ? pick('kc.neoCarer', 'Neonatal carer available?', [['Y','Yes'],['N','No']]) : ''));
+    h += box('Physical', text('physical', 'Eyes, Ears, Nose, Mouth, Coat', 'or describe', ['NSF']) + text('heart', 'Heart', 'or describe', ['Normal heart sounds','Murmur']) +
+      pick('bcs', 'BCS (/5)', ['1','2','3','4','5']) + text('other', 'Other') + pick('uvLamp', 'Woodslamp', lamp));
+    h += box('Behaviour', fas('FAS (0-5)') + pick('kc.rtp', 'RTP (0-5)', ['0','1','2','3','4','5']) +
+      (k.rtp ? `<p style="font-size:12px;margin-top:4px">${esc(RTP_SCORES[+k.rtp]||'')}</p>` : '') +
+      `<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--teal-dark);font-weight:600">How to score RTP</summary>
+        <p style="font-size:12px;margin:6px 0">Spend a few minutes letting the cat get used to you, with something positive (soft voice, treats or a toy). Then try to rub the cat on the cheeks with the cat scratcher or your hand. (Adapted from Ellis 2022.)</p>
+        ${RTP_SCORES.map((d,i)=>`<div style="font-size:12px"><b>${i}</b> ${esc(d)}</div>`).join('')}</details>`);
+    h += box('Vet treatments given', (kg > 0 && kg < 0.4 ? warn('Under 400 g: no vaccine, wormer or flea treatment today.') : '') + given +
+      `<input class="plain" id="fld_treatments" style="width:100%;margin-top:6px" value="${esc(a.treatments||'')}">`);
+    h += box('Plan', pick('kc.plan', 'Plan', ['OK for juvenile foster','Medical euthanasia','Behaviour review']) +
+      nextStep() + suggestion() + substatus() + ongoing() + medPlan('Medication plan (if required)'));
+  } else {
+    h += box('Queen', text('reason', 'Intake reason / history', '', ['Surrender','Stray (with ID)','Stray (no ID)']) + pick('kc.ip', 'IP', yn) + chip + tattoo + pick('sex', 'Sex', ['F','M','U']) +
+      text('physical', 'Physical check: eyes, ears, nose, mouth, BCS, coat', 'or describe', ['NSF']) + pick('uvLamp', 'Woodslamp', lamp) +
+      `<p style="font-size:11px;color:var(--ink-soft);margin-top:6px">Weight (if possible) is the Weight box at the top.</p>` +
+      label('Behaviour') + `<textarea class="free-input" id="fld_behaviour">${esc(a.behaviour||'')}</textarea>` + fas('FAS') +
+      label('Vet treatments') + pick('kc.flea', 'Flea', yn) + pick('kc.worm', 'Worm', yn) + pick('kc.vacc', 'Vacc', yn));
+    const neoText = (n, i, key, title, hint) => label(title) + `<input class="plain" data-neo="${i}:${key}" style="width:100%" value="${esc(n[key]||'')}" placeholder="${esc(hint)}">`;
+    const old = litterWeeks(a) !== null && !litterTooYoung(a);
+    const txItem = item => `<button type="button" class="opt-btn ${String(k.litterTx||'').split(',').map(x=>x.trim()).includes(item)?'selected':''}" data-littertx="${item}">+ ${item}</button>`;
+    h += box('Neos / kittens', label('Number of neos') + `<div class="opts">${[1,2,3,4,5,6,7,8].map(x=>`<button type="button" class="opt-btn ${neosOf(a).length===x?'selected':''}" data-neocount="${x}">${x}</button>`).join('')}</div>` +
+      text('litterAge', 'Age in weeks (the same for the whole litter)', 'e.g. 3') + AGEING_GUIDE_HTML + pick('kc.litterWood', "Wood's lamp", lamp) +
+      label('Vet treatments (if appropriate)') + (litterTooYoung(a)
+        ? '<p style="font-size:12.5px">Under 4 weeks old: <b>No treatment given</b>.</p>'
+        : (old && !String(k.litterTx||'').trim() ? warn('4 weeks or older: give vaccine, worming and flea treatment.') : '') +
+          `<div class="opts" style="margin-bottom:6px">${['Vaccine','Worming','Flea treatment'].map(txItem).join('')}</div><input class="plain" data-kc="litterTx" style="width:100%" value="${esc(k.litterTx||'')}">`) +
+      neosOf(a).map((n,i)=>`<div style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px"><b>Neo ${i+1}</b>
+        <div class="two-col"><div>${neoText(n, i, 'id', 'Shelter number', 'e.g. 1176455')}</div><div>${neoText(n, i, 'colour', 'Colour', 'e.g. black')}</div></div>
+        <div class="two-col"><div>${neoText(n, i, 'weight', 'Weight', 'e.g. 250 g')}</div><div>${label('Health')}<div class="opts">${['Healthy','Unhealthy'].map(v=>`<button type="button" class="opt-btn ${n.health===v?'selected':''}" data-neoset="${i}:health" data-val="${v}">${v}</button>`).join('')}</div></div></div>
+        ${n.health==='Unhealthy' ? neoText(n, i, 'note', 'What is wrong', 'free text') + label('Pathway') + `<div class="opts"><button type="button" class="opt-btn abn ${n.euth?'selected':''}" data-neoeuth="${i}">Humane euthanasia</button></div>` : ''}
+      </div>`).join(''));
+    h += box('Plan', nextStep() + substatus() + ongoing() + medPlan('Medication plan (if required)'));
+  }
+  h += `<div class="row-actions"><button class="btn small rust" id="markDoneBtn">${a.registered?'Registered ✓ — click to undo':'Register to Word & Excel'}</button> <span class="bh-wrap">${BehaviourSend.buttonHtml(a, aaSigText(a))}</span></div>${aaRegisterHint(a)}`;
+  return h;
+}
+function assembleChecklist(a, L){
+  syncKittenStep(a);
+  const k = a.kc, v = x => String(x==null?'':x).trim() || '-';
+  const tattoo = a.tt==='YES' ? 'Y' : (a.tt==='NO' ? 'N' : '-');
+  const steps = allNextSteps(a);
+  const ongoingLines = ongoingText(a).split('\n').map(x=>x.trim()).filter(Boolean);
+  L.push('');
+  if(a.checklist==='kitten'){
+    L.push('KITTEN INTAKE CHECK LIST', '', `INTAKE REASON: ${v(k.reason)}`, '', `IP: ${v(k.ip)}`, `M/C: ${v(a.microchip)}`, `Tattoo: ${tattoo}`, `Colour: ${v(k.colour)}`,
+      'Sex: Updated on file', 'Age: Updated on file', 'Weight: Updated on file', '',
+      'PHYSICAL', `Eyes, Ears, Nose, Mouth, Coat: ${v(k.physical)}`, `Heart: ${v(k.heart)}`, `BCS: ${v(a.bcs)}`, `Other: ${v(k.other)}`, `Woodslamp: ${v(a.uvLamp)}`, '',
+      'BEHAVIOUR:', `FAS (0-5): ${v(a.fasScore)}`, `RTP (0-5): ${v(k.rtp)}`, '',
+      `VET TREATMENTS GIVEN: ${v(a.treatments)}`, '', `Medication plan (if required): ${v(a.medPlan)}`, '', `PLAN: ${v(k.plan)}`);
+    const flow = kittenPathway(a), followed = flow.step && a.nextStep===flow.step;
+    if(followed && flow.note) L.push(flow.note);
+    L.push(...ongoingLines);
+    L.push(`Next step in pathway: ${v(steps.join('; '))}`);
+    if(followed && flow.substatus) L.push(`Substatus: ${flow.substatus}`);
+    if(behaviourReviewOn(a)) L.push('Substatus: Behaviour review required');
+    L.push(`Initial: ${v(vetOf(a))}`);
+  } else {
+    L.push('QUEEN AND LITTER INTAKE CHECK LIST', 'QUEEN:', `Intake Reason/hx: ${v(k.reason)}`, `IP: ${v(k.ip)}`, `M/C: ${v(a.microchip)}`, `Tattoo: ${tattoo}`, `Sex: ${v(a.sex)}`,
+      'Physical Check:', `Eyes, ears, nose, mouth, BCS, coat: ${v(k.physical)}`, `Woodslamp: ${v(a.uvLamp)}`, `Weight (if possible): ${v(a.weight)}`,
+      `Behaviour: ${v(a.behaviour)}`, `FAS: ${v(a.fasScore)}`, 'Vet Treatments:', `Flea: ${v(k.flea)}`, `Worm: ${v(k.worm)}`, `Vacc: ${v(k.vacc)}`, '',
+      'NEOS/KITTENS:', `Number: ${neosOf(a).length || '-'}`, `Age: ${v(litterAgeText(a))}`, `Woods Lamp: ${v(k.litterWood)}`, `Vet Treatments (if appropriate): ${v(litterTreatments(a))}`);
+    neosOf(a).forEach((n,i)=>{
+      const unwell = n.health==='Unhealthy' && String(n.note||'').trim() ? ` (${n.note.trim()})` : '';
+      L.push(`${i+1}. ${v(n.id)}, ${v(n.colour)}: ${v(n.health)}${unwell}. Weight: ${v(n.weight)}${neoForEuth(n) ? '. Pathway: humane euthanasia' : ''}`);
+    });
+    L.push('', 'PLAN:');
+    L.push(...ongoingLines);
+    if(String(a.medPlan||'').trim()) L.push(a.medPlan.trim());
+    L.push(`Next step in pathway: ${v(steps.join('; '))}`);
+    if(behaviourReviewOn(a)) L.push('Substatus: Behaviour review required');
+    L.push(`Initials: ${v(vetOf(a))}`);
+  }
+  return L.join('\n');
+}
 function bindExamForm(a){
+  const listEl = document.getElementById('fld_checklist');
+  if(listEl) listEl.addEventListener('change', ()=>{
+    a.checklist = listEl.value; a.noteEdited = null;
+    // swapping an untouched animal to a check list drops the standard pre-filled treatments (and puts them back if swapped back)
+    const untouched = makeAnimal({species:a.species}).treatments;
+    if(a.checklist==='queen' && !a.nextStep) a.nextStep = 'Awaiting sort';
+    if(a.checklist && a.treatments===untouched) a.treatments = ''; else if(!a.checklist && !a.treatments) a.treatments = untouched; delete a.noteEditDraft; refreshNote(a); saveShift(); openExam(a.id);
+  });
+  const redraw = ()=>{ refreshNote(a); saveShift(); const m = document.getElementById('examModal'), st = m ? m.scrollTop : 0, y = window.scrollY; openExam(a.id); if(m) m.scrollTop = st; window.scrollTo(0, y); };
+  document.querySelectorAll('#examBody [data-set]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const path = btn.dataset.set, kc = path.startsWith('kc.'), obj = kc ? a.kc : a, key = kc ? path.slice(3) : path;
+    obj[key] = obj[key]===btn.dataset.val ? '' : btn.dataset.val;
+    if(path==='fasScore') delete a.kc.behReview;   // a new score decides the tick again
+    if(path==='tt' && a.tt) a.desex = a.tt==='YES' ? 'DESEXED' : 'ENTIRE';
+    redraw();
+  }));
+  document.querySelectorAll('#examBody [data-neocount]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const n = Number(btn.dataset.neocount), neos = neosOf(a);
+    const losing = neos.slice(n).filter(x=>x.id||x.colour||x.weight||x.health||x.note).length;
+    if(losing && !confirm('Reducing to '+n+' removes what was entered for '+losing+' neo(s). Continue?')) return;
+    a.kc.neos = Array.from({length:n}, (_,i)=>neos[i]||{});
+    redraw();
+  }));
+  const behBtn = document.getElementById('behReviewBtn');
+  if(behBtn) behBtn.addEventListener('click', ()=>{ a.kc.behReview = !behaviourReviewOn(a); redraw(); });
+  document.querySelectorAll('#examBody [data-neoeuth]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const n = a.kc.neos[Number(btn.dataset.neoeuth)]; n.euth = !n.euth; redraw();
+  }));
+  document.querySelectorAll('#examBody [data-littertx]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const items = String(a.kc.litterTx||'').split(',').map(x=>x.trim()).filter(Boolean), item = btn.dataset.littertx, at = items.indexOf(item);
+    if(at >= 0) items.splice(at, 1); else items.push(item);
+    a.kc.litterTx = items.join(', '); redraw();
+  }));
+  document.querySelectorAll('#examBody [data-kc="age"]').forEach(el=>el.addEventListener('change', ()=>{ a.kc.age = el.value.trim(); redraw(); }));
+  document.querySelectorAll('#examBody [data-kc="litterAge"]').forEach(el=>el.addEventListener('change', ()=>{ a.kc.litterAge = el.value.trim(); redraw(); }));
+  document.querySelectorAll('#examBody [data-neoset]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const [i, key] = btn.dataset.neoset.split(':'), n = a.kc.neos[Number(i)];
+    n[key] = n[key]===btn.dataset.val ? '' : btn.dataset.val; if(n.health!=='Unhealthy') n.euth = false; redraw();
+  }));
+  document.querySelectorAll('#examBody [data-neo]').forEach(el=>{
+    const [i, key] = el.dataset.neo.split(':');
+    el.addEventListener('input', ()=>{ a.kc.neos[Number(i)][key] = el.value; refreshNote(a); saveShiftSoon(); });
+    el.addEventListener('change', ()=>{ a.kc.neos[Number(i)][key] = el.value.trim(); refreshNote(a); saveShift(); const box = document.getElementById('fld_ongoing'); if(box) box.value = ongoingText(a); });
+  });
+  const ongoingEl = document.getElementById('fld_ongoing');
+  if(ongoingEl){
+    ongoingEl.addEventListener('input', ()=>{ a.kc.ongoing = ongoingEl.value; refreshNote(a); saveShiftSoon(); });
+    ongoingEl.addEventListener('change', ()=>{ a.kc.ongoing = ongoingEl.value; redraw(); });
+  }
+  const ongoingReset = document.getElementById('ongoingResetBtn');
+  if(ongoingReset) ongoingReset.addEventListener('click', ()=>{ delete a.kc.ongoing; redraw(); });
+  const checkStep = a.checklist ? document.getElementById('fld_nextstep') : null;
+  if(checkStep) checkStep.addEventListener('change', ()=>{ a.nextStep = checkStep.value; if(a.checklist==='kitten') a.kc.stepByHand = !!checkStep.value; redraw(); });
+  const useFlow = document.getElementById('useFlowStepBtn');
+  if(useFlow) useFlow.addEventListener('click', ()=>{ delete a.kc.stepByHand; syncKittenStep(a); redraw(); });
+  document.querySelectorAll('#examBody [data-kc]').forEach(el=>{
+    el.addEventListener('input', ()=>{ a.kc[el.dataset.kc] = el.value; refreshNote(a); saveShiftSoon(); });
+    el.addEventListener('change', ()=>{ a.kc[el.dataset.kc] = el.value; refreshNote(a); saveShift(); });
+  });
   if(a.template==='28day'){ bindExamForm28(a); return; }
   const body = document.getElementById('examBody');
   const map = {
@@ -3379,7 +3731,7 @@ function bindExamForm(a){
   }
   const regChartBtn = body.querySelector('[data-regchart]');
   if(regChartBtn) regChartBtn.addEventListener('click', ()=>{
-    const planSource = a.notExamined ? (a.notExaminedPlan||'') : (a.medPlan||'');
+    const planSource = (a.notExamined && !usesIntakeForm(a)) ? (a.notExaminedPlan||'') : (a.medPlan||'');
     const parsed = MedChart.parseMedPlan(planSource);
     if(!parsed.length){ alert('Type a medication instruction in the Plan box above first.'); return; }
     chartDrafts[a.id] = parsed;
@@ -3392,6 +3744,7 @@ function bindExamForm(a){
 
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', async ()=>{
+    if(!a.registered && a.species==='cat' && a.checklist && !a.nextStep && !confirm('No next step in pathway chosen (the status change). Register anyway?')) return;
     if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;
     if(!a.registered) aaWarnRetract(a);
@@ -3527,6 +3880,7 @@ function assembleNote(a){
   L.push(`${speciesLabel(a).toUpperCase()} PHYSICAL EXAM`);
   L.push(`Animal ID: ${a.animalId||'-'}    Location: ${a.location||'-'}    Weight: ${a.weight||'-'}`);
   L.push(`Date: ${todayStr()}    Vet: ${vetOf(a)||'-'}    Nurse: ${nurseOf(a)||'-'}`);
+  if(usesIntakeForm(a)){ L.shift(); return assembleChecklist(a, L); }
   if(a.notExamined){
     L.push('');
     L.push('NOT ABLE TO BE EXAMINED THIS SHIFT');
@@ -3613,7 +3967,7 @@ function assembleNote(a){
   if(a.species==='dog') L.push(`Chill Required: ${a.chillRequired||'-'}`);
   L.push(`Blood work required: ${a.bloodwork||'-'}${a.bloodworkAuto?' (auto-flagged: age \u226510)':''}${a.bloodwork==='YES' ? '   Type: '+(a.bloodworkType||'-') : ''}`);
   L.push(`Due date: ${a.dueDate||'-'}`);
-  return L.join('\n');
+  return needsFullPe(a) ? addKittenLines(a, L) : L.join('\n');
 }
 
 /* Once she's clicked Edit/Save on the note, assembleNote() is never
