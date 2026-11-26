@@ -596,7 +596,7 @@ body.ldh-locked > *:not(#ldh-gate){display:none}
       <div class="abc">
         <div class="abc-item"><b>A — Airway:</b> turn vaporiser OFF · secure airway / intubate · check ET tube placement &amp; patency</div>
         <div class="abc-item"><b>B — Breathing:</b> 100% O2 · begin manual IPPV 10-15 mL/kg, 8-12 breaths/min (10/min during CPR)</div>
-        <div class="abc-item"><b>C — Circulation:</b> place IV catheter (IVC) to secure circulation · start fluids · begin CPR if pulseless</div>
+        <div class="abc-item"><b>C — Circulation:</b> place IV catheter (IVC) · begin CPR if pulseless · during CPR give fluid bolus only if hypovolaemic</div>
         <div class="abc-item" style="border-color:var(--amber)"><b>Call for help — assign roles</b></div>
       </div>
       <div class="emg-scn-grid" id="emg-scn-grid"></div>
@@ -2162,24 +2162,24 @@ const EMG_SCN=[
   {id:'arrest',btn:'🔴 Cardiac arrest',title:'🔴 Cardiac Arrest → CPR (RECOVER 2024)',sections:[
     {heading:'STEP 1 · Start NOW — all at once (BLS)',note:'Confirm arrest in <10 s, then start. Turn the vaporiser OFF.',actions:[
       'Chest compressions 100–120/min, ⅓–½ chest width — do NOT delay · rotate compressor every 2 min',
-      'Secure airway: intubate · ventilate 10 breaths/min with 100% O2',
+      'Secure airway: intubate · ventilate 10 breaths/min, 10 mL/kg, 1 s each, with 100% O2',
       'Place IV / IO access',
-      'Attach ECG + capnography (EtCO2) · assign team leader & roles'
+      'Attach ECG + capnography (aim EtCO2 ≥ 18 mmHg) · assign team leader & roles'
     ]},
-    {heading:'STEP 2 · First drug — give as soon as access is in (ALS)',note:'Adrenaline first, low-dose, as early as possible — then repeat every other 2-min cycle (every 3–5 min). Check rhythm only at the cycle change to minimise pauses.',drugs:[
-      {k:'arr_adr',conc:1,n:'① Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'FIRST drug · every 3–5 min (every other cycle) · ET route 0.1 mg/kg · escalate to high-dose 0.1 mg/kg only after prolonged CPR'},
-      {k:'arr_vaso',n:'Vasopressin (optional)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'}
+    {heading:'STEP 2 · ASYSTOLE / PEA (non-shockable)',note:'Adrenaline every 3–5 min (every other cycle). High-dose adrenaline is NOT recommended.',drugs:[
+      {k:'arr_adr',conc:1,n:'Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
+      {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, as early as possible, if high vagal tone may be contributing — do not repeat'}
     ]},
-    {heading:'STEP 3 · Match the rhythm',note:'ASYSTOLE / PEA (non-shockable) → atropine + continue adrenaline.\nVF / pulseless VT (shockable) → DEFIBRILLATE first, then resume CPR.',actions:[
-      'VF / pulseless VT → defibrillate biphasic 2–4 J/kg (monophasic 4–6), start low → immediately resume compressions for 2 min before re-checking'
+    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.\nCats: amiodarone for shock-refractory rhythms — RECOVER advises AGAINST lidocaine in cats.',actions:[
+      'Defibrillated (cat VF / pulseless VT)'
     ],drugs:[
-      {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.05,route:'IV/IO',note:'asystole / PEA / vagally-mediated arrest · once per 3–5 min cycle'},
-      {k:'arr_amio',n:'Amiodarone',unit:'mg',low:5,route:'IV/IO',note:'refractory VF / pulseless VT after repeated shocks. Canine lidocaine 2 mg/kg is NOT recommended in cats'}
+      {k:'arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'},
+      {k:'arr_amio',n:'Amiodarone (cat)',unit:'mg',low:5,route:'IV/IO over 2–4 min',note:'still VF / pulseless VT after the 1st shock + 2 min of compressions · type the strength of the stock in hand'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
-      {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
-      {k:'arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
-    ],extra:'Flumazenil (0.1mg/mL) if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
+      {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV/IO',note:'if opioid (methadone) on board'},
+      {k:'arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IV/IO',note:'reverse medetomidine (100 µg/kg)'}
+    ],extra:'Flumazenil 0.01 mg/kg IV/IO (0.1mg/mL = 0.1 mL/kg) if benzodiazepine given. Fluid bolus ONLY if hypovolaemic (cat 10–15 mL/kg) — none if euvolaemic. No IV/IO access: adrenaline or atropine may go down the ET tube (dilute with saline, catheter longer than the tube). Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
   ]},
   {id:'apnoea',btn:'🟠 Apnoea',title:'🟠 Apnoea / Hypoventilation',sections:[
     {note:'Defined as ETCO2 > 55 mmHg, RR < 8, or apnoea > 30 seconds.',actions:[
@@ -2244,25 +2244,24 @@ const EMG_SCN_DOG=[
   {id:'arrest',btn:'🔴 Cardiac arrest',title:'🔴 Dog Cardiac Arrest → CPR (RECOVER 2024)',sections:[
     {heading:'STEP 1 · Start NOW — all at once (BLS)',note:'Confirm arrest in <10 s, then start. Turn the vaporiser OFF.',actions:[
       'Chest compressions 100–120/min in 2 min cycles, pause < 10 s · lateral: ⅓–½ chest width · wide-chested dog on its back: ¼ chest depth (once intubated)',
-      'Secure airway: intubate · ventilate 10 breaths/min (1 s each) with 100% O2',
+      'Secure airway: intubate · ventilate 10 breaths/min, 10 mL/kg, 1 s each, with 100% O2',
       'Place IV / IO access',
       'Attach ECG + capnography (aim EtCO2 ≥ 18 mmHg during compressions) · assign team leader & roles'
     ]},
     {heading:'STEP 2 · ASYSTOLE / PEA (non-shockable)',note:'Adrenaline every 3–5 min (every other cycle). High-dose adrenaline is NOT recommended.',drugs:[
       {k:'d_arr_adr',conc:1,n:'Adrenaline (Epinephrine)',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
-      {k:'d_arr_vaso',n:'Vasopressin (alternative)',unit:'U',low:0.8,route:'IV/IO',note:'may replace or alternate with adrenaline'},
-      {k:'d_arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, early, if high vagal tone suspected — do not repeat'}
+      {k:'d_arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, as early as possible, if high vagal tone may be contributing — do not repeat'}
     ]},
-    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'Biphasic: 2 J/kg, then 4 J/kg for the second and later shocks. Monophasic: 4 J/kg. Resume compressions for 2 min straight after each shock.',actions:[
+    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.',actions:[
       'Defibrillated (dog VF / pulseless VT)'
     ],drugs:[
-      {k:'d_arr_vaso2',n:'Vasopressin',unit:'U',low:0.8,route:'IV/IO',note:'shock-refractory · use adrenaline 0.01 mg/kg only if no vasopressin'},
-      {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO',note:'refractory VF / pulseless VT after the first shock'}
+      {k:'d_arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'},
+      {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO over 2–4 min',note:'still VF / pulseless VT after the 1st shock + 2 min of compressions'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
-      {k:'d_arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV',note:'if opioid (methadone) on board'},
-      {k:'d_arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IM/IV',note:'reverse medetomidine (100 µg/kg)'}
-    ],extra:'Flumazenil (0.1mg/mL) if benzodiazepine-induced. Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
+      {k:'d_arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV/IO',note:'if opioid (methadone) on board'},
+      {k:'d_arr_ati',conc:5,n:'Atipamezole',unit:'mg',low:0.1,route:'IV/IO',note:'reverse medetomidine (100 µg/kg)'}
+    ],extra:'Flumazenil 0.01 mg/kg IV/IO (0.1mg/mL = 0.1 mL/kg) if benzodiazepine given. Fluid bolus ONLY if hypovolaemic (dog 20 mL/kg) — none if euvolaemic. No IV/IO access: adrenaline or atropine may go down the ET tube (dilute with saline, catheter longer than the tube). Address reversible causes: hypoxia, hypovolaemia, K+/metabolic, hypothermia, tamponade, tension pneumothorax, toxins, thromboembolism.'}
   ]},
   {id:'apnoea',btn:'🟠 Apnoea',title:'🟠 Apnoea / Hypoventilation',sections:[
     {note:'Defined as ETCO2 > 55 mmHg, RR < 8, or apnoea > 30 seconds.',actions:[
