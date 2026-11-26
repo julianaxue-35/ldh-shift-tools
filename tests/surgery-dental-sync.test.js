@@ -93,6 +93,14 @@ const jsonbOrder = v => Array.isArray(v) ? v.map(jsonbOrder) : v && typeof v ===
     const title = await frame(A).locator('#tpTitle').textContent({ timeout: 3000 }).catch(() => '');
     t.ok(/Tooth 104/.test(title), 'and the tooth she was on is open again: ' + title);
     for (let i = 0; i < 4; i++) { await sync(A); await sync(B); }
+    // 4. two vets set on one station reach the other, and the stations then settle (no endless re-send)
+    await A.page.evaluate(() => { document.getElementById('closeExamBtn').click(); state.animals.push(normalizeAnimal({ id: 'fict2', animalId: 'FICT-2', species: 'cat', surgType: 'spey', addedDay: shareDate() })); saveShift(); });
+    await A.page.fill('#vetInit', 'AA'); await A.page.locator('#vetInit').blur();
+    await A.page.fill('#vetInit2', 'bb'); await A.page.locator('#vetInit2').blur();
+    await sync(A); await sync(B); await sync(A); await sync(B);
+    t.ok((await B.page.inputValue('#vetInit2')) === 'BB' && (await get(A, 'id')) === 'fict1' && (await B.page.evaluate(() => vetOf(state.animals.find(a => a.id === 'fict2')))) === 'BB', 'the second vet and who does what reach the other station');
+    const stillToSend = s => s.page.evaluate(() => state.animals.filter(a => { const base = share.base[a.id]; return !base || shareDiff(base, stripForSync(a)) !== undefined; }).length);
+    t.ok((await stillToSend(A)) === 0 && (await stillToSend(B)) === 0, 'and neither station has anything left to re-send');
     t.ok(A.errs.length === 0 && B.errs.length === 0, 'no page errors: ' + A.errs.concat(B.errs).join('; '));
   } finally { await browser.close(); }
   t.done();
