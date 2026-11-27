@@ -721,7 +721,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-27.1';
+const APP_VERSION = '2026-11-28.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -769,7 +769,7 @@ function syncCareNow() {
     }).then(r => { if (!r.ok) careSent.delete(a.id); }).catch(() => { careSent.delete(a.id); });
   });
 }
-function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note); }
+function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note).then(ok=>{ if(ok) saveShift(); }); }
 /* 2026-09-25: removing an animal from the shift list also removes its case
    from the dashboard (so the dashboard's counts don't keep a case that was
    deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
@@ -2923,7 +2923,7 @@ function bindExamForm(a){
       clone.weight = '';     // each littermate is weighed; the mg/kg on the medications is redone when the weight goes in
       clone.registered = false; clone.noteEdited = null;
       clone.flagged = false; clone.secondVisit = false; clone.doneElsewhere = false; clone.dashSynced = false;
-      delete clone.dashTitle; delete clone.dashLoc; delete clone.dashConfirmed;   // a copy never carries the original's dashboard record
+      delete clone.dashTitle; delete clone.dashLoc; delete clone.dashConfirmed; delete clone.closeAt;   // a copy never carries the original's dashboard record
       clone.addedDay = todayStr();
       clone.aaSentAt = null; clone.aaSig = null; clone.aaSentId = null; clone.aaErr = ''; clone.aaEnteredAt = '';   // a copy has not been sent
       clone.bhSentAt = null; clone.bhSig = null; clone.bhErr = '';
@@ -3133,6 +3133,7 @@ function bindExamForm(a){
     a.registered = !a.registered;
     if(!a.registered) aaWarnRetract(a);
     if(a.registered) a.dashSynced = true;
+    if(a.registered) a.closeAt = Date.now(); else delete a.closeAt;   // Register also closes the animal's dashboard request
     saveShift();
     if(a.registered){
       const s8 = findS8Drugs(a);
@@ -3682,6 +3683,7 @@ document.getElementById('handoverFileInput').addEventListener('change', async (e
   incoming.forEach(a=>{
     if(a.registered){ a.registered = false; a.doneElsewhere = true; sentRegistered++; }
     a.dashSynced = false;
+    delete a.closeAt;
     a.aaSentAt = null; a.aaSig = null; a.aaSentId = null; a.aaErr = ''; a.aaEnteredAt = '';   // the sender's send stamps do not apply to this phone
   });
   const restamped = restampVetOnHandover(incoming, vetInitEl.value);   // the loading vet's initials replace the sender's on unfinished animals

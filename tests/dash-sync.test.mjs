@@ -114,3 +114,31 @@ test('an edited ID/location that failed to send is retried, removing the old cas
   assert.ok(sent.some(b => b.items && b.items[0].location === 'P2'));
   assert.equal(a.dashLoc, 'P2');
 });
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+test('pressing Register sends how long ago it was pressed, and forgets it once the dashboard has it', async () => {
+  reset();
+  const a = { animalId: 'R1', location: 'Pound 1', registered: true, closeAt: Date.now() - 5000 };
+  await D.complete(a, 'sick_injured');
+  assert.ok(sent[0].registered_ago_ms >= 5000 && sent[0].registered_ago_ms < 60000);
+  assert.equal(a.closeAt, undefined);
+  reset(); await D.complete(a, 'sick_injured');
+  assert.equal(sent[0].registered_ago_ms, undefined, 'a later re-send never closes requests');
+});
+
+test('a Register that did not get through is retried, even for an animal already on the dashboard', async () => {
+  const a = { animalId: 'R2', location: 'Pound 1', registered: true, closeAt: Date.now(), dashTitle: 'R2', dashLoc: 'Pound 1', dashConfirmed: true };
+  D._setFetcher(async () => ({ ok: false }));
+  await D.complete(a, 'sick_injured');
+  assert.ok(a.closeAt, 'kept for the retry');
+  D._setFetcher(async (o) => { sent.push(JSON.parse(o.body)); return { ok: true }; });
+  reset();
+  assert.equal(await D.catchUp([a], 'sick_injured'), 1);
+  await flush();
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].registered_ago_ms >= 0);
+  assert.equal(a.closeAt, undefined);
+  a.closeAt = Date.now(); a.registered = false; reset();
+  await D.catchUp([a], 'sick_injured');
+  assert.equal(sent.length, 0, 'an undone registration is not sent');
+});

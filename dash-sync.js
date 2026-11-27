@@ -29,7 +29,11 @@
   }
   function complete(a, shift, note) {
     if (!title(a)) return Promise.resolve(true);
-    return post({ title: title(a), location: loc(a), shift: shift, note: note || undefined }).then(function (ok) { if (ok) remember(a); return ok; });
+    var body = { title: title(a), location: loc(a), shift: shift, note: note || undefined };
+    // closeAt = when Register was pressed and the dashboard has not yet closed the animal's request for it (2026-11-28)
+    var closeAt = a.registered ? a.closeAt : 0;
+    if (closeAt) body.registered_ago_ms = Math.max(0, Date.now() - closeAt);
+    return post(body).then(function (ok) { if (ok) { remember(a); if (a.closeAt === closeAt) delete a.closeAt; } return ok; });
   }
   // Remove the case the dashboard holds for this animal: under the key last sent if known, else the current one.
   function remove(a, shift) {
@@ -59,7 +63,9 @@
   // online and every minute, so the dashboard always ends up with the whole list. Safe to repeat. Resolves the number tried.
   function catchUp(animals, shift, noteFn) {
     var todo = (animals || []).filter(function (a) { return title(a) && !a.doneElsewhere && !isConfirmed(a); });
-    if (!todo.length) return Promise.resolve(0);
+    // already on the dashboard, but a Register has not reached it yet
+    var unclosed = (animals || []).filter(function (a) { return title(a) && a.registered && a.closeAt && !a.doneElsewhere && isConfirmed(a); });
+    if (!todo.length && !unclosed.length) return Promise.resolve(0);
     var fresh = todo.filter(function (a) { return !a.dashTitle || (a.dashTitle === title(a) && a.dashLoc === loc(a)); });
     var moved = todo.filter(function (a) { return fresh.indexOf(a) === -1; });
     var work = [];
@@ -68,7 +74,8 @@
       return Promise.all(fresh.filter(function (a) { return a.registered; }).map(function (a) { return complete(a, shift, noteFn ? noteFn(a) : undefined); }));
     }));
     moved.forEach(function (a) { work.push(rekey(a, shift, { note: noteFn })); });
-    return Promise.all(work).then(function () { return todo.length; });
+    unclosed.forEach(function (a) { work.push(complete(a, shift, noteFn ? noteFn(a) : undefined)); });
+    return Promise.all(work).then(function () { return todo.length + unclosed.length; });
   }
   return { catchUp: catchUp, NO_LOC: NO_LOC, loc: loc, addToList: addToList, complete: complete, remove: remove, rekey: rekey, removeUnfinished: removeUnfinished, isConfirmed: isConfirmed, _setFetcher: function (f) { fetcher = f; } };
 });
