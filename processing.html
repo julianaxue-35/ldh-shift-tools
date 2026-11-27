@@ -501,7 +501,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-27.1';
+const APP_VERSION = '2026-11-27.2';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -521,7 +521,22 @@ function planExcerpt(text, maxLen) {
   const clean = String(text).replace(/\s+/g, ' ').trim();
   return clean.length > maxLen ? clean.slice(0, maxLen).trim() + '…' : clean;
 }
-function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note); }
+function syncCompletionToDashboard(a, shift, note) { DashSync.complete(a, shift, note); syncNeos(a); }
+/* 2026-11-27: each neo is an animal too. Once the queen's entry is registered, every neo with a shelter number is sent to the dashboard
+   as its own completed check (and taken back if the entry is un-registered or the neo removed). Remembered on the queen so nothing is
+   sent twice, and retried by the catch-up until the dashboard confirms it. */
+const neosInFlight = new Set();
+function syncNeos(a){
+  if(!a || a.checklist!=='queen') return;
+  const want = a.registered ? neosOf(a).map(n=>String(n.id||'').trim()).filter(Boolean) : [];
+  const sent = a.kc.neosSent || (a.kc.neosSent = []);
+  const remember = ()=>saveShift();
+  want.filter(id=>!sent.includes(id) && !neosInFlight.has(id)).forEach(id=>{
+    neosInFlight.add(id);
+    Promise.resolve(DashSync.complete({ animalId:id, location:a.location }, 'processing')).then(ok=>{ neosInFlight.delete(id); if(ok && !a.kc.neosSent.includes(id)){ a.kc.neosSent.push(id); remember(); } });
+  });
+  sent.filter(id=>!want.includes(id)).forEach(id=>{ DashSync.remove({ animalId:id, location:a.location }, 'processing'); a.kc.neosSent = a.kc.neosSent.filter(x=>x!==id); });
+}
 /* 2026-09-25: removing an animal from the shift list also removes its case
    from the dashboard (so the dashboard's counts don't keep a case that was
    deleted here). Sent as {delete:{...}} — a shape older copies of the Edge
@@ -536,7 +551,11 @@ function syncListToDashboard(animals, shift) { DashSync.addToList(animals, shift
 // phone comes back online, so animals added by hand always count in the dashboard rings.
 function dashCatchUp(){
   if(localStorage.getItem(LS_SHIFT_DATE) !== todayStr()) return;
+  /* once: send today's registered animals again, to put back any the littermate bug removed from the dashboard */
+  try{ if(localStorage.getItem('ldh_dash_resend_v1') !== todayStr()){ localStorage.setItem('ldh_dash_resend_v1', todayStr());
+    state.animals.forEach(a=>{ if(a.registered && !a.doneElsewhere) a.dashConfirmed = false; }); } }catch(e){}
   DashSync.catchUp(state.animals, 'processing').then(n=>{ if(n) saveShift(); });
+  state.animals.forEach(syncNeos);
 }
 window.addEventListener('load', ()=>{ setTimeout(dashCatchUp, 2500); });
 window.addEventListener('online', dashCatchUp);
@@ -3357,6 +3376,10 @@ function bindExamForm(a){
       clone.registered = false;
       clone.noteEdited = null;
       clone.addedDay = todayStr(); clone.dashSynced = false; clone.doneElsewhere = false;
+      /* 2026-11-27: the copy must not carry the original's dashboard record. It did, so typing the copy's ID DELETED the original from
+         the dashboard (registered or not), which is why processing counts came up short. */
+      delete clone.dashTitle; delete clone.dashLoc; delete clone.dashConfirmed;
+      if(clone.kc) delete clone.kc.neosSent;
       clone.bhSentAt = null; clone.bhSig = null; clone.bhErr = '';   // a copy has not been sent to Behaviour either
       clones.push(clone);
     }
@@ -3779,6 +3802,8 @@ function bindExamForm(a){
 
   const markBtn = document.getElementById('markDoneBtn');
   if(markBtn) markBtn.addEventListener('click', async ()=>{
+    if(!a.registered && a.checklist==='queen'){ const blank = neosOf(a).filter(n=>!String(n.id||'').trim()).length;
+      if(blank && !confirm(blank+' neo(s) have no shelter number, so they will not be counted on the dashboard. Register anyway?')) return; }
     if(!a.registered && usesIntakeForm(a) && !a.nextStep && !confirm('No next step in pathway chosen (the status change). Register anyway?')) return;
     if(!a.registered && !(await confirmNotDoneElsewhere(a))){ openExam(a.id); return; }
     a.registered = !a.registered;

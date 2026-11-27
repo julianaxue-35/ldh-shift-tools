@@ -655,7 +655,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-26.1';
+const APP_VERSION = '2026-11-27.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -682,10 +682,17 @@ function planExcerpt(text, maxLen) {
    when a location is entered later the case is re-keyed (see fld_location). */
 const NO_LOC = 'Location TBC';
 function syncLoc(a) { return String(a.location || '').trim() || NO_LOC; }
+/* 2026-11-27: staff type extra notes into the Animal ID box ("1175342 vc2", "CZU635 has IP"). Only the shelter number or tag goes to the
+   dashboard, otherwise one animal was counted twice (18 surgeries showed as 36) and its open entry never closed. */
+function dashId(a){
+  const t = String((a && a.animalId) || '').trim();
+  const num = t.match(/\b\d{6,7}\b/); if(num) return num[0];
+  const tag = t.match(/\b[A-Za-z]{3}\d{3}\b/); return tag ? tag[0].toUpperCase() : t;
+}
 function syncCompletionToDashboard(a, shift, note) {
   LDHSync.fetch({
     method: 'POST',
-    body: JSON.stringify({ title: a.animalId, location: syncLoc(a), shift, note: note || undefined }),
+    body: JSON.stringify({ title: dashId(a), location: syncLoc(a), shift, note: note || undefined }),
   }).catch(() => {});
 }
 /* 2026-10-19: surgery stats. Each registered surgery is reported to the dashboard with ONLY the species and the
@@ -712,7 +719,7 @@ function removeFromDashboard(a, shift) {
   if (!a || !a.animalId) return;
   LDHSync.fetch({
     method: 'POST',
-    body: JSON.stringify({ delete: { title: a.animalId, location: syncLoc(a), shift } }),
+    body: JSON.stringify({ delete: { title: dashId(a), location: syncLoc(a), shift } }),
   }).catch(() => {});
 }
 /* 2026-09-19 amendment ("Option 1"): also push the whole list when it's
@@ -721,7 +728,7 @@ function removeFromDashboard(a, shift) {
    "X of Y" instead of just "X done, total unknown". */
 function syncListToDashboard(animals, shift) {
   const items = animals
-    .map(a => ({ title: a.animalId, location: syncLoc(a), shift }))
+    .map(a => ({ title: dashId(a), location: syncLoc(a), shift }))
     .filter(it => it.title);
   if (!items.length) return;
   LDHSync.fetch({
@@ -4432,6 +4439,9 @@ function bindExamForm(a){
     // typed text is held (and saved by the autosave) as it is typed, not only when the box is left
     if(/^(INPUT|TEXTAREA)$/.test(el.tagName) && el.type !== 'checkbox' && el.type !== 'radio') el.addEventListener('input', ()=>{ a[key] = el.value; });
   }
+  { const el = document.getElementById('fld_animalId'), was = dashId(a);
+    // a corrected ID replaces the old dashboard entry; adding notes beside the same ID changes nothing
+    if(el) el.addEventListener('change', ()=>{ if(was && was !== dashId({ animalId: el.value })){ removeFromDashboard(Object.assign({}, a, { animalId: was }), 'surgery'); setTimeout(()=>{ syncListToDashboard([a], 'surgery'); if(a.registered) syncCompletionToDashboard(a, 'surgery'); }, 400); } }); }
   bindChange('fld_animalId','animalId');
   const locEl = document.getElementById('fld_location');
   if(locEl) locEl.addEventListener('change', ()=>{
