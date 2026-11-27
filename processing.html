@@ -501,7 +501,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-27.2';
+const APP_VERSION = '2026-11-27.3';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -653,6 +653,7 @@ const litterTreatments = a => String(a.kc.litterTx||'').trim() || (litterUsually
 const litterTreated = a => { const t = litterTreatments(a); return !!t && t !== NO_TX; };
 const neoForEuth = n => n.health==='Unhealthy' && !!n.euth;
 const neoName = (a, n) => String(n.id||'').trim() || 'neo '+(neosOf(a).indexOf(n)+1);
+const kittenAgeText = a => { const t = String(a.kc.age||'').trim(); return t && !/[a-z]/i.test(t) ? t+' weeks' : t; };
 const litterAgeText = a => { const t = String(a.kc.litterAge||'').trim(); return t && !/[a-z]/i.test(t) ? t+' weeks' : t; };
 function ongoingTemplate(a){
   if(a.checklist==='queen'){
@@ -3073,12 +3074,9 @@ function examFormHtml(a){
 /* 2026-11-25: Kitten Intake and Queen and Litter check lists (her wording). A cat's exam can be swapped for either one. Fields that
    already exist on the animal (chip, tattoo, BCS, Wood's lamp, FAS, treatments, plan) are reused so exports and the medication
    chart keep working; the rest live in a.kc. */
-/* Each kitten's own note, for its own ShelterMate record, built from the one queen entry. Under 3 weeks old they stay in the
-   mum's note only. */
-const NEO_OWN_NOTE_WEEKS = 3;
+/* Each kitten's own note, for its own ShelterMate record, built from the one queen entry. Every neo gets one, whatever its age. */
 function neoNotesFor(a){
   if(a.checklist!=='queen' || !usesIntakeForm(a)) return [];
-  const w = litterWeeks(a); if(w !== null && w < NEO_OWN_NOTE_WEEKS) return [];
   const v = x => String(x==null?'':x).trim() || '-';
   const all = ongoingText(a).split('\n').map(x=>x.trim()).filter(Boolean), at = all.findIndex(x=>/^kitten plan:?$/i.test(x));
   const plan = (at < 0 ? [] : all.slice(at+1)).filter(x=>!/^humane euthanasia:/i.test(x));
@@ -3104,7 +3102,7 @@ function neoNotesHtml(a){
     ? '<p style="font-size:11.5px;color:var(--ink-soft)">Written from the entry above. Copy each one into that kitten\u2019s ShelterMate record. They are also in the Word file.</p>' +
       notes.map((n,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button type="button" class="btn small" data-neocopy="${i}">Copy</button>
         <details style="flex:1"><summary style="cursor:pointer;font-size:13px;font-weight:600">${esc(n.title)}</summary><pre data-neotext="${i}" style="white-space:pre-wrap;font-size:12px;background:var(--paper-2);border-radius:8px;padding:8px;margin-top:6px">${esc(n.text)}</pre></details></div>`).join('')
-    : '<p style="font-size:12px">Under 3 weeks old: they stay in the mum\u2019s note.</p>') + '</div>';
+    : '') + '</div>';
 }
 function checklistFormHtml(a){
   syncKittenStep(a);
@@ -3149,10 +3147,10 @@ function checklistFormHtml(a){
   if(!queen){
     const g = chipWeights(a);
     h += box('Intake', pick('kc.reason', 'Intake reason', ['Surrender','Stray (with ID)','Stray (no ID)']) + pick('kc.ip', 'IP', yn) +
-      text('colour', 'Colour', 'e.g. black and white') + chip + (!g.length ? `<p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Enter the weight at the top for the microchip reminder.</p>`
+      pick('sex', 'Sex', ['F','M','U']) + text('colour', 'Colour', 'e.g. black and white') + chip + (!g.length ? `<p style="font-size:11px;color:var(--ink-soft);margin-top:4px">Enter the weight at the top for the microchip reminder.</p>`
         : g[0] >= 600 && !a.microchip ? warn('600 g or over: microchip now and enter the number.')
         : g[0] < 600 ? `<p style="font-size:12px;margin-top:4px">Under 600 g: "Microchip at 600 g" is added to the plan.</p>` : '') + tattoo +
-      `<p style="font-size:11px;color:var(--ink-soft);margin-top:6px">Sex, age and weight go in the note as "Updated on file".</p>`);
+      `<p style="font-size:11px;color:var(--ink-soft);margin-top:6px">Weight is the Weight box at the top; age is under "For the pathway".</p>`);
     const grams = gramsIn(a.weight)[0];
     h += box('For the pathway', text('age', 'Age (weeks)', 'e.g. 10') + AGEING_GUIDE_HTML +
       (ageGroup(a)==='8to16' ? pick('kc.litter', 'Litter', [['single','Single'],['pair','Pair or more']]) : '') +
@@ -3206,7 +3204,7 @@ function assembleChecklist(a, L){
   L.push('');
   if(a.checklist==='kitten'){
     L.push('KITTEN INTAKE CHECK LIST', '', `INTAKE REASON: ${v(k.reason)}`, '', `IP: ${v(k.ip)}`, `M/C: ${v(a.microchip)}`, `Tattoo: ${tattoo}`, `Colour: ${v(k.colour)}`,
-      'Sex: Updated on file', 'Age: Updated on file', 'Weight: Updated on file', '',
+      `Sex: ${v(a.sex)}`, `Age: ${v(kittenAgeText(a))}`, `Weight: ${v(a.weight)}`, '',
       'PHYSICAL', `Eyes, Ears, Nose, Mouth, Coat: ${v(k.physical)}`, `Heart: ${v(k.heart)}`, `BCS: ${v(a.bcs)}`, `Other: ${v(k.other)}`, `Woodslamp: ${v(a.uvLamp)}`, '',
       'BEHAVIOUR:', `FAS (0-5): ${v(a.fasScore)}`, `RTP (0-5): ${v(k.rtp)}`, '',
       `VET TREATMENTS GIVEN: ${v(a.treatments)}`, '', `Medication plan (if required): ${v(a.medPlan)}`, '', `PLAN: ${v(k.plan)}`);
