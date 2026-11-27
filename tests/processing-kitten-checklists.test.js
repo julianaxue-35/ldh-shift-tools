@@ -44,12 +44,13 @@ const t = require('./check')('processing-kitten-checklists');
     await page.click('#chipNaBtn');
     t.ok(/next step in pathway \(this is the status change\)/.test(await page.textContent('#examBody')), 'prompts for the next step');
     await type('[data-kc="colour"]', 'black and white');
+    await tap('sex', 'F'); await type('[data-kc="age"]', '5');
     await tap('kc.physical', 'NSF'); await tap('kc.heart', 'Normal heart sounds'); await tap('bcs', '3'); await type('[data-kc="other"]', 'Active'); await tap('uvLamp', 'NEGATIVE');
     await tap('fasScore', '0'); await tap('kc.rtp', '0');
     await page.click('[data-treatmentitem="Wormer"]'); await page.click('[data-treatmentitem="Flea treatment"]');
     await tap('kc.plan', 'OK for juvenile foster'); await pick('#fld_nextstep', 'Awaiting foster'); await type('#fld_medplan', 'None');
     let n = await note();
-    let bad = inOrder(n, ['KITTEN INTAKE CHECK LIST', 'INTAKE REASON: Stray (no ID)', 'IP: N', 'M/C: N/A', 'Tattoo: N', 'Colour: black and white', 'Sex: Updated on file', 'Age: Updated on file', 'Weight: Updated on file',
+    let bad = inOrder(n, ['KITTEN INTAKE CHECK LIST', 'INTAKE REASON: Stray (no ID)', 'IP: N', 'M/C: N/A', 'Tattoo: N', 'Colour: black and white', 'Sex: F', 'Age: 5 weeks', 'Weight: 0.5',
       'PHYSICAL', 'Eyes, Ears, Nose, Mouth, Coat: NSF', 'Heart: Normal heart sounds', 'BCS: 3', 'Other: Active', 'Woodslamp: NEGATIVE', 'BEHAVIOUR:', 'FAS (0-5): 0', 'RTP (0-5): 0',
       'VET TREATMENTS GIVEN:', 'Wormer', 'Flea treatment', 'Medication plan (if required): None', 'PLAN: OK for juvenile foster', 'Worming every 2 weeks.', 'Flea treatment and vaccination every 4 weeks.', 'Full physical exam under GA at surgery.', 'Microchip at 600 g.', 'Next step in pathway: Awaiting foster', 'Initial: jx']);
     t.ok(!bad, 'kitten note has her headings and the entries, in order ' + bad);
@@ -142,7 +143,7 @@ const t = require('./check')('processing-kitten-checklists');
     await neo(1, 'id', '900999'); await neo(1, 'colour', 'ginger');
     t.ok(/900999/.test(await page.locator('#neoNotes summary').nth(1).textContent()) && /Colour: ginger/.test(await page.locator('[data-neotext="1"]').textContent()), 'the kitten previews update as she types');
     await type('[data-kc="litterAge"]', '2');
-    t.ok((await own()).length === 0 && /stay in the mum.s note/.test(await page.textContent('#neoNotes')), 'under 3 weeks: they stay in the mum\'s note');
+    t.ok((await own()).length === 4 && !/mum.s note/.test(await page.textContent('#neoNotes')), 'under 3 weeks: each neo still gets its own note');
     await type('[data-kc="litterAge"]', '5');
     await page.click('[data-neocount="1"]');
     t.ok(/Number: 1\n/.test(await note()) && !/900402/.test(await note()), 'the number can be reduced');
