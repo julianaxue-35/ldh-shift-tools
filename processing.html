@@ -501,7 +501,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-26.3';
+const APP_VERSION = '2026-11-27.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -603,6 +603,11 @@ function ageInWeeks(text){
   return n;
 }
 const ageGroup = a => { const w = ageInWeeks(a.kc.age); return w===null ? '' : (w<8 ? 'under8' : (w<=16 ? '8to16' : 'over16')); };
+/* "Physical exam at surgery" substatus: kittens under 750 g get their full exam at surgery. Ticked by itself for them (not when the
+   plan is euthanasia); she can tick or untick it. */
+const PE_AT_SX = 'Physical exam at surgery';
+const peAtSxAuto = a => a.checklist==='kitten' && a.kc.plan!=='Medical euthanasia' && a.nextStep!=='Awaiting euthanasia' && gramsIn(a.weight)[0] < FULL_PE_GRAMS;
+const peAtSxOn = a => a.kc.peAtSx != null ? a.kc.peAtSx : !!peAtSxAuto(a);
 /* fills the next step by itself until she picks one from the list herself */
 function syncKittenStep(a){
   if(a.checklist!=='kitten' || a.kc.stepByHand) return;
@@ -3067,7 +3072,8 @@ function neoNotesFor(a){
       `Health: ${v(n.health)}${n.health==='Unhealthy' && String(n.note||'').trim() ? ' ('+n.note.trim()+')' : ''}`, `Woods Lamp: ${v(a.kc.litterWood)}`,
       `Vet treatments: ${v(litterTreatments(a))}`, '', 'PLAN:'];
     if(euth) L.push('Humane euthanasia.');
-    else { L.push(...plan); if(steps.length) L.push(`Next step in pathway: ${steps.join('; ')}`); }
+    else { L.push(...plan); if(steps.length) L.push(`Next step in pathway: ${steps.join('; ')}`);
+      const g = gramsIn(n.weight)[0]; if(!(g >= FULL_PE_GRAMS)) L.push(`Substatus: ${PE_AT_SX}`); }
     L.push(`Initials: ${v(vetOf(a))}`);
     return { id: String(n.id||'').trim(), title: `${String(n.id||'').trim() || 'Neo '+(i+1)+' of '+mum}`, text: L.join('\n') };
   });
@@ -3110,7 +3116,7 @@ function checklistFormHtml(a){
     return `<p style="font-size:12px;margin-top:6px">From the intake flow: <b>${esc(p.step)}</b>${p.substatus ? ', substatus <b>'+esc(p.substatus)+'</b>' : ''}${p.note ? '. '+esc(p.note) : ''}</p>` +
       (k.stepByHand && a.nextStep!==p.step ? '<button type="button" class="btn small secondary" id="useFlowStepBtn">Use the intake flow step</button>' : '');
   };
-  const substatus = () => label('Substatus') + `<div class="opts"><button type="button" class="opt-btn ${behaviourReviewOn(a)?'selected':''}" id="behReviewBtn">Behaviour review required</button></div>` +
+  const substatus = () => label('Substatus') + `<div class="opts"><button type="button" class="opt-btn ${behaviourReviewOn(a)?'selected':''}" id="behReviewBtn">Behaviour review required</button>${a.checklist==='kitten' ? `<button type="button" class="opt-btn ${peAtSxOn(a)?'selected':''}" id="peAtSxBtn">${PE_AT_SX}</button>` : ''}</div>` +
     (Number(a.fasScore) >= 4 ? '<p style="font-size:11.5px;margin-top:4px">Ticked because FAS is 4 or 5.</p>' : '');
   const medPlan = title => label(title) + `<textarea class="plain" id="fld_medplan" style="width:100%;min-height:50px">${esc(a.medPlan||'')}</textarea>
     <button type="button" class="btn small secondary" data-regchart="${esc(a.id)}" style="margin-top:8px">+ Register medication chart</button><div data-chartstatus="${esc(a.id)}" style="font-size:12.5px;margin-top:6px;line-height:1.4"></div><div data-nursepanel="${esc(a.id)}"></div>` +
@@ -3190,6 +3196,7 @@ function assembleChecklist(a, L){
     L.push(...ongoingLines);
     L.push(`Next step in pathway: ${v(steps.join('; '))}`);
     if(followed && flow.substatus) L.push(`Substatus: ${flow.substatus}`);
+    if(peAtSxOn(a)) L.push(`Substatus: ${PE_AT_SX}`);
     if(behaviourReviewOn(a)) L.push('Substatus: Behaviour review required');
     L.push(`Initial: ${v(vetOf(a))}`);
   } else {
@@ -3236,6 +3243,8 @@ function bindExamForm(a){
   }));
   const behBtn = document.getElementById('behReviewBtn');
   if(behBtn) behBtn.addEventListener('click', ()=>{ a.kc.behReview = !behaviourReviewOn(a); redraw(); });
+  const peBtn = document.getElementById('peAtSxBtn');
+  if(peBtn) peBtn.addEventListener('click', ()=>{ a.kc.peAtSx = !peAtSxOn(a); redraw(); });
   document.querySelectorAll('#examBody [data-neoeuth]').forEach(btn=>btn.addEventListener('click', ()=>{
     const n = a.kc.neos[Number(btn.dataset.neoeuth)]; n.euth = !n.euth; redraw();
   }));
