@@ -131,6 +131,7 @@ const t = require('./check')('processing-kitten-checklists');
     t.ok(kits.length === 4 && kits[0].id === '900401', 'one note per neo');
     bad = inOrder(kits[0].text, ['Animal ID: 900401', 'Location: Cat transport', 'Weight: 450 g', 'Vet: jx', 'Queen: Q-2', 'Sex: F', 'Colour: black', 'Age: 5 weeks', 'Health: Healthy', 'Woods Lamp: NEGATIVE', 'Vet treatments: Vaccine, Worming, Flea treatment', 'PLAN:', 'Full physical exam at the time of surgery.', 'Microchip at 600 g, or at the time of surgery.', 'Next step in pathway:', 'Initials: jx']);
     t.ok(!bad && !/Queen plan|Send queen/.test(kits[0].text), 'with that kitten\'s details, the litter treatments and the kitten plan only ' + bad);
+    t.ok(/Substatus: Physical exam at surgery/.test(kits[0].text), 'each kitten under 750 g is marked for a physical exam at surgery');
     t.ok(/Health: Unhealthy \(sneezing\)/.test(kits[1].text) && /Sex: M/.test(kits[1].text), 'each note has its own health and sex');
     t.ok((await page.locator('[data-neocopy]').count()) === 4, 'a Copy button for each kitten');
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});

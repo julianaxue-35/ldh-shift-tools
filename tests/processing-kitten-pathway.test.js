@@ -65,6 +65,14 @@ const t = require('./check')('processing-kitten-pathway');
     t.ok((await page.inputValue('#fld_nextstep')) === S, 'one tap goes back to the intake flow step');
     await tap('health', 'not');
     t.ok((await page.inputValue('#fld_nextstep')) === E && (await page.inputValue('#fld_ongoing')) === '', 'euthanasia step: no ongoing care typed in');
+    // physical exam at surgery substatus: ticked for kittens under 750 g, can be unticked, never for euthanasia
+    await tap('health', 'healthy');
+    const sx = async () => /Substatus: Physical exam at surgery/.test(await page.textContent('#noteDisplay'));
+    t.ok(await sx() && (await page.locator('#peAtSxBtn.selected').count()) === 1, 'under 750 g: physical exam at surgery substatus ticked by itself');
+    await page.click('#peAtSxBtn'); t.ok(!(await sx()), 'and it can be unticked');
+    await page.click('#peAtSxBtn'); await tap('health', 'not');
+    await page.evaluate(() => { delete state.animals[0].kc.peAtSx; openExam(state.animals[0].id); });
+    t.ok(!(await sx()), 'not for a euthanasia step');
     // from 750 g it is the plain normal template: a step the intake form filled in does not follow, one she picked does
     await tap('health', 'healthy');
     await page.fill('#fld_weight', '1.2'); await page.evaluate(() => document.activeElement.blur()); await page.waitForTimeout(200);
