@@ -655,7 +655,7 @@ const chartDraftPlans = {}; // animalId -> editable Vet Plan text for the chart 
 // below (bottom of this script) tells a stale cached/open copy apart from
 // the version actually live on GitHub Pages. Format is free-form, just
 // needs to change each time.
-const APP_VERSION = '2026-11-27.1';
+const APP_VERSION = '2026-11-28.1';
 /* Dashboard completion sync (spec amendment, 2026-09-18) — fire-and-forget
    push of exactly {title, location, shift} to the LDH Shift Ops dashboard
    whenever an animal is registered here, so the live board reflects it
@@ -2177,11 +2177,11 @@ const EMG_SCN=[
       {k:'arr_adr',conc:1,n:'Adrenaline (Epinephrine) — LOW dose',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
       {k:'arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, as early as possible, if high vagal tone may be contributing — do not repeat'}
     ]},
-    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.\nCats: amiodarone for shock-refractory rhythms — RECOVER advises AGAINST lidocaine in cats.',actions:[
-      'Defibrillated (cat VF / pulseless VT)'
+    {heading:'STEP 3 · VF / pulseless VT — no defibrillator: VET-ONLY thump',note:'We cannot shock. A vet may give one firm precordial thump over the heart instead (very little evidence it works). Keep compressions and breaths going. The vet decides on drugs and timing.\nCats: amiodarone for persistent VF / VT — RECOVER advises AGAINST lidocaine in cats.',actions:[
+      'Precordial thump given by vet (cat VF / pulseless VT)'
     ],drugs:[
-      {k:'arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'},
-      {k:'arr_amio',n:'Amiodarone (cat)',unit:'mg',low:5,route:'IV/IO over 2–4 min',note:'still VF / pulseless VT after the 1st shock + 2 min of compressions · type the strength of the stock in hand'}
+      {k:'arr_adr2',conc:1,n:'Adrenaline (VF / VT)',unit:'mg',low:0.01,route:'IV/IO',note:'vet decides when · every 3–5 min'},
+      {k:'arr_amio',n:'Amiodarone (cat)',unit:'mg',low:5,route:'IV/IO over 2–4 min',note:'vet decides · persistent VF / pulseless VT · type the strength of the stock in hand'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
       {k:'arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV/IO',note:'if opioid (methadone) on board'},
@@ -2259,11 +2259,11 @@ const EMG_SCN_DOG=[
       {k:'d_arr_adr',conc:1,n:'Adrenaline (Epinephrine)',unit:'mg',low:0.01,route:'IV/IO',note:'every 3–5 min (every other 2-min cycle)'},
       {k:'d_arr_atr',conc:0.6,n:'Atropine',unit:'mg',low:0.04,route:'IV/IO',note:'ONCE only, as early as possible, if high vagal tone may be contributing — do not repeat'}
     ]},
-    {heading:'STEP 3 · VF / pulseless VT (shockable) — DEFIBRILLATE first',note:'No adrenaline before the 1st shock. Biphasic: 2 J/kg, then double (4 J/kg) after the 1st shock. Monophasic: 4–6 J/kg. Resume compressions for 2 min straight after each shock.',actions:[
-      'Defibrillated (dog VF / pulseless VT)'
+    {heading:'STEP 3 · VF / pulseless VT — no defibrillator: VET-ONLY thump',note:'We cannot shock. A vet may give one firm precordial thump over the heart instead (very little evidence it works). Keep compressions and breaths going. The vet decides on drugs and timing.',actions:[
+      'Precordial thump given by vet (dog VF / pulseless VT)'
     ],drugs:[
-      {k:'d_arr_adr2',conc:1,n:'Adrenaline (shock-refractory)',unit:'mg',low:0.01,route:'IV/IO',note:'only if still VF / VT after the 1st shock + 2 min of compressions · every 3–5 min'},
-      {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO over 2–4 min',note:'still VF / pulseless VT after the 1st shock + 2 min of compressions'}
+      {k:'d_arr_adr2',conc:1,n:'Adrenaline (VF / VT)',unit:'mg',low:0.01,route:'IV/IO',note:'vet decides when · every 3–5 min'},
+      {k:'d_arr_lid',conc:20,n:'Lidocaine (dog)',unit:'mg',low:2,route:'IV/IO over 2–4 min',note:'vet decides · persistent VF / pulseless VT'}
     ]},
     {heading:'STEP 4 · Reverse drugs & fix causes',drugs:[
       {k:'d_arr_nal',conc:0.4,n:'Naloxone',unit:'mg',low:0.04,route:'IV/IO',note:'if opioid (methadone) on board'},
